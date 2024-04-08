@@ -2,6 +2,7 @@ package examples
 
 import (
 	"github.com/timandy/routine"
+	"runtime"
 	"testing"
 )
 
@@ -20,5 +21,10 @@ func BenchmarkRoutineSet(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		threadLocal.Get()
+	}
+}
+func BenchmarkGosched(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		runtime.Gosched()
 	}
 }

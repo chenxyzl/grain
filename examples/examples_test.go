@@ -1,9 +1,6 @@
 package examples
 
 import (
-	"fmt"
-	"google.golang.org/protobuf/proto"
-	outer "grain/examples/pb"
 	"reflect"
 	"testing"
 )
@@ -53,17 +50,4 @@ func TestFun1(t *testing.T) {
 	f := v.Interface().(func(int) int)
 	a := f(1)
 	println(a)
-}
-
-type RpcFunc[Req, Rep proto.Message] func(req Req) Rep
-
-func ReqTest(req *outer.GetRecommendGroupList_Request) *outer.GetRecommendGroupList_Reply {
-	_ = req
-	reply := &outer.GetRecommendGroupList_Reply{}
-	return reply
-}
-
-func TestFun2(t *testing.T) {
-	var a RpcFunc[*outer.GetRecommendGroupList_Request, *outer.GetRecommendGroupList_Reply] = ReqTest
-	fmt.Println(a)
 }

@@ -1,0 +1,7 @@
+syntax = "proto3";
+package actor;
+option go_package = "github.com/chenxyzl/grain/actor";
+
+message address {
+  string id = 1;
+}

@@ -1,4 +1,4 @@
-module grain
+module github.com/chenxyzl/grain
 
 go 1.22
 
