@@ -1,10 +1,12 @@
-package actor
+package iface
+
+import "github.com/chenxyzl/grain/actor"
 
 type ActorRef interface{ id() string }
-type actorRefImpl Address
+type actorRefImpl actor.Address
 
 // NewActorRef wrapper Address, for data safe
-func NewActorRef(address *Address) ActorRef {
+func NewActorRef(address *actor.Address) ActorRef {
 	var x = (*actorRefImpl)(address)
 	return x
 }

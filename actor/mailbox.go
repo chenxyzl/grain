@@ -1,7 +1,7 @@
 package actor
 
 import (
-	"github.com/chenxyzl/grain/al/ringbuffer"
+	"github.com/chenxyzl/grain/utils/al/ringbuffer"
 	"runtime"
 	"sync/atomic"
 )

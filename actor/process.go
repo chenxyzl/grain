@@ -1,5 +1,7 @@
 package actor
 
+import "github.com/chenxyzl/grain/actor/iface"
+
 type process interface {
-	Self() ActorRef
+	Self() iface.ActorRef
 }

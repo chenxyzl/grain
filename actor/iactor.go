@@ -1,6 +1,9 @@
 package actor
 
-import "log/slog"
+import (
+	"github.com/chenxyzl/grain/actor/iface"
+	"log/slog"
+)
 
 type IActor interface {
 	//inner api
@@ -16,7 +19,7 @@ type IActor interface {
 	//
 	//
 
-	Self() ActorRef
+	Self() iface.ActorRef
 	Logger() *slog.Logger
 
 	//life api

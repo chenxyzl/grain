@@ -2,6 +2,7 @@ package actor
 
 import (
 	"errors"
+	"github.com/chenxyzl/grain/actor/iface"
 	"sync"
 )
 
@@ -18,7 +19,7 @@ func newRegistry(s *System) *Registry {
 	}
 }
 
-func (r *Registry) GetActorRef(kind, id string) ActorRef {
+func (r *Registry) GetActorRef(kind, id string) iface.ActorRef {
 	proc := r.getByID(kind + "/" + id)
 	if proc != nil {
 		return proc.Self()
@@ -26,13 +27,13 @@ func (r *Registry) GetActorRef(kind, id string) ActorRef {
 	return nil
 }
 
-func (r *Registry) Remove(ref ActorRef) {
+func (r *Registry) Remove(ref iface.ActorRef) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.lookup, ref.id())
 }
 
-func (r *Registry) get(ref ActorRef) process {
+func (r *Registry) get(ref iface.ActorRef) process {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	if proc, ok := r.lookup[ref.id()]; ok {
