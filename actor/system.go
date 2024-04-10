@@ -23,7 +23,7 @@ func NewSystem[Provider provider.Provider](config *def.Config) *System {
 }
 
 func (x *System) Start() error {
-	if err := x.clusterProvider.Start(nil, x, x.config); err != nil {
+	if err := x.clusterProvider.Start(def.NodeState{}, x, x.config); err != nil {
 		return err
 	}
 	return nil

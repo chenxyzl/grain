@@ -12,7 +12,7 @@ type ProviderListener interface {
 
 type Provider interface {
 	//life
-	Start(state interface{}, listener ProviderListener, config *def.Config) error
+	Start(state def.NodeState, listener ProviderListener, config *def.Config) error
 	Stop() error
 	//node
 	GetNodesByKind(kind string) []def.NodeState
