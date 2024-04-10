@@ -13,7 +13,7 @@ message Replay {
     map<string, string> header = 1;
     string sender = 2;
     string target = 3;
-    google.protobuf.Any Content = 4;
+    repeated google.protobuf.Any Content = 4;
 }
 service Remoting {
     rpc Ask (stream Request) returns (stream Replay) {}
