@@ -1,10 +1,14 @@
 package actor
 
 import (
+	"context"
 	"github.com/chenxyzl/grain/actor/def"
 	"github.com/chenxyzl/grain/actor/provider"
 	"github.com/chenxyzl/grain/actor/uuid"
 	"github.com/chenxyzl/grain/utils/fun"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
 	"log/slog"
 )
 
@@ -12,6 +16,7 @@ type System struct {
 	config          *def.Config
 	registry        *Registry
 	clusterProvider provider.Provider
+	rpcService      *RPCService
 }
 
 func NewSystem[Provider provider.Provider](config *def.Config) *System {
@@ -19,10 +24,16 @@ func NewSystem[Provider provider.Provider](config *def.Config) *System {
 	system.config = config
 	system.clusterProvider = fun.Zero[Provider]()
 	system.registry = newRegistry(system)
+	system.rpcService = &RPCService{}
 	return system
 }
 
 func (x *System) Start() error {
+	//start grpc
+	if err := x.rpcService.start(); err != nil {
+		return err
+	}
+	//register to cluster
 	if err := x.clusterProvider.Start(def.NodeState{}, x, x.config); err != nil {
 		return err
 	}
@@ -58,4 +69,27 @@ func (x *System) GetConfig() *def.Config {
 
 func (x *System) GetRegistry() *Registry {
 	return x.registry
+}
+
+func (x *System) SendToLocal(request *Request) {
+	id := request.GetTarget().GetId()
+	proc := x.registry.getByID(id)
+	if proc == nil {
+		slog.Error("get actor by id fail", slog.String("id", id), slog.String("msg_type", request.MsgType))
+		return
+	}
+	typ, err := protoregistry.GlobalTypes.FindMessageByName(protoreflect.FullName(request.MsgType))
+	if err != nil {
+		proc.Logger().Error("unregister msg type", slog.String("msg_type", request.MsgType), slog.Any("err", err))
+		return
+	}
+	msg := typ.New().Interface().(proto.Message)
+	err = proto.Unmarshal(request.Content, msg)
+	if err != nil {
+		proc.Logger().Error("msg unmarshal err", slog.String("msg_type", request.MsgType), slog.Any("err", err))
+		return
+	}
+	//build ctx
+	ctx := newContext(proc, request.GetSender(), msg, context.Background())
+	proc.receive(ctx)
 }

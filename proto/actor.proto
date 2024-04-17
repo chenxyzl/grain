@@ -2,6 +2,12 @@ syntax = "proto3";
 package actor;
 option go_package = "github.com/chenxyzl/grain/actor";
 
-message Address {
-    string id = 1;
+message ActorRef {
+    string address = 1; //server address
+    string identifier = 2; //kind and key
+}
+
+message Identifier {
+    string kind = 1; //actor type
+    string key = 2; //actor key
 }

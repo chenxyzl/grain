@@ -1,7 +1,7 @@
 package actor
 
 type Receiver interface {
-	Receive(ctx Context)
+	Receive(ctx IContext)
 }
 
 type messageInvoker interface {

@@ -1,9 +1,11 @@
 package actor
 
 import (
-	"github.com/chenxyzl/grain/actor/iface"
+	"google.golang.org/protobuf/proto"
 	"log/slog"
 )
+
+var _ IProcess = (IActor)(nil)
 
 type IActor interface {
 	//inner api
@@ -19,7 +21,7 @@ type IActor interface {
 	//
 	//
 
-	Self() iface.ActorRef
+	Self() *ActorRef
 	Logger() *slog.Logger
 
 	//life api
@@ -34,7 +36,12 @@ type IActor interface {
 	Stop() error
 
 	//receive wrapper
-	receive(ctx Context)
+	receive(ctx IContext)
 	//Receive message
-	Receive(ctx Context)
+	Receive(ctx IContext)
+}
+
+func (I IActor) Invoke(params []proto.Message) {
+	//TODO implement me
+	panic("implement me")
 }

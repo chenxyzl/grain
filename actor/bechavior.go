@@ -2,7 +2,7 @@ package actor
 
 import "log/slog"
 
-type ReceiverFunc func(c Context)
+type ReceiverFunc func(c IContext)
 
 type Behavior []ReceiverFunc
 
@@ -23,7 +23,7 @@ func (b *Behavior) UnbecomeStacked() {
 	b.pop()
 }
 
-func (b *Behavior) Receive(context Context) {
+func (b *Behavior) Receive(context IContext) {
 	behavior, ok := b.peek()
 	if ok {
 		behavior(context)

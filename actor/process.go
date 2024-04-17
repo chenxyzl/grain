@@ -1,7 +1,14 @@
 package actor
 
-import "github.com/chenxyzl/grain/actor/iface"
+import (
+	"log/slog"
+)
 
-type process interface {
-	Self() iface.ActorRef
+type IProcess interface {
+	Logger() *slog.Logger
+	Self() *ActorRef
+	Start() error //
+	Stop() error
+	receive(ctx IContext) // add to mail box
+	Receive(ctx IContext) // actor receive msg
 }

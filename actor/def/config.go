@@ -3,6 +3,7 @@ package def
 import (
 	"fmt"
 	"github.com/chenxyzl/grain/actor"
+	"google.golang.org/grpc"
 	"log/slog"
 	"net"
 	"time"
@@ -11,6 +12,7 @@ import (
 type Config struct {
 	name           string
 	requestTimeout time.Duration
+	DialOptions    []grpc.DialOption
 	kinds          map[string]*tKind
 	running        bool
 	clusterUrl     []string

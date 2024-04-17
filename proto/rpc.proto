@@ -2,19 +2,24 @@ syntax = "proto3";
 package actor;
 option go_package = "github.com/chenxyzl/grain/actor";
 import "google/protobuf/any.proto";
+import "actor.proto";
 
 message Request {
     map<string, string> header = 1;
-    string sender = 2;
-    string target = 3;
-    repeated google.protobuf.Any Content = 4;
+    ActorRef sender = 2;
+    ActorRef target = 3;
+    uint64 msgId = 4;
+    string msgType = 5;
+    bytes Content = 6;
 }
 message Replay {
     map<string, string> header = 1;
-    string sender = 2;
-    string target = 3;
-    repeated google.protobuf.Any Content = 4;
+    ActorRef sender = 2;
+    ActorRef target = 3;
+    uint64 msgId = 4;
+    string msgType = 5;
+    bytes Content = 6;
 }
 service Remoting {
-    rpc Ask (stream Request) returns (stream Replay) {}
+    rpc Listen (stream Request) returns (stream Replay) {}
 }

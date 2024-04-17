@@ -19,14 +19,14 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	Remoting_Ask_FullMethodName = "/actor.Remoting/Ask"
+	Remoting_Listen_FullMethodName = "/actor.Remoting/Listen"
 )
 
 // RemotingClient is the client API for Remoting service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RemotingClient interface {
-	Ask(ctx context.Context, opts ...grpc.CallOption) (Remoting_AskClient, error)
+	Listen(ctx context.Context, opts ...grpc.CallOption) (Remoting_ListenClient, error)
 }
 
 type remotingClient struct {
@@ -37,30 +37,30 @@ func NewRemotingClient(cc grpc.ClientConnInterface) RemotingClient {
 	return &remotingClient{cc}
 }
 
-func (c *remotingClient) Ask(ctx context.Context, opts ...grpc.CallOption) (Remoting_AskClient, error) {
-	stream, err := c.cc.NewStream(ctx, &Remoting_ServiceDesc.Streams[0], Remoting_Ask_FullMethodName, opts...)
+func (c *remotingClient) Listen(ctx context.Context, opts ...grpc.CallOption) (Remoting_ListenClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Remoting_ServiceDesc.Streams[0], Remoting_Listen_FullMethodName, opts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &remotingAskClient{stream}
+	x := &remotingListenClient{stream}
 	return x, nil
 }
 
-type Remoting_AskClient interface {
+type Remoting_ListenClient interface {
 	Send(*Request) error
 	Recv() (*Replay, error)
 	grpc.ClientStream
 }
 
-type remotingAskClient struct {
+type remotingListenClient struct {
 	grpc.ClientStream
 }
 
-func (x *remotingAskClient) Send(m *Request) error {
+func (x *remotingListenClient) Send(m *Request) error {
 	return x.ClientStream.SendMsg(m)
 }
 
-func (x *remotingAskClient) Recv() (*Replay, error) {
+func (x *remotingListenClient) Recv() (*Replay, error) {
 	m := new(Replay)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
@@ -72,7 +72,7 @@ func (x *remotingAskClient) Recv() (*Replay, error) {
 // All implementations must embed UnimplementedRemotingServer
 // for forward compatibility
 type RemotingServer interface {
-	Ask(Remoting_AskServer) error
+	Listen(Remoting_ListenServer) error
 	mustEmbedUnimplementedRemotingServer()
 }
 
@@ -80,8 +80,8 @@ type RemotingServer interface {
 type UnimplementedRemotingServer struct {
 }
 
-func (UnimplementedRemotingServer) Ask(Remoting_AskServer) error {
-	return status.Errorf(codes.Unimplemented, "method Ask not implemented")
+func (UnimplementedRemotingServer) Listen(Remoting_ListenServer) error {
+	return status.Errorf(codes.Unimplemented, "method Listen not implemented")
 }
 func (UnimplementedRemotingServer) mustEmbedUnimplementedRemotingServer() {}
 
@@ -96,25 +96,25 @@ func RegisterRemotingServer(s grpc.ServiceRegistrar, srv RemotingServer) {
 	s.RegisterService(&Remoting_ServiceDesc, srv)
 }
 
-func _Remoting_Ask_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(RemotingServer).Ask(&remotingAskServer{stream})
+func _Remoting_Listen_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(RemotingServer).Listen(&remotingListenServer{stream})
 }
 
-type Remoting_AskServer interface {
+type Remoting_ListenServer interface {
 	Send(*Replay) error
 	Recv() (*Request, error)
 	grpc.ServerStream
 }
 
-type remotingAskServer struct {
+type remotingListenServer struct {
 	grpc.ServerStream
 }
 
-func (x *remotingAskServer) Send(m *Replay) error {
+func (x *remotingListenServer) Send(m *Replay) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *remotingAskServer) Recv() (*Request, error) {
+func (x *remotingListenServer) Recv() (*Request, error) {
 	m := new(Request)
 	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
@@ -131,8 +131,8 @@ var Remoting_ServiceDesc = grpc.ServiceDesc{
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
 		{
-			StreamName:    "Ask",
-			Handler:       _Remoting_Ask_Handler,
+			StreamName:    "Listen",
+			Handler:       _Remoting_Listen_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},

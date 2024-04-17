@@ -1,4 +1,4 @@
-package petcd
+package provider_etcd
 
 import (
 	"context"
@@ -11,11 +11,11 @@ import (
 	"log/slog"
 )
 
-var _ provider.Provider = (*ClusterProviderEtcd)(nil)
+var _ provider.Provider = (*ProviderEtcd)(nil)
 
 const ttlTime = 10
 
-type ClusterProviderEtcd struct {
+type ProviderEtcd struct {
 	client     *clientv3.Client
 	leaseId    clientv3.LeaseID
 	state      def.NodeState
@@ -24,7 +24,7 @@ type ClusterProviderEtcd struct {
 	listener   provider.ProviderListener
 }
 
-func (x *ClusterProviderEtcd) Start(state def.NodeState, listener provider.ProviderListener, config *def.Config) error {
+func (x *ProviderEtcd) Start(state def.NodeState, listener provider.ProviderListener, config *def.Config) error {
 	x.config = config
 	x.state = state
 	x.listener = listener
@@ -69,7 +69,7 @@ func (x *ClusterProviderEtcd) Start(state def.NodeState, listener provider.Provi
 	}()
 	return nil
 }
-func (x *ClusterProviderEtcd) Stop() error {
+func (x *ProviderEtcd) Stop() error {
 	x.listener = nil
 	err := x.client.Close()
 	if err != nil {
@@ -79,22 +79,22 @@ func (x *ClusterProviderEtcd) Stop() error {
 	slog.Info("cluster provider etcd stopped")
 	return nil
 }
-func (x *ClusterProviderEtcd) GetNodesByKind(kind string) []def.NodeState {
+func (x *ProviderEtcd) GetNodesByKind(kind string) []def.NodeState {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (x *ClusterProviderEtcd) RegisterActor(state def.ActorState) error {
+func (x *ProviderEtcd) RegisterActor(state def.ActorState) error {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (x *ClusterProviderEtcd) UnregisterActor(state def.ActorState) {
+func (x *ProviderEtcd) UnregisterActor(state def.ActorState) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (x *ClusterProviderEtcd) register() error {
+func (x *ProviderEtcd) register() error {
 	for id := uint64(1); id <= uuid.MaxNodeMax(); id++ {
 		key := x.config.GetMemberPath(id)
 		//
@@ -109,7 +109,7 @@ func (x *ClusterProviderEtcd) register() error {
 	return errors.New("register node to etcd error")
 }
 
-func (x *ClusterProviderEtcd) set(key string, val any) bool {
+func (x *ProviderEtcd) set(key string, val any) bool {
 	tx := x.client.Txn(context.Background())
 	tx.If(clientv3.Compare(clientv3.CreateRevision(key), "=", 0)).
 		Then(clientv3.OpPut(key, fmt.Sprintf("%v", val), clientv3.WithLease(x.leaseId))).
