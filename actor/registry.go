@@ -23,7 +23,7 @@ func (r *Registry) GetProcessor(id *ActorRef) IProcess {
 	proc := r.getByID(id.GetId())
 	if proc == nil {
 		//todo send to DeadLetter
-		slog.Error("get actor by id fail", slog.String("id", id.GetId()))
+		slog.Error("get actor by id fail", "id", id.GetId())
 		return proc
 	}
 	return proc

@@ -63,11 +63,11 @@ func (x *streamRouter) getRemoteStream(address string) (Remoting_ListenClient, e
 			unknownMsg, err := stream.Recv()
 			switch {
 			case errors.Is(err, io.EOF):
-				slog.Info("remote stream closed", slog.String("address", address))
+				slog.Info("remote stream closed", "address", address)
 			case err != nil:
-				slog.Error("remote stream lost connection", slog.String("address", address), slog.Any("error", err))
+				slog.Error("remote stream lost connection", "address", address, "error", err)
 			default: // DisconnectRequest
-				slog.Warn("remote stream got a msg form remote, but this stream only for write", slog.String("address", address), slog.Any("msg", unknownMsg))
+				slog.Warn("remote stream got a msg form remote, but this stream only for write", "address", address, "msg", unknownMsg)
 			}
 			x.streams.Delete(address)
 		}

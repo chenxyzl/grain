@@ -20,7 +20,7 @@ func (x *RPCService) Listen(server Remoting_ListenServer) error {
 		if err == io.EOF {
 			slog.Info("Remote Close Connection")
 		} else {
-			slog.Error("Read Failed, Close Connection", slog.Any("err", err))
+			slog.Error("Read Failed, Close Connection", "err", err)
 		}
 
 		ctx := context.WithValue(context.Background(), "sender", "bar")

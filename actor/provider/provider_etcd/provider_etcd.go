@@ -73,7 +73,7 @@ func (x *ProviderEtcd) Stop() error {
 	x.listener = nil
 	err := x.client.Close()
 	if err != nil {
-		slog.Info("cluster provider etcd stopped with err.", slog.Any("err", err))
+		slog.Info("cluster provider etcd stopped with err.", "err", err)
 		return err
 	}
 	slog.Info("cluster provider etcd stopped")
@@ -103,7 +103,7 @@ func (x *ProviderEtcd) register() error {
 		}
 		x.listener.InitGlobalUuid(id)
 		//
-		slog.Info("register node to etcd success", slog.String("key", key), slog.Any("val", x.state))
+		slog.Info("register node to etcd success", "key", key, "val", x.state)
 		return nil
 	}
 	return errors.New("register node to etcd error")

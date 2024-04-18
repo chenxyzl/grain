@@ -1,7 +1,5 @@
 package actor
 
-import "log/slog"
-
 type ReceiverFunc func(c IContext)
 
 type Behavior []ReceiverFunc
@@ -28,7 +26,7 @@ func (b *Behavior) Receive(context IContext) {
 	if ok {
 		behavior(context)
 	} else {
-		context.Logger().Error("empty behavior called", slog.Any("actor", context.Self()))
+		context.Logger().Error("empty behavior called", "actor", context.Self())
 	}
 }
 

@@ -10,9 +10,9 @@ func Recover(logger ...*slog.Logger) {
 	if err != nil {
 		stackTrace := debug.Stack()
 		if len(logger) > 0 {
-			logger[0].Error("panic recover", slog.Any("err", err), slog.Any("stackTrace", stackTrace))
+			logger[0].Error("panic recover", "err", err, "stackTrace", stackTrace)
 		} else {
-			slog.Error("panic recover", slog.Any("err", err), slog.Any("stackTrace", stackTrace))
+			slog.Error("panic recover", "err", err, "stackTrace", stackTrace)
 		}
 	}
 }
@@ -25,9 +25,9 @@ func RecoverInfo(info string, logger ...*slog.Logger) {
 		if err != nil {
 			stackTrace := debug.Stack()
 			if len(logger) > 0 {
-				logger[0].Error("panic recover", slog.Any("info", info), slog.Any("err", err), slog.Any("stackTrace", stackTrace))
+				logger[0].Error("panic recover", "info", info, "err", err, "stackTrace", stackTrace)
 			} else {
-				slog.Error("panic recover", slog.Any("info", info), slog.Any("err", err), slog.Any("stackTrace", stackTrace))
+				slog.Error("panic recover", "info", info, "err", err, "stackTrace", stackTrace)
 			}
 		}
 	}
@@ -41,9 +41,9 @@ func RecoverFunc(pc func(err any), logger ...*slog.Logger) {
 		if err != nil {
 			stackTrace := debug.Stack()
 			if len(logger) > 0 {
-				logger[0].Error("panic recover", slog.Any("err", err), slog.Any("stackTrace", stackTrace))
+				logger[0].Error("panic recover", "err", err, "stackTrace", stackTrace)
 			} else {
-				slog.Error("panic recover", slog.Any("err", err), slog.Any("stackTrace", stackTrace))
+				slog.Error("panic recover", "err", err, "stackTrace", stackTrace)
 			}
 			pc(err)
 		}
