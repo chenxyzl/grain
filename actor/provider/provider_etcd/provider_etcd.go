@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/chenxyzl/grain/actor"
 	"github.com/chenxyzl/grain/actor/def"
 	"github.com/chenxyzl/grain/actor/provider"
 	"github.com/chenxyzl/grain/actor/uuid"
@@ -16,22 +17,47 @@ var _ provider.Provider = (*ProviderEtcd)(nil)
 const ttlTime = 10
 
 type ProviderEtcd struct {
+	//
+	state  def.NodeState
+	system *actor.System
+	config *def.Config
+	//
+	logger *slog.Logger
+
+	//etcd cluster
 	client     *clientv3.Client
 	leaseId    clientv3.LeaseID
-	state      def.NodeState
-	config     *def.Config
 	cancelFunc context.CancelFunc
 	listener   provider.ProviderListener
+
+	//self rpc
+	selfAddr   string
+	rpcService *actor.RPCService
 }
 
-func (x *ProviderEtcd) Start(state def.NodeState, listener provider.ProviderListener, config *def.Config) error {
-	x.config = config
+func (x *ProviderEtcd) SelfAddr() string {
+	return x.selfAddr
+}
+
+func (x *ProviderEtcd) Address() string {
+	return x.selfAddr
+}
+
+func (x *ProviderEtcd) Start(system *actor.System, state def.NodeState, config *def.Config, listener provider.ProviderListener) error {
+	rpcService := actor.NewRpcServer(system)
+	//start grpc
+	if err := rpcService.Start(); err != nil {
+		return err
+	}
 	x.state = state
+	x.rpcService = rpcService
+	x.selfAddr = rpcService.SelfAddr()
+	x.logger = slog.With("ProviderEtcd", x.selfAddr)
 	x.listener = listener
 	//etcdClient
-	etcdClient, err := clientv3.New(clientv3.Config{Endpoints: config.GetClusterUrl(), DialTimeout: ttlTime})
+	etcdClient, err := clientv3.New(clientv3.Config{Endpoints: config.GetRemoteUrls(), DialTimeout: ttlTime})
 	if err != nil {
-		return fmt.Errorf("cannot connect to etcd:%v|err:%v", config.GetClusterUrl(), err)
+		return fmt.Errorf("cannot connect to etcd:%v|err:%v", config.GetRemoteUrls(), err)
 	}
 	x.client = etcdClient
 	//lease and keep alive
@@ -58,7 +84,7 @@ func (x *ProviderEtcd) Start(state def.NodeState, listener provider.ProviderList
 			select {
 			case _, ok := <-keepAliveChan:
 				if !ok {
-					slog.Warn("lease expired or KeepAlive channel closed")
+					x.Logger().Warn("lease expired or KeepAlive channel closed")
 					if x.listener != nil {
 						x.listener.ClusterErr()
 					}
@@ -73,10 +99,10 @@ func (x *ProviderEtcd) Stop() error {
 	x.listener = nil
 	err := x.client.Close()
 	if err != nil {
-		slog.Info("cluster provider etcd stopped with err.", "err", err)
+		x.Logger().Info("cluster provider etcd stopped with err.", "err", err)
 		return err
 	}
-	slog.Info("cluster provider etcd stopped")
+	x.Logger().Info("cluster provider etcd stopped")
 	return nil
 }
 func (x *ProviderEtcd) GetNodesByKind(kind string) []def.NodeState {
@@ -103,7 +129,7 @@ func (x *ProviderEtcd) register() error {
 		}
 		x.listener.InitGlobalUuid(id)
 		//
-		slog.Info("register node to etcd success", "key", key, "val", x.state)
+		x.Logger().Info("register node to etcd success", "key", key, "val", x.state)
 		return nil
 	}
 	return errors.New("register node to etcd error")
@@ -119,4 +145,8 @@ func (x *ProviderEtcd) set(key string, val any) bool {
 		return false
 	}
 	return true
+}
+
+func (x *ProviderEtcd) Logger() *slog.Logger {
+	return x.logger
 }

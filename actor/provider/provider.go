@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"github.com/chenxyzl/grain/actor"
 	"github.com/chenxyzl/grain/actor/def"
 )
 
@@ -11,8 +12,10 @@ type ProviderListener interface {
 }
 
 type Provider interface {
+	//
+	SelfAddr() string
 	//life
-	Start(state def.NodeState, listener ProviderListener, config *def.Config) error
+	Start(system *actor.System, state def.NodeState, config *def.Config, listener ProviderListener) error
 	Stop() error
 	//node
 	GetNodesByKind(kind string) []def.NodeState

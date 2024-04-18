@@ -1,4 +1,4 @@
-package actor
+package test
 
 import (
 	"google.golang.org/protobuf/proto"

@@ -1,0 +1,6 @@
+syntax = "proto3";
+package actor;
+option go_package = "github.com/chenxyzl/grain/actor";
+
+//Poison stop target
+message Poison {}

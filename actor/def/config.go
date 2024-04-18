@@ -15,12 +15,12 @@ type Config struct {
 	DialOptions    []grpc.DialOption
 	kinds          map[string]*tKind
 	running        bool
-	clusterUrl     []string
 	addr           net.Addr
+	remoteUrls     []string
 }
 
-func NewConfig(clusterName string, clusterUrl []string) *Config {
-	return &Config{name: clusterName, kinds: make(map[string]*tKind), clusterUrl: clusterUrl}
+func NewConfig(clusterName string, remoteUrls []string) *Config {
+	return &Config{name: clusterName, kinds: make(map[string]*tKind), remoteUrls: remoteUrls}
 }
 func (x *Config) WithRequestTimeout(d time.Duration) *Config {
 	x.requestTimeout = d
@@ -37,12 +37,9 @@ func (x *Config) WithKind(kindName string, producer func(*actor.System) actor.IA
 	x.kinds[kindName] = &tKind{kind: kindName, producer: producer}
 }
 
-func (x *Config) GetClusterUrl() []string {
-	return x.clusterUrl
-}
 func (x *Config) GetMemberPath(memberId uint64) string {
 	return fmt.Sprintf("/%v/member/%d", x.name, memberId)
 }
-func (x *Config) BindLocalAddr(addr net.Addr) {
-	x.addr = addr
+func (x *Config) GetRemoteUrls() []string {
+	return x.remoteUrls
 }

@@ -1,7 +1,6 @@
 package actor
 
 import (
-	"errors"
 	"log/slog"
 	"sync"
 )
@@ -50,14 +49,15 @@ func (r *Registry) getByID(id string) IProcess {
 	return r.lookup[id]
 }
 
-func (r *Registry) add(proc IProcess) error {
+func (r *Registry) add(proc IProcess) IProcess {
 	r.mu.Lock()
 	id := proc.Self().GetIdentifier()
-	if _, ok := r.lookup[id]; ok {
+	if old, ok := r.lookup[id]; ok {
 		r.mu.Unlock()
-		return errors.New("duplicate actor " + id)
+		r.system.Logger().Error("duplicated process id, ignore add", "id", id)
+		return old
 	}
 	r.lookup[id] = proc
 	r.mu.Unlock()
-	return nil
+	return proc
 }

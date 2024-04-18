@@ -10,33 +10,38 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"log/slog"
+	"strconv"
 )
 
 type System struct {
-	config          *def.Config
+	config *def.Config
+	//
+	logger          *slog.Logger
 	registry        *Registry
 	clusterProvider provider.Provider
-	rpcService      *RPCService
+	router          *ActorRef
 }
 
 func NewSystem[Provider provider.Provider](config *def.Config) *System {
 	system := &System{}
+	system.logger = slog.With()
 	system.config = config
 	system.clusterProvider = fun.Zero[Provider]()
 	system.registry = newRegistry(system)
-	system.rpcService = &RPCService{}
 	return system
 }
 
 func (x *System) Start() error {
-	//start grpc
-	if err := x.rpcService.start(); err != nil {
-		return err
-	}
 	//register to cluster
-	if err := x.clusterProvider.Start(def.NodeState{}, x, x.config); err != nil {
+	if err := x.clusterProvider.Start(x, def.NodeState{}, x.config, x); err != nil {
 		return err
 	}
+	//overwrite logger
+	x.logger = slog.With("system", x.clusterProvider.SelfAddr())
+	//create router
+	x.router = x.Spawn(func(name *ActorRef) IProcess {
+		return newStreamRouter(name, x)
+	})
 	return nil
 }
 
@@ -59,7 +64,7 @@ func (x *System) NodesChanged() {
 
 func (x *System) Stop() {
 	if err := x.clusterProvider.Stop(); err != nil {
-		slog.Error("cluster provider stop err.", "err", err)
+		x.Logger().Error("cluster provider stop err.", "err", err)
 	}
 }
 
@@ -71,25 +76,76 @@ func (x *System) GetRegistry() *Registry {
 	return x.registry
 }
 
-func (x *System) SendToLocal(request *Request) {
+func (x *System) Logger() *slog.Logger {
+	return x.logger
+}
+
+func (x *System) Spawn(p func(name *ActorRef) IProcess) *ActorRef {
+	actorRef := NewActorRef(x.clusterProvider.SelfAddr(), strconv.Itoa(int(uuid.Generate())))
+	return x.registry.add(p(actorRef)).Self()
+}
+
+func (x *System) SpawnNamed(p func(name *ActorRef) IProcess, name string) *ActorRef {
+	actorRef := NewActorRef(x.clusterProvider.SelfAddr(), name)
+	return x.registry.add(p(actorRef)).Self()
+}
+
+func (x *System) sendToLocal(request *Request) {
 	id := request.GetTarget().GetId()
 	proc := x.registry.getByID(id)
 	if proc == nil {
-		slog.Error("get actor by id fail", "id", id, "msg_type", request.MsgType)
+		x.Logger().Error("get actor by id fail", "id", id, "msg_type", request.MsgType)
 		return
 	}
 	typ, err := protoregistry.GlobalTypes.FindMessageByName(protoreflect.FullName(request.MsgType))
 	if err != nil {
-		proc.Logger().Error("unregister msg type", "msg_type", request.MsgType, "err", err)
+		x.Logger().Error("unregister msg type", "msg_type", request.MsgType, "err", err)
 		return
 	}
 	msg := typ.New().Interface().(proto.Message)
 	err = proto.Unmarshal(request.Content, msg)
 	if err != nil {
-		proc.Logger().Error("msg unmarshal err", "msg_type", request.MsgType, "err", err)
+		x.Logger().Error("msg unmarshal err", "msg_type", request.MsgType, "err", err)
 		return
 	}
 	//build ctx
 	ctx := newContext(proc, request.GetSender(), msg, context.Background())
 	proc.receive(ctx)
+}
+
+func (x *System) Send(target *ActorRef, msg proto.Message, senders ...*ActorRef) {
+	//check
+	if target == nil {
+		x.Logger().Error("target actor is nil")
+		return
+	}
+	//marshal
+	content, err := proto.Marshal(msg)
+	if err != nil {
+		x.logger.Error("proto marshal err", "err", err, "msg", msg)
+		return
+	}
+	//get sender
+	var sender *ActorRef
+	l := len(senders)
+	if l > 0 {
+		sender = senders[0]
+		if l > 1 {
+			x.Logger().Warn("sender must length 0 or 1", "senders", senders)
+		}
+	}
+	//send to local
+	if target.GetAddress() == x.clusterProvider.SelfAddr() {
+		x.sendToLocal(&Request{
+			Header:  nil,
+			Sender:  sender,
+			Target:  target,
+			MsgId:   0,
+			MsgType: string(msg.ProtoReflect().Descriptor().FullName()),
+			Content: content,
+		})
+		return
+	}
+	//send to remote
+
 }
