@@ -1,9 +1,7 @@
 package actor
 
-type Receiver interface {
-	Receive(ctx IContext)
-}
+type Receiver func(ctx IContext)
 
 type messageInvoker interface {
-	invoke(*MessageEnvelope)
+	invoke(ctx IContext)
 }

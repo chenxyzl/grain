@@ -37,7 +37,7 @@ func newStreamWriterActor(system *System, router *ActorRef, address string, dial
 		dialOptions: dialOptions,
 		callOptions: callOptions,
 		logger:      slog.With("actor", "streamWriteActor", "address", address),
-		self:        NewActorRef(system.clusterProvider.SelfAddr(), "streamwrite/"+address),
+		self:        NewActorRef(system.clusterProvider.SelfAddr(), "stream_write/"+address),
 	}
 }
 
@@ -107,5 +107,5 @@ func (x *streamWriteActor) receive(ctx IContext) {
 }
 
 func (x *streamWriteActor) Receive(ctx IContext) {
-	
+
 }

@@ -29,6 +29,7 @@ func (r *Registry) GetProcessor(id *ActorRef) IProcess {
 }
 
 func (r *Registry) Remove(id *ActorRef) {
+	//todo remove from provider
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.lookup, id.GetId())
@@ -50,6 +51,7 @@ func (r *Registry) getByID(id string) IProcess {
 }
 
 func (r *Registry) add(proc IProcess) IProcess {
+	//todo register to provider
 	r.mu.Lock()
 	id := proc.Self().GetIdentifier()
 	if old, ok := r.lookup[id]; ok {

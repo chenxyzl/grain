@@ -12,3 +12,6 @@ type IProcess interface {
 	receive(ctx IContext) // add to mail box
 	Receive(ctx IContext) // actor receive msg
 }
+
+type process struct {
+}

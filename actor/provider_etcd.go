@@ -1,26 +1,23 @@
-package provider_etcd
+package actor
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/chenxyzl/grain/actor"
-	"github.com/chenxyzl/grain/actor/def"
-	"github.com/chenxyzl/grain/actor/provider"
 	"github.com/chenxyzl/grain/actor/uuid"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"log/slog"
 )
 
-var _ provider.Provider = (*ProviderEtcd)(nil)
+var _ Provider = (*ProviderEtcd)(nil)
 
 const ttlTime = 10
 
 type ProviderEtcd struct {
 	//
-	state  def.NodeState
-	system *actor.System
-	config *def.Config
+	state  NodeState
+	system *System
+	config *Config
 	//
 	logger *slog.Logger
 
@@ -28,11 +25,11 @@ type ProviderEtcd struct {
 	client     *clientv3.Client
 	leaseId    clientv3.LeaseID
 	cancelFunc context.CancelFunc
-	listener   provider.ProviderListener
+	listener   ProviderListener
 
 	//self rpc
 	selfAddr   string
-	rpcService *actor.RPCService
+	rpcService *RPCService
 }
 
 func (x *ProviderEtcd) SelfAddr() string {
@@ -43,8 +40,8 @@ func (x *ProviderEtcd) Address() string {
 	return x.selfAddr
 }
 
-func (x *ProviderEtcd) Start(system *actor.System, state def.NodeState, config *def.Config, listener provider.ProviderListener) error {
-	rpcService := actor.NewRpcServer(system)
+func (x *ProviderEtcd) Start(system *System, state NodeState, config *Config, listener ProviderListener) error {
+	rpcService := NewRpcServer(system)
 	//start grpc
 	if err := rpcService.Start(); err != nil {
 		return err
@@ -105,17 +102,17 @@ func (x *ProviderEtcd) Stop() error {
 	x.Logger().Info("cluster provider etcd stopped")
 	return nil
 }
-func (x *ProviderEtcd) GetNodesByKind(kind string) []def.NodeState {
+func (x *ProviderEtcd) GetNodesByKind(kind string) []NodeState {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (x *ProviderEtcd) RegisterActor(state def.ActorState) error {
+func (x *ProviderEtcd) RegisterActor(state ActorState) error {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (x *ProviderEtcd) UnregisterActor(state def.ActorState) {
+func (x *ProviderEtcd) UnregisterActor(state ActorState) {
 	//TODO implement me
 	panic("implement me")
 }

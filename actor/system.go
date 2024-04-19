@@ -2,8 +2,6 @@ package actor
 
 import (
 	"context"
-	"github.com/chenxyzl/grain/actor/def"
-	"github.com/chenxyzl/grain/actor/provider"
 	"github.com/chenxyzl/grain/actor/uuid"
 	"github.com/chenxyzl/grain/utils/fun"
 	"google.golang.org/protobuf/proto"
@@ -14,33 +12,33 @@ import (
 )
 
 type System struct {
-	config *def.Config
+	config *Config
 	//
 	logger          *slog.Logger
 	registry        *Registry
-	clusterProvider provider.Provider
+	clusterProvider Provider
 	router          *ActorRef
 }
 
-func NewSystem[Provider provider.Provider](config *def.Config) *System {
+func NewSystem[P Provider](config *Config) *System {
 	system := &System{}
 	system.logger = slog.With()
 	system.config = config
-	system.clusterProvider = fun.Zero[Provider]()
+	system.clusterProvider = fun.Zero[P]()
 	system.registry = newRegistry(system)
 	return system
 }
 
 func (x *System) Start() error {
 	//register to cluster
-	if err := x.clusterProvider.Start(x, def.NodeState{}, x.config, x); err != nil {
+	if err := x.clusterProvider.Start(x, NodeState{}, x.config, x); err != nil {
 		return err
 	}
 	//overwrite logger
 	x.logger = slog.With("system", x.clusterProvider.SelfAddr())
 	//create router
-	x.router = x.Spawn(func(name *ActorRef) IProcess {
-		return newStreamRouter(name, x)
+	x.router = x.Spawn(func() IActor {
+		return newStreamRouter(NewActorRef(x.clusterProvider.SelfAddr(), "stream_router"), x)
 	})
 	return nil
 }
@@ -68,7 +66,7 @@ func (x *System) Stop() {
 	}
 }
 
-func (x *System) GetConfig() *def.Config {
+func (x *System) GetConfig() *Config {
 	return x.config
 }
 
@@ -80,17 +78,18 @@ func (x *System) Logger() *slog.Logger {
 	return x.logger
 }
 
-func (x *System) Spawn(p func(name *ActorRef) IProcess) *ActorRef {
-	actorRef := NewActorRef(x.clusterProvider.SelfAddr(), strconv.Itoa(int(uuid.Generate())))
-	return x.registry.add(p(actorRef)).Self()
+func (x *System) Spawn(p ProducerFunc) *ActorRef {
+	return x.SpawnNamed(p, strconv.Itoa(int(uuid.Generate())))
 }
 
-func (x *System) SpawnNamed(p func(name *ActorRef) IProcess, name string) *ActorRef {
-	actorRef := NewActorRef(x.clusterProvider.SelfAddr(), name)
-	return x.registry.add(p(actorRef)).Self()
+func (x *System) SpawnNamed(p ProducerFunc, name string) *ActorRef {
+	actorRef := NewActorRef(x.clusterProvider.SelfAddr(), "kinds/default/"+name)
+	actor := p()
+	actor.bind(actor, actorRef)
+	return x.registry.add(actor).Self()
 }
 
-func (x *System) sendToLocal(request *Request) {
+func (x *System) sendToLocal(request *Envelope) {
 	id := request.GetTarget().GetId()
 	proc := x.registry.getByID(id)
 	if proc == nil {
@@ -136,16 +135,29 @@ func (x *System) Send(target *ActorRef, msg proto.Message, senders ...*ActorRef)
 	}
 	//send to local
 	if target.GetAddress() == x.clusterProvider.SelfAddr() {
-		x.sendToLocal(&Request{
-			Header:  nil,
-			Sender:  sender,
-			Target:  target,
-			MsgId:   0,
-			MsgType: string(msg.ProtoReflect().Descriptor().FullName()),
-			Content: content,
+		x.sendToLocal(&Envelope{
+			Header:    nil,
+			Sender:    sender,
+			Target:    target,
+			RequestId: 0,
+			MsgType:   string(msg.ProtoReflect().Descriptor().FullName()),
+			Content:   content,
 		})
 		return
 	}
 	//send to remote
 
+}
+
+// Request
+// wanted system.Request[T proto.Message](target *ActorRef, req proto.Message) T
+// but golang not support
+func Request[T proto.Message](system *System, target *ActorRef, req proto.Message) {
+	reply := newReplayProcessor[T](system, system.GetConfig().requestTimeout)
+	system.registry.add(reply.self)
+}
+
+// Send api like Request
+func Send(system *System, target *ActorRef, msg proto.Message) {
+	system.Send(target, msg)
 }

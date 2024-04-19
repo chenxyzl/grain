@@ -17,24 +17,24 @@ const (
 )
 
 type IMailBox interface {
-	Send(*MessageEnvelope)
-	Start(*messageInvoker)
+	Send(IContext)
+	Start(IContext)
 	Stop()
 }
 
 type MailBox struct {
-	rb         *ringbuffer.RingBuffer[*MessageEnvelope]
+	rb         *ringbuffer.RingBuffer[IContext]
 	proc       messageInvoker
 	procStatus int32
 }
 
 func NewMailBox(size int) *MailBox {
 	return &MailBox{
-		rb: ringbuffer.New[*MessageEnvelope](int64(size)),
+		rb: ringbuffer.New[IContext](int64(size)),
 	}
 }
 
-func (in *MailBox) Recv(msg *MessageEnvelope) {
+func (in *MailBox) Recv(msg IContext) {
 	in.rb.Push(msg)
 	in.schedule()
 }

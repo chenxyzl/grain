@@ -2,7 +2,6 @@ package actor
 
 import (
 	"github.com/chenxyzl/grain/utils/al/safemap"
-	"io"
 	"log/slog"
 )
 
@@ -35,14 +34,14 @@ func (x *streamRouterActor) receive(ctx IContext) {
 
 func (x *streamRouterActor) Receive(ctx IContext) {
 	switch msg := ctx.Message().(type) {
-	case *Request:
+	case *Envelope:
 		x.dispatchMsg(msg)
 	default:
 		slog.Error("unknown message")
 	}
 }
 
-func newStreamRouter(self *ActorRef, system *System) IProcess {
+func newStreamRouter(self *ActorRef, system *System) IActor {
 	return &streamRouterActor{
 		system:  system,
 		self:    self,
@@ -55,32 +54,17 @@ func (x *streamRouterActor) Self() *ActorRef {
 	return x.self
 }
 
-func (x *streamRouterActor) dispatchMsg(msg *Request) {
+func (x *streamRouterActor) dispatchMsg(msg *Envelope) {
 	targetAddress := msg.GetTarget().GetAddress()
-	//1. is self?
-	if targetAddress == x.Self().GetAddress() {
-		x.system.sendToLocal(msg)
+	remoteStream, ok := x.streams.Get(targetAddress)
+	//if not found, spawn it
+	if !ok {
+		remoteStream = x.system.SpawnNamed(func() IActor {
+			return newStreamWriterActor(x.system, x.Self(), targetAddress, x.system.GetConfig().DialOptions, x.system.GetConfig().CallOptions)
+		}, msg.GetTarget().GetIdentifier())
+		//save
+		x.streams.Set(targetAddress, remoteStream)
 		return
 	}
-
-	stremActorRef, ok := x.streams[targetAddress]
-	if ok {
-		x.system.sendToLocal()
-	}
-
-	//todo need dispatcher to everyone self remote stream?
-	//todo need check address in cluster?
-	stream, err := x.getRemoteStream(msg.GetTarget().GetAddress())
-	if err != nil {
-		slog.Error("get stream err", "address", msg.GetTarget().GetAddress(), "err", err)
-		return
-	}
-	err = stream.Send(msg)
-	if err != nil {
-		if err == io.EOF {
-			x.streams.Delete(msg.GetTarget().GetAddress())
-			//todo need close stream conn?
-		}
-		slog.Error("send msg err", "address", msg.GetTarget().GetAddress(), "msg", msg, "err", err)
-	}
+	x.system.Send(remoteStream, msg)
 }

@@ -1,7 +1,6 @@
 package actor
 
 import (
-	"google.golang.org/protobuf/proto"
 	"log/slog"
 )
 
@@ -11,11 +10,7 @@ type IActor interface {
 	//inner api
 	//
 	//
-
-	init() error
-	afterStop() error
-
-	messageInvoker
+	bind(system *System, this IActor, self *ActorRef) //for bind self
 
 	//base api
 	//
@@ -23,6 +18,7 @@ type IActor interface {
 
 	Self() *ActorRef
 	Logger() *slog.Logger
+	System() *System
 
 	//life api
 	//
@@ -39,9 +35,4 @@ type IActor interface {
 	receive(ctx IContext)
 	//Receive message
 	Receive(ctx IContext)
-}
-
-func (I IActor) Invoke(params []proto.Message) {
-	//TODO implement me
-	panic("implement me")
 }

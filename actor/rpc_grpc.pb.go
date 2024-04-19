@@ -47,8 +47,8 @@ func (c *remotingClient) Listen(ctx context.Context, opts ...grpc.CallOption) (R
 }
 
 type Remoting_ListenClient interface {
-	Send(*Request) error
-	Recv() (*Replay, error)
+	Send(*Envelope) error
+	Recv() (*Envelope, error)
 	grpc.ClientStream
 }
 
@@ -56,12 +56,12 @@ type remotingListenClient struct {
 	grpc.ClientStream
 }
 
-func (x *remotingListenClient) Send(m *Request) error {
+func (x *remotingListenClient) Send(m *Envelope) error {
 	return x.ClientStream.SendMsg(m)
 }
 
-func (x *remotingListenClient) Recv() (*Replay, error) {
-	m := new(Replay)
+func (x *remotingListenClient) Recv() (*Envelope, error) {
+	m := new(Envelope)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -101,8 +101,8 @@ func _Remoting_Listen_Handler(srv interface{}, stream grpc.ServerStream) error {
 }
 
 type Remoting_ListenServer interface {
-	Send(*Replay) error
-	Recv() (*Request, error)
+	Send(*Envelope) error
+	Recv() (*Envelope, error)
 	grpc.ServerStream
 }
 
@@ -110,12 +110,12 @@ type remotingListenServer struct {
 	grpc.ServerStream
 }
 
-func (x *remotingListenServer) Send(m *Replay) error {
+func (x *remotingListenServer) Send(m *Envelope) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *remotingListenServer) Recv() (*Request, error) {
-	m := new(Request)
+func (x *remotingListenServer) Recv() (*Envelope, error) {
+	m := new(Envelope)
 	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
