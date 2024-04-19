@@ -1,4 +1,4 @@
-package test
+package pb_test
 
 import (
 	"google.golang.org/protobuf/proto"

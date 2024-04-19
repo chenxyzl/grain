@@ -1,4 +1,4 @@
-package examples
+package routine_test
 
 import (
 	"github.com/timandy/routine"

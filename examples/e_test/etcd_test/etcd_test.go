@@ -1,4 +1,4 @@
-package examples
+package etcd_test
 
 import (
 	"context"

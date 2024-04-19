@@ -1,19 +1,18 @@
 package actor
 
 import (
-	"github.com/chenxyzl/grain/actor/iface"
 	"github.com/chenxyzl/grain/utils/al/safemap"
 	share "github.com/chenxyzl/grain/utils/helper"
 	"log/slog"
 )
 
-var _ iface.ActorRef = (*BaseActor)(nil)
 var _ IActor = (*BaseActor)(nil)
 
 type BaseActor struct {
-	self     *Address
-	parent   iface.ActorRef
-	children *safemap.SafeMap[string, iface.ActorRef]
+	inner    IActor
+	self     *ActorRef
+	parent   *ActorRef
+	children *safemap.SafeMap[string, *ActorRef]
 	system   *System
 	logger   *slog.Logger
 }
@@ -33,7 +32,7 @@ func (x *BaseActor) invoke(envelope *MessageEnvelope) {
 	panic("implement me")
 }
 
-func (x *BaseActor) Self() iface.ActorRef {
+func (x *BaseActor) Self() *ActorRef {
 	return x.self
 }
 
@@ -58,7 +57,11 @@ func (x *BaseActor) Stop() error {
 
 func (x *BaseActor) receive(ctx IContext) {
 	share.Recover(x.logger)
-	x.Receive(ctx)
+	if ctx.Message().ProtoReflect().Descriptor().FullName() == Msg.PoisonName {
+		x.Receive(ctx)
+	} else {
+		x.Stop()
+	}
 }
 
 func (x *BaseActor) Receive(ctx IContext) {

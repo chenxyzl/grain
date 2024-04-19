@@ -37,19 +37,19 @@ func newStreamWriterActor(system *System, router *ActorRef, address string, dial
 		dialOptions: dialOptions,
 		callOptions: callOptions,
 		logger:      slog.With("actor", "streamWriteActor", "address", address),
-		self:        NewActorRef(system.clusterProvider.UnregisterActor()),
+		self:        NewActorRef(system.clusterProvider.SelfAddr(), "streamwrite/"+address),
 	}
 }
 
-func (x *streamWriteActor) init() (Remoting_ListenClient, error) {
+func (x *streamWriteActor) init() error {
 	conn, err := grpc.Dial(x.address, x.dialOptions...)
 	if err != nil {
-		return nil, errors.Join(fmt.Errorf("connect to grpc server err, addr:%v", address), err)
+		return errors.Join(fmt.Errorf("connect to grpc server err, addr:%v", x.address), err)
 	}
 	stream, err := NewRemotingClient(conn).Listen(context.Background(), x.callOptions...)
 	if err != nil {
 		x.conn.Close()
-		return nil, errors.Join(fmt.Errorf("listen to grpc server err, addr:%v", address), err)
+		return errors.Join(fmt.Errorf("listen to grpc server err, addr:%v", x.address), err)
 	}
 	x.conn = conn
 	x.remote = stream
@@ -58,19 +58,16 @@ func (x *streamWriteActor) init() (Remoting_ListenClient, error) {
 			unknownMsg, err := stream.Recv()
 			switch {
 			case errors.Is(err, io.EOF):
-				slog.Info("remote stream closed", "address", address)
+				slog.Info("remote stream closed", "address", x.address)
 			case err != nil:
-				slog.Error("remote stream lost connection", "address", address, "error", err)
+				slog.Error("remote stream lost connection", "address", x.address, "error", err)
 			default: // DisconnectRequest
-				slog.Warn("remote stream got a msg form remote, but this stream only for write", "address", address, "msg", unknownMsg)
+				slog.Warn("remote stream got a msg form remote, but this stream only for write", "address", x.address, "msg", unknownMsg)
 			}
-			_ = x.conn.Close()
-			x.conn = nil
-			_ = x.remote.CloseSend()
-			x.remote = nil
+			x.system.Send(x.Self(), Msg.Poison)
 		}
 	}()
-	return stream, nil
+	return nil
 }
 
 func (x *streamWriteActor) Logger() *slog.Logger {
@@ -82,12 +79,26 @@ func (x *streamWriteActor) Self() *ActorRef {
 }
 
 func (x *streamWriteActor) Start() error {
-	x.init()
+	return x.init()
 }
 
 func (x *streamWriteActor) Stop() error {
-	//TODO implement me
-	panic("implement me")
+	if x.remote != nil {
+		err := x.remote.CloseSend()
+		if err != nil {
+			x.Logger().Error("close grpc send stream err", "error", err)
+		}
+		x.remote = nil
+	}
+	if x.conn != nil {
+		err := x.conn.Close()
+		if err != nil {
+			x.Logger().Error("close grpc conn err", "error", err)
+		}
+		x.conn = nil
+	}
+	x.Logger().Info("stop stream write actor end")
+	return nil
 }
 
 func (x *streamWriteActor) receive(ctx IContext) {
@@ -96,6 +107,5 @@ func (x *streamWriteActor) receive(ctx IContext) {
 }
 
 func (x *streamWriteActor) Receive(ctx IContext) {
-	//TODO implement me
-	panic("implement me")
+	
 }

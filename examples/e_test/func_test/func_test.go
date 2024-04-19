@@ -1,4 +1,4 @@
-package examples
+package func_test
 
 import (
 	"reflect"

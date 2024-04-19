@@ -4,7 +4,7 @@
 // 	protoc        v3.5.1
 // source: actor.proto
 
-package test
+package pb_test
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
