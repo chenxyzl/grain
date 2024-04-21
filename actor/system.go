@@ -85,11 +85,9 @@ func (x *System) Spawn(p Producer, opts ...OptFunc) *ActorRef {
 func (x *System) SpawnNamed(p Producer, name string, opts ...OptFunc) *ActorRef {
 	//
 	opts = append(opts, withSelf(x.clusterProvider.SelfAddr(), name))
-	options := NewOpts(p, opts...)
+	options := NewOpts(x, p, opts...)
 	//
 	proc := newProcessor(x, options)
-	act := options.Producer()
-	act.init(x, proc.self(), act)
 	//
 	x.registry.add(proc)
 	//

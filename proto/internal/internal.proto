@@ -1,0 +1,13 @@
+syntax = "proto3";
+package internal;
+option go_package = "github.com/chenxyzl/grain/actor/internal";
+
+//Start --call Actor.Star
+//Actor inner message
+message Start{}
+//Start --call Actor.Stop
+//Actor inner message
+message Stop{}
+//StreamClosed -- when StreamWrite stopped
+//Actor inner message
+message StreamClosed{}

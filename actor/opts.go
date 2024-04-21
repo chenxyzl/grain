@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	defaultInboxSize   = 1024
+	defaultMailboxSize = 1024
 	defaultMaxRestarts = 3
 	defaultKindName    = "local"
 )
@@ -25,8 +25,8 @@ type Producer func() IActor
 type OptFunc func(*Opts)
 
 type Opts struct {
-	Producer     Producer
-	InboxSize    int
+	Actor        IActor
+	MailboxSize  int
 	Kind         string
 	MaxRestarts  int32
 	RestartDelay func(restartTimes int) time.Duration
@@ -35,10 +35,10 @@ type Opts struct {
 }
 
 // NewOpts ...
-func NewOpts(p Producer, opts ...OptFunc) Opts {
+func NewOpts(system *System, p Producer, opts ...OptFunc) Opts {
 	ret := Opts{
-		Producer:     p,
-		InboxSize:    defaultInboxSize,
+		Actor:        p(),
+		MailboxSize:  defaultMailboxSize,
 		Kind:         defaultKindName,
 		MaxRestarts:  defaultMaxRestarts,
 		RestartDelay: defaultRestartDelay,
@@ -47,11 +47,8 @@ func NewOpts(p Producer, opts ...OptFunc) Opts {
 	for _, opt := range opts {
 		opt(&ret)
 	}
+	ret.Actor.init(system, ret.Self, ret.Actor)
 	return ret
-}
-
-func (opts *Opts) bindSelf(self *ActorRef) {
-	opts.Self = self
 }
 
 func WithContext(ctx context.Context) OptFunc {
@@ -66,7 +63,7 @@ func WithRestartDelay(d func(restartTimes int) time.Duration) OptFunc {
 }
 func WithInboxSize(size int) OptFunc {
 	return func(opts *Opts) {
-		opts.InboxSize = size
+		opts.MailboxSize = size
 	}
 }
 func WithMaxRestarts(n int) OptFunc {

@@ -1,6 +1,7 @@
 package actor
 
 import (
+	"github.com/chenxyzl/grain/actor/internal"
 	"github.com/chenxyzl/grain/utils/al/safemap"
 	"log/slog"
 )
@@ -8,34 +9,17 @@ import (
 var _ IActor = (*streamRouterActor)(nil)
 
 type streamRouterActor struct {
-	system *System
-	self   *ActorRef
+	BaseActor
 	//
-	_logger *slog.Logger
 	streams *safemap.SafeMap[string, *ActorRef]
-}
-
-func (x *streamRouterActor) logger() *slog.Logger {
-	return x._logger
-}
-
-func (x *streamRouterActor) start() error {
-	return nil
-}
-
-func (x *streamRouterActor) stop() error {
-	return nil
-}
-
-func (x *streamRouterActor) receive(ctx IContext) {
-	//to box ?
-	//dispatcher ?
 }
 
 func (x *streamRouterActor) Receive(ctx IContext) {
 	switch msg := ctx.Message().(type) {
 	case *Envelope:
 		x.dispatchMsg(msg)
+	case *internal.StreamClosed:
+		x.streamClosed(ctx.Sender())
 	default:
 		slog.Error("unknown message")
 	}
@@ -43,15 +27,8 @@ func (x *streamRouterActor) Receive(ctx IContext) {
 
 func newStreamRouter(self *ActorRef, system *System) IActor {
 	return &streamRouterActor{
-		system:  system,
-		self:    self,
-		logger:  slog.With("streamRouterActor", system.clusterProvider.SelfAddr()),
 		streams: safemap.New[string, *ActorRef](),
 	}
-}
-
-func (x *streamRouterActor) Self() *ActorRef {
-	return x.self
 }
 
 func (x *streamRouterActor) dispatchMsg(msg *Envelope) {
@@ -64,7 +41,13 @@ func (x *streamRouterActor) dispatchMsg(msg *Envelope) {
 		}, msg.GetTarget().GetIdentifier())
 		//save
 		x.streams.Set(targetAddress, remoteStream)
+		x.Logger().Info("remote stream created", "address", remoteStream)
 		return
 	}
 	x.system.Send(remoteStream, msg)
+}
+
+func (x *streamRouterActor) streamClosed(streamActor *ActorRef) {
+	x.streams.Delete(streamActor.Address)
+	x.Logger().Info("remote stream closed", "address", streamActor.Address)
 }
