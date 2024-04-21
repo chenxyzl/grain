@@ -8,7 +8,7 @@ type processor struct {
 
 var _ iProcess = (*processor)(nil)
 
-func newProcessor(system *System) *processor {
+func newProcessor(system *System, opts Opts) *processor {
 	return &processor{}
 }
 
@@ -18,20 +18,18 @@ func (p processor) self() *ActorRef {
 }
 
 func (p processor) start() error {
+	//todo send msg.Start
+
 	//TODO implement me
 	panic("implement me")
 }
 
 func (p processor) stop() error {
+	//todo send msg.Poison
 	//TODO implement me
 	panic("implement me")
 }
 
 func (p processor) receive(ctx IContext) {
-	//watch start
-	//watch stop
-	//watch poison
 
-	//TODO implement me
-	panic("implement me")
 }

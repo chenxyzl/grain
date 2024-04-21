@@ -16,32 +16,17 @@ import (
 var _ IActor = (*streamWriteActor)(nil)
 
 type streamWriteActor struct {
-	system      *System
+	BaseActor
 	router      *ActorRef
 	address     string
 	dialOptions []grpc.DialOption
 	callOptions []grpc.CallOption
 	//
-	_logger *slog.Logger
-	_self   *ActorRef
-	//
 	conn   *grpc.ClientConn
 	remote Remoting_ListenClient
 }
 
-func newStreamWriterActor(system *System, router *ActorRef, address string, dialOptions []grpc.DialOption, callOptions []grpc.CallOption) iProcess {
-	return &streamWriteActor{
-		system:      system,
-		router:      router,
-		address:     address,
-		dialOptions: dialOptions,
-		callOptions: callOptions,
-		_logger:     slog.With("actor", "streamWriteActor", "address", address),
-		_self:       NewActorRef(system.clusterProvider.SelfAddr(), "stream_write/"+address),
-	}
-}
-
-func (x *streamWriteActor) init() error {
+func (x *streamWriteActor) Started() error {
 	conn, err := grpc.Dial(x.address, x.dialOptions...)
 	if err != nil {
 		return errors.Join(fmt.Errorf("connect to grpc server err, addr:%v", x.address), err)
@@ -64,44 +49,41 @@ func (x *streamWriteActor) init() error {
 			default: // DisconnectRequest
 				slog.Warn("remote stream got a msg form remote, but this stream only for write", "address", x.address, "msg", unknownMsg)
 			}
-			x.system.Send(x.self(), Msg.Poison)
+			x.system.Send(x.Self(), Msg.Poison)
 		}
 	}()
 	return nil
 }
 
-func (x *streamWriteActor) logger() *slog.Logger {
-	return x._logger
-}
-
-func (x *streamWriteActor) self() *ActorRef {
-	return x._self
-}
-
-func (x *streamWriteActor) start() error {
-	return x.init()
-}
-
-func (x *streamWriteActor) stop() error {
+func (x *streamWriteActor) PreStop() error {
 	if x.remote != nil {
 		err := x.remote.CloseSend()
 		if err != nil {
-			x.logger().Error("close grpc send stream err", "error", err)
+			x.Logger().Error("close grpc send stream err", "error", err)
 		}
 		x.remote = nil
 	}
 	if x.conn != nil {
 		err := x.conn.Close()
 		if err != nil {
-			x.logger().Error("close grpc conn err", "error", err)
+			x.Logger().Error("close grpc conn err", "error", err)
 		}
 		x.conn = nil
 	}
-	x.logger().Info("stop stream write actor end")
+	x.Logger().Info("stop stream write actor end")
 	return nil
 }
 
-func (x *streamWriteActor) receive(ctx IContext) {
+func (x *streamWriteActor) Receive(ctx IContext) {
 	//TODO implement me
 	panic("implement me")
+}
+
+func newStreamWriterActor(router *ActorRef, address string, dialOptions []grpc.DialOption, callOptions []grpc.CallOption) IActor {
+	return &streamWriteActor{
+		router:      router,
+		address:     address,
+		dialOptions: dialOptions,
+		callOptions: callOptions,
+	}
 }

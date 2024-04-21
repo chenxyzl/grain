@@ -60,7 +60,7 @@ func (x *streamRouterActor) dispatchMsg(msg *Envelope) {
 	//if not found, spawn it
 	if !ok {
 		remoteStream = x.system.SpawnNamed(func() IActor {
-			return newStreamWriterActor(x.system, x.Self(), targetAddress, x.system.GetConfig().DialOptions, x.system.GetConfig().CallOptions)
+			return newStreamWriterActor(x.Self(), targetAddress, x.system.GetConfig().DialOptions, x.system.GetConfig().CallOptions)
 		}, msg.GetTarget().GetIdentifier())
 		//save
 		x.streams.Set(targetAddress, remoteStream)

@@ -13,20 +13,20 @@ type Config struct {
 	requestTimeout time.Duration
 	DialOptions    []grpc.DialOption
 	CallOptions    []grpc.CallOption
-	kinds          map[string]ProducerFunc
+	kinds          map[string]Producer
 	running        bool
 	addr           net.Addr
 	remoteUrls     []string
 }
 
 func NewConfig(clusterName string, remoteUrls []string) *Config {
-	return &Config{name: clusterName, kinds: make(map[string]ProducerFunc), remoteUrls: remoteUrls}
+	return &Config{name: clusterName, kinds: make(map[string]Producer), remoteUrls: remoteUrls}
 }
 func (x *Config) WithRequestTimeout(d time.Duration) *Config {
 	x.requestTimeout = d
 	return x
 }
-func (x *Config) WithKind(kindName string, producer ProducerFunc) {
+func (x *Config) WithKind(kindName string, producer Producer) {
 	if x.running {
 		slog.Error("add kind to actor already running, kind:" + kindName)
 		return

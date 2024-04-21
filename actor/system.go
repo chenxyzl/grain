@@ -78,21 +78,26 @@ func (x *System) Logger() *slog.Logger {
 	return x.logger
 }
 
-func (x *System) Spawn(p ProducerFunc) *ActorRef {
-	return x.SpawnNamed(p, strconv.Itoa(int(uuid.Generate())))
+func (x *System) Spawn(p Producer, opts ...OptFunc) *ActorRef {
+	return x.SpawnNamed(p, strconv.Itoa(int(uuid.Generate())), opts...)
 }
 
-func (x *System) SpawnNamed(p ProducerFunc, name string) *ActorRef {
-	actorRef := NewActorRef(x.clusterProvider.SelfAddr(), "kinds/default/"+name)
-	actor := p()
-	actor.bind(x, actor, actorRef)
-	x.registry.add(actor).Self()
-	if err := actor.Start(); err != nil {
-		x.Logger().Info("spawn actor error.", "actorRef", actorRef, "err", err)
+func (x *System) SpawnNamed(p Producer, name string, opts ...OptFunc) *ActorRef {
+	//
+	opts = append(opts, withSelf(x.clusterProvider.SelfAddr(), name))
+	options := NewOpts(p, opts...)
+	//
+	proc := newProcessor(x, options)
+	act := options.Producer()
+	act.init(x, proc.self(), act)
+	//
+	x.registry.add(proc)
+	//
+	if err := proc.start(); err != nil {
+		x.Logger().Info("spawn actor error.", "actor", proc.self(), "err", err)
 		panic(err)
 	}
-	actor.Start()
-	return actorRef
+	return proc.self()
 }
 
 func (x *System) sendToLocal(request *Envelope) {

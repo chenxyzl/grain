@@ -1,28 +1,12 @@
 package actor
 
-import (
-	"log/slog"
-)
-
 type IActor interface {
-	//inner api
-	//
-	//
-	init(system *System, this IActor) //for bind self
-
-	//base api
-	//
-	//
-
-	Self() *ActorRef
-	Logger() *slog.Logger
-	System() *System
-
-	//Started after Instance
+	//inner api, for inherit auth
+	init(system *System, self *ActorRef, this IActor) //for bind self
+	//Started after self Instance
 	Started() error
 	//PreStop when receive poison, before stop self
 	PreStop() error
-
 	//Receive message
 	Receive(ctx IContext)
 }
