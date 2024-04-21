@@ -2,5 +2,9 @@ syntax = "proto3";
 package actor;
 option go_package = "github.com/chenxyzl/grain/actor";
 
-//Poison stop target
+//Start --cal Actor.Star
+//Actor inner message
+message Start{}
+//PublicMsg -- call Actor.Stop
+//Poison target actor
 message Poison {}

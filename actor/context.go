@@ -3,12 +3,10 @@ package actor
 import (
 	"context"
 	"google.golang.org/protobuf/proto"
-	"log/slog"
 )
 
 type IContext interface {
-	Logger() *slog.Logger
-	Self() IProcess
+	Self() *ActorRef
 	Sender() *ActorRef
 	Message() proto.Message
 }
@@ -16,26 +14,22 @@ type IContext interface {
 var _ IContext = (*Context)(nil)
 
 type Context struct {
-	self    IProcess
+	self    *ActorRef
 	sender  *ActorRef
 	message proto.Message
 	context.Context
 }
 
-func newContext(self IProcess, sender *ActorRef, message proto.Message, ctx context.Context) *Context {
+func newContext(self iProcess, sender *ActorRef, message proto.Message, ctx context.Context) *Context {
 	return &Context{
-		self:    self,
+		self:    self.self(),
 		sender:  sender,
 		message: message,
 		Context: ctx,
 	}
 }
 
-func (x *Context) Logger() *slog.Logger {
-	return x.self.Logger()
-}
-
-func (x *Context) Self() IProcess {
+func (x *Context) Self() *ActorRef {
 	return x.self
 }
 

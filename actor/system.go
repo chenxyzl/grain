@@ -85,8 +85,14 @@ func (x *System) Spawn(p ProducerFunc) *ActorRef {
 func (x *System) SpawnNamed(p ProducerFunc, name string) *ActorRef {
 	actorRef := NewActorRef(x.clusterProvider.SelfAddr(), "kinds/default/"+name)
 	actor := p()
-	actor.bind(actor, actorRef)
-	return x.registry.add(actor).Self()
+	actor.bind(x, actor, actorRef)
+	x.registry.add(actor).Self()
+	if err := actor.Start(); err != nil {
+		x.Logger().Info("spawn actor error.", "actorRef", actorRef, "err", err)
+		panic(err)
+	}
+	actor.Start()
+	return actorRef
 }
 
 func (x *System) sendToLocal(request *Envelope) {
@@ -153,8 +159,8 @@ func (x *System) Send(target *ActorRef, msg proto.Message, senders ...*ActorRef)
 // wanted system.Request[T proto.Message](target *ActorRef, req proto.Message) T
 // but golang not support
 func Request[T proto.Message](system *System, target *ActorRef, req proto.Message) {
-	reply := newReplayProcessor[T](system, system.GetConfig().requestTimeout)
-	system.registry.add(reply.self)
+	reply := newProcessorReplay[T](system, system.GetConfig().requestTimeout)
+	system.registry.add(reply)
 }
 
 // Send api like Request

@@ -7,18 +7,18 @@ import (
 
 type Registry struct {
 	mu     sync.RWMutex
-	lookup map[string]IProcess
+	lookup map[string]iProcess
 	system *System
 }
 
 func newRegistry(s *System) *Registry {
 	return &Registry{
-		lookup: make(map[string]IProcess, 1024),
+		lookup: make(map[string]iProcess, 1024),
 		system: s,
 	}
 }
 
-func (r *Registry) GetProcessor(id *ActorRef) IProcess {
+func (r *Registry) GetProcessor(id *ActorRef) iProcess {
 	proc := r.getByID(id.GetId())
 	if proc == nil {
 		//todo send to DeadLetter
@@ -35,7 +35,7 @@ func (r *Registry) Remove(id *ActorRef) {
 	delete(r.lookup, id.GetId())
 }
 
-func (r *Registry) get(ref *ActorRef) IProcess {
+func (r *Registry) get(ref *ActorRef) iProcess {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	if proc, ok := r.lookup[ref.GetId()]; ok {
@@ -44,16 +44,16 @@ func (r *Registry) get(ref *ActorRef) IProcess {
 	return nil
 }
 
-func (r *Registry) getByID(id string) IProcess {
+func (r *Registry) getByID(id string) iProcess {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.lookup[id]
 }
 
-func (r *Registry) add(proc IProcess) IProcess {
+func (r *Registry) add(proc iProcess) iProcess {
 	//todo register to provider
 	r.mu.Lock()
-	id := proc.Self().GetIdentifier()
+	id := proc.self().GetIdentifier()
 	if old, ok := r.lookup[id]; ok {
 		r.mu.Unlock()
 		r.system.Logger().Error("duplicated process id, ignore add", "id", id)

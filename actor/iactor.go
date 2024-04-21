@@ -4,13 +4,11 @@ import (
 	"log/slog"
 )
 
-var _ IProcess = (IActor)(nil)
-
 type IActor interface {
 	//inner api
 	//
 	//
-	bind(system *System, this IActor, self *ActorRef) //for bind self
+	init(system *System, this IActor) //for bind self
 
 	//base api
 	//
@@ -20,19 +18,11 @@ type IActor interface {
 	Logger() *slog.Logger
 	System() *System
 
-	//life api
-	//
-	//
+	//Started after Instance
+	Started() error
+	//PreStop when receive poison, before stop self
+	PreStop() error
 
-	//Awake before start
-	Awake() error
-	//Start after awake
-	Start() error
-	//Stop will destroy
-	Stop() error
-
-	//receive wrapper
-	receive(ctx IContext)
 	//Receive message
 	Receive(ctx IContext)
 }

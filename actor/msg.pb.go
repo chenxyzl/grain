@@ -20,7 +20,88 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-//Poison stop target
+//Start
+//Actor inner message
+type Start struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+}
+
+func (x *Start) Reset() {
+	*x = Start{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_msg_proto_msgTypes[0]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *Start) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Start) ProtoMessage() {}
+
+func (x *Start) ProtoReflect() protoreflect.Message {
+	mi := &file_msg_proto_msgTypes[0]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Start.ProtoReflect.Descriptor instead.
+func (*Start) Descriptor() ([]byte, []int) {
+	return file_msg_proto_rawDescGZIP(), []int{0}
+}
+
+//Stop
+//Actor inner message
+type Stop struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+}
+
+func (x *Stop) Reset() {
+	*x = Stop{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_msg_proto_msgTypes[1]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *Stop) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Stop) ProtoMessage() {}
+
+func (x *Stop) ProtoReflect() protoreflect.Message {
+	mi := &file_msg_proto_msgTypes[1]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Stop.ProtoReflect.Descriptor instead.
+func (*Stop) Descriptor() ([]byte, []int) {
+	return file_msg_proto_rawDescGZIP(), []int{1}
+}
+
+//PublicMsg
+//Poison target actor
 type Poison struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -30,7 +111,7 @@ type Poison struct {
 func (x *Poison) Reset() {
 	*x = Poison{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_msg_proto_msgTypes[0]
+		mi := &file_msg_proto_msgTypes[2]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -43,7 +124,7 @@ func (x *Poison) String() string {
 func (*Poison) ProtoMessage() {}
 
 func (x *Poison) ProtoReflect() protoreflect.Message {
-	mi := &file_msg_proto_msgTypes[0]
+	mi := &file_msg_proto_msgTypes[2]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -56,17 +137,18 @@ func (x *Poison) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Poison.ProtoReflect.Descriptor instead.
 func (*Poison) Descriptor() ([]byte, []int) {
-	return file_msg_proto_rawDescGZIP(), []int{0}
+	return file_msg_proto_rawDescGZIP(), []int{2}
 }
 
 var File_msg_proto protoreflect.FileDescriptor
 
 var file_msg_proto_rawDesc = []byte{
 	0x0a, 0x09, 0x6d, 0x73, 0x67, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x12, 0x05, 0x61, 0x63, 0x74,
-	0x6f, 0x72, 0x22, 0x08, 0x0a, 0x06, 0x50, 0x6f, 0x69, 0x73, 0x6f, 0x6e, 0x42, 0x21, 0x5a, 0x1f,
-	0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x63, 0x68, 0x65, 0x6e, 0x78,
-	0x79, 0x7a, 0x6c, 0x2f, 0x67, 0x72, 0x61, 0x69, 0x6e, 0x2f, 0x61, 0x63, 0x74, 0x6f, 0x72, 0x62,
-	0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x6f, 0x72, 0x22, 0x07, 0x0a, 0x05, 0x53, 0x74, 0x61, 0x72, 0x74, 0x22, 0x06, 0x0a, 0x04, 0x53,
+	0x74, 0x6f, 0x70, 0x22, 0x08, 0x0a, 0x06, 0x50, 0x6f, 0x69, 0x73, 0x6f, 0x6e, 0x42, 0x21, 0x5a,
+	0x1f, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x63, 0x68, 0x65, 0x6e,
+	0x78, 0x79, 0x7a, 0x6c, 0x2f, 0x67, 0x72, 0x61, 0x69, 0x6e, 0x2f, 0x61, 0x63, 0x74, 0x6f, 0x72,
+	0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -81,9 +163,11 @@ func file_msg_proto_rawDescGZIP() []byte {
 	return file_msg_proto_rawDescData
 }
 
-var file_msg_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_msg_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_msg_proto_goTypes = []interface{}{
-	(*Poison)(nil), // 0: actor.Poison
+	(*Start)(nil),  // 0: actor.Start
+	(*Stop)(nil),   // 1: actor.Stop
+	(*Poison)(nil), // 2: actor.Poison
 }
 var file_msg_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
@@ -100,6 +184,30 @@ func file_msg_proto_init() {
 	}
 	if !protoimpl.UnsafeEnabled {
 		file_msg_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*Start); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_msg_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*Stop); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_msg_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Poison); i {
 			case 0:
 				return &v.state
@@ -118,7 +226,7 @@ func file_msg_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_msg_proto_rawDesc,
 			NumEnums:      0,
-			NumMessages:   1,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

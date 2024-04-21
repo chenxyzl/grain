@@ -5,25 +5,25 @@ import (
 	"log/slog"
 )
 
-//todo select a remoteStreamWrite
+var _ IActor = (*streamRouterActor)(nil)
 
 type streamRouterActor struct {
 	system *System
 	self   *ActorRef
 	//
-	logger  *slog.Logger
+	_logger *slog.Logger
 	streams *safemap.SafeMap[string, *ActorRef]
 }
 
-func (x *streamRouterActor) Logger() *slog.Logger {
-	return x.logger
+func (x *streamRouterActor) logger() *slog.Logger {
+	return x._logger
 }
 
-func (x *streamRouterActor) Start() error {
+func (x *streamRouterActor) start() error {
 	return nil
 }
 
-func (x *streamRouterActor) Stop() error {
+func (x *streamRouterActor) stop() error {
 	return nil
 }
 
