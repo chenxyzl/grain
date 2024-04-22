@@ -42,8 +42,7 @@ func (x *RPCService) Listen(server Remoting_ListenServer) error {
 }
 
 func (x *RPCService) mustEmbedUnimplementedRemotingServer() {
-	//TODO implement me
-	panic("implement me")
+	x.Logger().Info("mustEmbedUnimplementedRemotingServer")
 }
 
 func (x *RPCService) Start() error {

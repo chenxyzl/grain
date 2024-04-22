@@ -41,7 +41,7 @@ func (x *processorReply[T]) Result() (T, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), x.timeout)
 	defer func() {
 		cancel()
-		x.system.registry.Remove(x._self)
+		x.system.registry.remove(x._self)
 	}()
 
 	select {

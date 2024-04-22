@@ -1,7 +1,6 @@
 package actor
 
 import (
-	"log/slog"
 	"sync"
 )
 
@@ -18,17 +17,7 @@ func newRegistry(s *System) *Registry {
 	}
 }
 
-func (r *Registry) GetProcessor(id *ActorRef) iProcess {
-	proc := r.getByID(id.GetId())
-	if proc == nil {
-		//todo send to DeadLetter
-		slog.Error("get actor by id fail", "id", id.GetId())
-		return proc
-	}
-	return proc
-}
-
-func (r *Registry) Remove(id *ActorRef) {
+func (r *Registry) remove(id *ActorRef) {
 	//todo remove from provider
 	r.mu.Lock()
 	defer r.mu.Unlock()

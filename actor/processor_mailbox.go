@@ -44,7 +44,7 @@ func (p *processor) stop() error {
 	//stop mailbox
 	p.mailBox.stop()
 	//remove from registry
-	p.system.registry.Remove(p.self())
+	p.system.registry.remove(p.self())
 	//
 	return nil
 }

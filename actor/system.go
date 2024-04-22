@@ -93,17 +93,40 @@ func (x *System) SpawnNamed(p Producer, name string, opts ...OptFunc) *ActorRef 
 	//
 	if err := proc.start(); err != nil {
 		x.Logger().Info("spawn actor error.", "actor", proc.self(), "err", err)
-		x.registry.Remove(proc.self())
+		x.registry.remove(proc.self())
 		panic(err)
 	}
 	return proc.self()
 }
 
 func (x *System) sendToLocal(request *Envelope) {
-	id := request.GetTarget().GetId()
+	id := request.GetTarget().GetIdentifier()
 	proc := x.registry.getByID(id)
 	if proc == nil {
 		x.Logger().Error("get actor by id fail", "id", id, "msg_type", request.MsgType)
+		return
+	}
+	typ, err := protoregistry.GlobalTypes.FindMessageByName(protoreflect.FullName(request.MsgType))
+	if err != nil {
+		x.Logger().Error("unregister msg type", "msg_type", request.MsgType, "err", err)
+		return
+	}
+	msg := typ.New().Interface().(proto.Message)
+	err = proto.Unmarshal(request.Content, msg)
+	if err != nil {
+		x.Logger().Error("msg unmarshal err", "msg_type", request.MsgType, "err", err)
+		return
+	}
+	//build ctx
+	ctx := newContext(proc.self(), request.GetSender(), msg, context.Background())
+	proc.send(ctx)
+}
+
+func (x *System) sendToRemote(request *Envelope) {
+	routerId := x.router.GetIdentifier()
+	proc := x.registry.getByID(routerId)
+	if proc == nil {
+		x.Logger().Error("get actor by id fail", "id", routerId, "msg_type", request.MsgType)
 		return
 	}
 	typ, err := protoregistry.GlobalTypes.FindMessageByName(protoreflect.FullName(request.MsgType))
@@ -143,20 +166,25 @@ func (x *System) Send(target *ActorRef, msg proto.Message, senders ...*ActorRef)
 			x.Logger().Warn("sender must length 0 or 1", "senders", senders)
 		}
 	}
+	envelope := &Envelope{
+		Header:    nil,
+		Sender:    sender,
+		Target:    target,
+		RequestId: 0,
+		MsgType:   string(msg.ProtoReflect().Descriptor().FullName()),
+		Content:   content,
+	}
+
 	//send to local
 	if target.GetAddress() == x.clusterProvider.SelfAddr() {
-		x.sendToLocal(&Envelope{
-			Header:    nil,
-			Sender:    sender,
-			Target:    target,
-			RequestId: 0,
-			MsgType:   string(msg.ProtoReflect().Descriptor().FullName()),
-			Content:   content,
-		})
-		return
+		x.sendToLocal(envelope)
+	} else {
+		x.sendToRemote(envelope)
 	}
-	//send to remote
+}
 
+func (x *System) Poison(ref *ActorRef) {
+	x.Send(ref, Message.poison)
 }
 
 // Request
