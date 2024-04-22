@@ -8,6 +8,10 @@ message Start{}
 //Start --call Actor.Stop
 //Actor inner message
 message Stop{}
+//Poison -- call Actor.Poison
+//Poison target actor
+message Poison {}
 //StreamClosed -- when StreamWrite stopped
 //Actor inner message
 message StreamClosed{}
+

@@ -34,13 +34,13 @@ func (p *processor) start() error {
 	//create actor
 	p.receiver = p.Producer()
 	//send start to  actor
-	p.mailBox.send(newContext(p.self(), p.self(), Msg.start, p.Context))
+	p.mailBox.send(newContext(p.self(), p.self(), Message.start, p.Context))
 	return nil
 }
 
 func (p *processor) stop() error {
 	//send stop to actor
-	p.mailBox.send(newContext(p.self(), p.self(), Msg.stop, p.Context))
+	p.mailBox.send(newContext(p.self(), p.self(), Message.stop, p.Context))
 	//stop mailbox
 	p.mailBox.stop()
 	//remove from registry
@@ -69,6 +69,8 @@ func (p *processor) invoke(ctx IContext) {
 		if err != nil {
 			panic(err)
 		}
+	case *internal.Poison:
+		//todo deal all mailbox msg, add send stop to mailbox
 	default:
 		p.receiver.Receive(ctx)
 	}

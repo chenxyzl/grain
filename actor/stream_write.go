@@ -49,7 +49,7 @@ func (x *streamWriteActor) Started() error {
 			default: // DisconnectRequest
 				slog.Warn("remote stream got a msg form remote, but this stream only for write", "address", x.address, "msg", unknownMsg)
 			}
-			x.system.Send(x.Self(), Msg.Poison)
+			x.system.Send(x.Self(), Message.poison)
 		}
 	}()
 	return nil

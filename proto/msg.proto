@@ -1,8 +1,0 @@
-syntax = "proto3";
-package actor;
-option go_package = "github.com/chenxyzl/grain/actor";
-
-
-//PublicMsg -- call Actor.Stop
-//Poison target actor
-message Poison {}

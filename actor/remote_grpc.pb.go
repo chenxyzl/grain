@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.3.0
 // - protoc             v3.5.1
-// source: rpc.proto
+// source: remote.proto
 
 package actor
 
@@ -137,5 +137,5 @@ var Remoting_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "rpc.proto",
+	Metadata: "remote.proto",
 }

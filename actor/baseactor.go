@@ -11,10 +11,8 @@ type BaseActor struct {
 	logger *slog.Logger
 }
 
-func (x *BaseActor) Started() error { return nil }
-
-func (x *BaseActor) PreStop() error { return nil }
-
+func (x *BaseActor) Started() error       { return nil }
+func (x *BaseActor) PreStop() error       { return nil }
 func (x *BaseActor) Receive(ctx IContext) {}
 
 func (x *BaseActor) init(system *System, self *ActorRef, this IActor) {

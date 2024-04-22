@@ -31,11 +31,11 @@ func newProcessorReplay[T proto.Message](system *System, timeout time.Duration) 
 	}
 }
 
-func (x *processorReply[T]) self() *ActorRef      { return x._self }
-func (x *processorReply[T]) start() error         { return nil }
-func (x *processorReply[T]) stop() error          { return nil }
-func (x *processorReply[T]) receive(ctx IContext) { x.result <- ctx.Message().(T) }
-func (x *processorReply[T]) invoke(ctx IContext)  {}
+func (x *processorReply[T]) self() *ActorRef     { return x._self }
+func (x *processorReply[T]) start() error        { return nil }
+func (x *processorReply[T]) stop() error         { return nil }
+func (x *processorReply[T]) send(ctx IContext)   { x.result <- ctx.Message().(T); x.invoke(ctx) }
+func (x *processorReply[T]) invoke(ctx IContext) {}
 
 func (x *processorReply[T]) Result() (T, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), x.timeout)

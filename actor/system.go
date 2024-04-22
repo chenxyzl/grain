@@ -118,8 +118,8 @@ func (x *System) sendToLocal(request *Envelope) {
 		return
 	}
 	//build ctx
-	ctx := newContext(proc, request.GetSender(), msg, context.Background())
-	proc.receive(ctx)
+	ctx := newContext(proc.self(), request.GetSender(), msg, context.Background())
+	proc.send(ctx)
 }
 
 func (x *System) Send(target *ActorRef, msg proto.Message, senders ...*ActorRef) {
