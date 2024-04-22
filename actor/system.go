@@ -85,14 +85,15 @@ func (x *System) Spawn(p Producer, opts ...OptFunc) *ActorRef {
 func (x *System) SpawnNamed(p Producer, name string, opts ...OptFunc) *ActorRef {
 	//
 	opts = append(opts, withSelf(x.clusterProvider.SelfAddr(), name))
-	options := NewOpts(x, p, opts...)
+	options := NewOpts(p, opts...)
 	//
-	proc := newProcessor(x, options)
+	proc := newProcessor(options)
 	//
 	x.registry.add(proc)
 	//
 	if err := proc.start(); err != nil {
 		x.Logger().Info("spawn actor error.", "actor", proc.self(), "err", err)
+		x.registry.Remove(proc.self())
 		panic(err)
 	}
 	return proc.self()

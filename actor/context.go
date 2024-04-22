@@ -20,9 +20,9 @@ type Context struct {
 	context.Context
 }
 
-func newContext(self iProcess, sender *ActorRef, message proto.Message, ctx context.Context) *Context {
+func newContext(self *ActorRef, sender *ActorRef, message proto.Message, ctx context.Context) *Context {
 	return &Context{
-		self:    self.self(),
+		self:    self,
 		sender:  sender,
 		message: message,
 		Context: ctx,

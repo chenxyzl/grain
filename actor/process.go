@@ -7,6 +7,8 @@ type iProcess interface {
 	start() error //
 	//
 	stop() error
-	//
-	receive(ctx IContext) // add to mail box
+	// send to mail box
+	send(ctx IContext)
+	// for mailbox to
+	invoke(ctx IContext)
 }

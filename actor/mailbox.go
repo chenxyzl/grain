@@ -28,13 +28,15 @@ type MailBox struct {
 	procStatus int32
 }
 
-func NewMailBox(size int) *MailBox {
+func NewMailBox(size int, proc messageInvoker) *MailBox {
 	return &MailBox{
-		rb: ringbuffer.New[IContext](int64(size)),
+		rb:         ringbuffer.New[IContext](int64(size)),
+		proc:       proc,
+		procStatus: idle,
 	}
 }
 
-func (in *MailBox) Recv(msg IContext) {
+func (in *MailBox) send(msg IContext) {
 	in.rb.Push(msg)
 	in.schedule()
 }
@@ -66,10 +68,6 @@ func (in *MailBox) run() {
 	}
 }
 
-func (in *MailBox) Start(proc messageInvoker) {
-	in.proc = proc
-}
-
-func (in *MailBox) Stop() {
+func (in *MailBox) stop() {
 	atomic.StoreInt32(&in.procStatus, stopped)
 }

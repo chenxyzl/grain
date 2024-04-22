@@ -2,6 +2,7 @@ package actor
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"time"
 )
@@ -25,7 +26,7 @@ type Producer func() IActor
 type OptFunc func(*Opts)
 
 type Opts struct {
-	Actor        IActor
+	Producer     Producer
 	MailboxSize  int
 	Kind         string
 	MaxRestarts  int32
@@ -35,9 +36,9 @@ type Opts struct {
 }
 
 // NewOpts ...
-func NewOpts(system *System, p Producer, opts ...OptFunc) Opts {
+func NewOpts(p Producer, opts ...OptFunc) Opts {
 	ret := Opts{
-		Actor:        p(),
+		Producer:     p,
 		MailboxSize:  defaultMailboxSize,
 		Kind:         defaultKindName,
 		MaxRestarts:  defaultMaxRestarts,
@@ -47,7 +48,6 @@ func NewOpts(system *System, p Producer, opts ...OptFunc) Opts {
 	for _, opt := range opts {
 		opt(&ret)
 	}
-	ret.Actor.init(system, ret.Self, ret.Actor)
 	return ret
 }
 
@@ -78,6 +78,6 @@ func WithDefaultKindName(kindName string) OptFunc {
 }
 func withSelf(address string, name string) OptFunc {
 	return func(opts *Opts) {
-		opts.Self = NewActorRef(address, "/kinds/"+name)
+		opts.Self = NewActorRef(address, fmt.Sprintf("/kinds/%s/%s", opts.Kind, name))
 	}
 }
