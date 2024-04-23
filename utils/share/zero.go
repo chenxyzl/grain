@@ -1,4 +1,4 @@
-package fun
+package share
 
 //	func Zero[T any]() T {
 //		var a T

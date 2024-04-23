@@ -3,7 +3,7 @@ package actor
 import (
 	"context"
 	"github.com/chenxyzl/grain/actor/uuid"
-	"github.com/chenxyzl/grain/utils/fun"
+	"github.com/chenxyzl/grain/utils/share"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
@@ -24,7 +24,7 @@ func NewSystem[P Provider](config *Config) *System {
 	system := &System{}
 	system.logger = slog.With()
 	system.config = config
-	system.clusterProvider = fun.Zero[P]()
+	system.clusterProvider = share.Zero[P]()
 	system.registry = newRegistry(system)
 	return system
 }

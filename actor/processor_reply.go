@@ -3,7 +3,7 @@ package actor
 import (
 	"context"
 	"github.com/chenxyzl/grain/actor/uuid"
-	"github.com/chenxyzl/grain/utils/fun"
+	"github.com/chenxyzl/grain/utils/share"
 	"google.golang.org/protobuf/proto"
 	"log/slog"
 	"strconv"
@@ -48,6 +48,6 @@ func (x *processorReply[T]) Result() (T, error) {
 	case resp := <-x.result:
 		return resp, nil
 	case <-ctx.Done():
-		return fun.Zero[T](), ctx.Err()
+		return share.Zero[T](), ctx.Err()
 	}
 }
