@@ -16,7 +16,7 @@ message Envelope {
     uint64 requestId = 4;
     string msgName = 5;
     bytes content = 6;
-    string error = 7; //for reply error
+    string error = 7; //for reply error immediately? else waiting timeout too slow
 }
 service Remoting {
     rpc Listen (stream Envelope) returns (stream Envelope) {}

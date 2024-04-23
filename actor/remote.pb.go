@@ -80,7 +80,7 @@ type Envelope struct {
 	RequestId uint64            `protobuf:"varint,4,opt,name=requestId,proto3" json:"requestId,omitempty"`
 	MsgName   string            `protobuf:"bytes,5,opt,name=msgName,proto3" json:"msgName,omitempty"`
 	Content   []byte            `protobuf:"bytes,6,opt,name=content,proto3" json:"content,omitempty"`
-	Error     string            `protobuf:"bytes,7,opt,name=error,proto3" json:"error,omitempty"` //for reply error
+	Error     string            `protobuf:"bytes,7,opt,name=error,proto3" json:"error,omitempty"` //for reply error immediately? else waiting timeout too slow
 }
 
 func (x *Envelope) Reset() {
