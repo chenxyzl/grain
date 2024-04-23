@@ -49,7 +49,7 @@ func (x *ProviderEtcd) Start(system *System, config *Config) error {
 	}
 
 	//
-	config.state = NodeState{Address: rpcService.SelfAddr(), Time: time.Now(), Version: config.version}
+	config.state = NodeState{Address: rpcService.SelfAddr(), Time: time.Now().Format(time.DateTime), Version: config.version}
 	x.system = system
 	x.config = config
 	x.rpcService = rpcService

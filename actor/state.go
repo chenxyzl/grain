@@ -2,13 +2,12 @@ package actor
 
 import (
 	"net"
-	"time"
 )
 
 type NodeState struct {
 	NodeId  uint64
 	Address string
-	Time    time.Time
+	Time    string
 	Version string
 	Kinds   []string
 }
