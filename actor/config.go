@@ -8,6 +8,12 @@ import (
 	"time"
 )
 
+type KindProps struct {
+	kind     string
+	producer Producer
+	onInit   func(ctx IActor)
+}
+
 type Config struct {
 	name           string
 	requestTimeout time.Duration

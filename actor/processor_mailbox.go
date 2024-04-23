@@ -33,6 +33,7 @@ func (p *processor) self() *ActorRef {
 func (p *processor) start() error {
 	//create actor
 	p.receiver = p.Producer()
+	p.receiver._init(p.system, p.self(), p.receiver)
 	//send start to  actor
 	p.mailBox.send(newContext(p.self(), p.self(), Message.start, p.Context))
 	return nil
