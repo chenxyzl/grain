@@ -2,7 +2,6 @@ package main
 
 import (
 	"github.com/chenxyzl/grain/actor"
-	"github.com/chenxyzl/grain/utils/singal"
 )
 
 func main() {
@@ -17,9 +16,7 @@ func main() {
 	}
 	system.Logger().Warn("system started successfully")
 	//run wait
-	singal.WaitStopSignal(system.Logger())
+	system.WaitStopSignal()
 	//stop
-	system.Logger().Warn("system stopping")
-	system.Stop()
-	system.Logger().Warn("system stopped successfully")
+	system.Logger().Warn("system stopped")
 }

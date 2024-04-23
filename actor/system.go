@@ -8,7 +8,10 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"log/slog"
+	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 )
 
 type System struct {
@@ -18,6 +21,7 @@ type System struct {
 	registry        *Registry
 	clusterProvider Provider
 	router          *ActorRef
+	closeChan       chan bool
 }
 
 func NewSystem[P Provider](config *Config) *System {
@@ -26,6 +30,7 @@ func NewSystem[P Provider](config *Config) *System {
 	system.config = config
 	system.clusterProvider = helper.New[P]()
 	system.registry = newRegistry(system)
+	system.closeChan = make(chan bool, 1)
 	return system
 }
 
@@ -42,12 +47,25 @@ func (x *System) Start() error {
 	})
 	return nil
 }
+func (x *System) WaitStopSignal() {
+	// signal.Notify的ch信道是阻塞的(signal.Notify不会阻塞发送信号), 需要设置缓冲
+	signals := make(chan os.Signal, 1)
+	// It is not possible to block SIGKILL or syscall.SIGSTOP
+	signal.Notify(signals, syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGINT)
+	select {
+	case sig := <-signals:
+		x.Logger().Warn("system will exit by signal", "signal", sig.String())
+	case <-x.closeChan:
+		x.Logger().Warn("system will exit by closeChan")
+	}
+	//todo stop somethings
+}
 
 func (x *System) ClusterErr() {
 	if x == nil {
 		return
 	}
-	x.Logger().Error("cluster provider error.")
+	x.Logger().Error("cluster provider error. will stop system")
 	x.Stop()
 }
 
@@ -64,9 +82,7 @@ func (x *System) NodesChanged() {
 }
 
 func (x *System) Stop() {
-	if err := x.clusterProvider.Stop(); err != nil {
-		x.Logger().Error("cluster provider stop err.", "err", err)
-	}
+	x.closeChan <- true
 }
 
 func (x *System) GetConfig() *Config {
