@@ -3,7 +3,7 @@ package actor
 import (
 	"context"
 	"errors"
-	"github.com/chenxyzl/grain/utils/share"
+	"github.com/chenxyzl/grain/utils/helper"
 	"google.golang.org/grpc"
 	"io"
 	"log/slog"
@@ -24,16 +24,16 @@ func NewRpcServer(system *System) *RPCService {
 }
 
 func (x *RPCService) Listen(server Remoting_ListenServer) error {
-	defer share.Recover()
+	defer helper.Recover()
 	//save to
 	for {
 		msg, err := server.Recv()
 		if err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
-				slog.Info("Connection Closed")
+				x.Logger().Info("Connection Closed")
 				return nil
 			} else {
-				slog.Error("Read Failed, Close Connection", "err", err)
+				x.Logger().Error("Read Failed, Close Connection", "err", err)
 				return err
 			}
 		}

@@ -3,7 +3,7 @@ package actor
 import (
 	"context"
 	"github.com/chenxyzl/grain/actor/uuid"
-	"github.com/chenxyzl/grain/utils/share"
+	"github.com/chenxyzl/grain/utils/helper"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
@@ -24,18 +24,18 @@ func NewSystem[P Provider](config *Config) *System {
 	system := &System{}
 	system.logger = slog.With()
 	system.config = config
-	system.clusterProvider = share.New[P]()
+	system.clusterProvider = helper.New[P]()
 	system.registry = newRegistry(system)
 	return system
 }
 
 func (x *System) Start() error {
 	//register to cluster
-	if err := x.clusterProvider.Start(x, NodeState{}, x.config, x); err != nil {
+	if err := x.clusterProvider.Start(x, x.config); err != nil {
 		return err
 	}
 	//overwrite logger
-	x.logger = slog.With("system", x.clusterProvider.SelfAddr())
+	x.logger = slog.With("system", x.clusterProvider.SelfAddr(), "node", x.config.state.NodeId)
 	//create router
 	x.router = x.Spawn(func() IActor {
 		return newStreamRouter(NewActorRef(x.clusterProvider.SelfAddr(), "stream_router"), x)
@@ -44,7 +44,10 @@ func (x *System) Start() error {
 }
 
 func (x *System) ClusterErr() {
-	slog.Error("cluster provider error.")
+	if x == nil {
+		return
+	}
+	x.Logger().Error("cluster provider error.")
 	x.Stop()
 }
 
@@ -53,7 +56,7 @@ func (x *System) InitGlobalUuid(nodeId uint64) {
 	if err := uuid.Init(nodeId); err != nil {
 		panic(err)
 	}
-	slog.Warn("uuid init success", "nodeId", nodeId)
+	x.Logger().Warn("uuid init success", "nodeId", nodeId)
 }
 
 func (x *System) NodesChanged() {

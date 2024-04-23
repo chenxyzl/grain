@@ -3,7 +3,6 @@ package actor
 import (
 	"github.com/chenxyzl/grain/actor/internal"
 	"github.com/chenxyzl/grain/utils/al/safemap"
-	"log/slog"
 )
 
 var _ IActor = (*streamRouterActor)(nil)
@@ -21,7 +20,7 @@ func (x *streamRouterActor) Receive(ctx IContext) {
 	case *internal.StreamClosed:
 		x.streamClosed(ctx.Sender())
 	default:
-		slog.Error("unknown message")
+		x.Logger().Error("unknown message")
 	}
 }
 

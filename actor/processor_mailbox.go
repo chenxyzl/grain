@@ -3,7 +3,7 @@ package actor
 import (
 	"fmt"
 	"github.com/chenxyzl/grain/actor/internal"
-	"github.com/chenxyzl/grain/utils/share"
+	"github.com/chenxyzl/grain/utils/helper"
 )
 
 type processor struct {
@@ -54,7 +54,7 @@ func (p *processor) send(ctx IContext) {
 }
 
 func (p *processor) invoke(ctx IContext) {
-	defer share.RecoverInfo(fmt.Sprintf("actor receive panic, id:%v ", p.self()), p.system.Logger())
+	defer helper.RecoverInfo(fmt.Sprintf("actor receive panic, id:%v ", p.self()), p.system.Logger())
 	//todo restart ?
 	//todo actor life?
 

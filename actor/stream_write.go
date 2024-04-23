@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"google.golang.org/grpc"
 	"io"
-	"log/slog"
 )
 
 //send msg to remote rpcServer
@@ -52,11 +51,11 @@ func (x *streamWriteActor) Started() error {
 			unknownMsg, err := stream.Recv()
 			switch {
 			case errors.Is(err, io.EOF):
-				slog.Info("remote stream closed", "address", x.address)
+				x.Logger().Info("remote stream closed", "address", x.address)
 			case err != nil:
-				slog.Error("remote stream lost connection", "address", x.address, "error", err)
+				x.Logger().Error("remote stream lost connection", "address", x.address, "error", err)
 			default: // DisconnectRequest
-				slog.Warn("remote stream got a msg form remote, but this stream only for write", "address", x.address, "msg", unknownMsg)
+				x.Logger().Warn("remote stream got a msg form remote, but this stream only for write", "address", x.address, "msg", unknownMsg)
 			}
 			x.system.Send(x.Self(), Message.poison)
 		}

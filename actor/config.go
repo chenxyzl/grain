@@ -18,6 +18,7 @@ type Config struct {
 	addr           net.Addr
 	remoteUrls     []string
 	version        string
+	state          NodeState
 }
 
 func NewConfig(clusterName string, version string, remoteUrls []string) *Config {

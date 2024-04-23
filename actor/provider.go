@@ -10,7 +10,7 @@ type Provider interface {
 	//
 	SelfAddr() string
 	//life
-	Start(system *System, state NodeState, config *Config, listener ProviderListener) error
+	Start(system *System, config *Config) error
 	Stop() error
 	//node
 	GetNodesByKind(kind string) []NodeState

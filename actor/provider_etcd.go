@@ -11,13 +11,13 @@ import (
 )
 
 var _ Provider = (*ProviderEtcd)(nil)
+var _ ProviderListener = (*System)(nil)
 
 const dialTimeoutTime = time.Second * 10
 const ttlTime = 10
 
 type ProviderEtcd struct {
 	//
-	state  NodeState
 	system *System
 	config *Config
 	//
@@ -27,7 +27,6 @@ type ProviderEtcd struct {
 	client     *clientv3.Client
 	leaseId    clientv3.LeaseID
 	cancelFunc context.CancelFunc
-	listener   ProviderListener
 
 	//self rpc
 	selfAddr   string
@@ -42,20 +41,17 @@ func (x *ProviderEtcd) Address() string {
 	return x.selfAddr
 }
 
-func (x *ProviderEtcd) Start(system *System, state NodeState, config *Config, listener ProviderListener) error {
+func (x *ProviderEtcd) Start(system *System, config *Config) error {
 	rpcService := NewRpcServer(system)
 	//start grpc
 	if err := rpcService.Start(); err != nil {
 		return err
 	}
-	state.Address = rpcService.SelfAddr()
-	state.Time = time.Now()
-	state.Version = config.version
+
 	//
+	config.state = NodeState{Address: rpcService.SelfAddr(), Time: time.Now(), Version: config.version}
 	x.system = system
-	x.state = state
 	x.config = config
-	x.listener = listener
 	x.rpcService = rpcService
 	x.selfAddr = rpcService.SelfAddr()
 	x.logger = slog.With("ProviderEtcd", x.selfAddr)
@@ -90,8 +86,8 @@ func (x *ProviderEtcd) Start(system *System, state NodeState, config *Config, li
 			case _, ok := <-keepAliveChan:
 				if !ok {
 					x.Logger().Warn("lease expired or KeepAlive channel closed")
-					if x.listener != nil {
-						x.listener.ClusterErr()
+					if x.system != nil {
+						x.system.ClusterErr()
 					}
 					return
 				}
@@ -101,11 +97,17 @@ func (x *ProviderEtcd) Start(system *System, state NodeState, config *Config, li
 	return nil
 }
 func (x *ProviderEtcd) Stop() error {
-	x.listener = nil
-	err := x.client.Close()
-	if err != nil {
-		x.Logger().Info("cluster provider etcd stopped with err.", "err", err)
-		return err
+	if x.leaseId != 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), dialTimeoutTime)
+		defer cancel()
+		if _, err := x.client.Revoke(ctx, x.leaseId); err != nil {
+			x.Logger().Info("cluster provider etcd stopped with err.", "err", err)
+		}
+	}
+	if x.client != nil {
+		if err := x.client.Close(); err != nil {
+			x.Logger().Info("cluster provider etcd stopped with err.", "err", err)
+		}
 	}
 	x.Logger().Info("cluster provider etcd stopped")
 	return nil
@@ -128,14 +130,15 @@ func (x *ProviderEtcd) UnregisterActor(state ActorState) {
 func (x *ProviderEtcd) register() error {
 	for id := uint64(1); id <= uuid.MaxNodeMax(); id++ {
 		key := x.config.GetMemberPath(id)
-		x.state.NodeId = id
+		x.config.state.NodeId = id
 		//
-		if !x.set(key, x.state) {
+		if !x.set(key, x.config.state) {
 			continue
 		}
-		x.listener.InitGlobalUuid(id)
+		x.logger = x.logger.With("node", id)
+		x.system.InitGlobalUuid(id)
 		//
-		x.Logger().Info("register node to etcd success", "key", key, "val", x.state)
+		x.Logger().Info("register node to etcd success", "key", key, "val", x.config.state)
 		return nil
 	}
 	return errors.New("register node to etcd error")

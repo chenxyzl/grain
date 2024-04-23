@@ -1,7 +1,7 @@
 package singal
 
 import (
-	"github.com/chenxyzl/grain/utils/share"
+	"github.com/chenxyzl/grain/utils/helper"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -9,7 +9,7 @@ import (
 )
 
 func callFuncSlice(fs []func()) {
-	defer share.Recover()
+	defer helper.Recover()
 	for _, f := range fs {
 		if f != nil {
 			f()
