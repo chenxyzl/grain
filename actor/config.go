@@ -17,10 +17,11 @@ type Config struct {
 	running        bool
 	addr           net.Addr
 	remoteUrls     []string
+	version        string
 }
 
-func NewConfig(clusterName string, remoteUrls []string) *Config {
-	return &Config{name: clusterName, kinds: make(map[string]Producer), remoteUrls: remoteUrls}
+func NewConfig(clusterName string, version string, remoteUrls []string) *Config {
+	return &Config{name: clusterName, kinds: make(map[string]Producer), remoteUrls: remoteUrls, version: version}
 }
 func (x *Config) WithRequestTimeout(d time.Duration) *Config {
 	x.requestTimeout = d

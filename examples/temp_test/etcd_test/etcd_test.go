@@ -13,7 +13,7 @@ import (
 
 var incKey int64 = 100000
 
-const ttlTime = 100 //ttl的单位都是秒 =
+const ttlTime = 10 //ttl的单位都是秒 =
 
 func TestEtcdIfCreate(t *testing.T) {
 	// 假设你已经有了一个etcd客户端cli

@@ -25,7 +25,7 @@ func WaitStopSignal(logger *slog.Logger, beforeFunc ...func()) {
 Quit:
 	for {
 		sig := <-signals
-		logger.Warn("get signal %s", sig.String())
+		logger.Warn("get signal", "signal", sig.String())
 		//
 		switch sig {
 		case syscall.SIGHUP:

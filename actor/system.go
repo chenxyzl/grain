@@ -24,7 +24,7 @@ func NewSystem[P Provider](config *Config) *System {
 	system := &System{}
 	system.logger = slog.With()
 	system.config = config
-	system.clusterProvider = share.Zero[P]()
+	system.clusterProvider = share.New[P]()
 	system.registry = newRegistry(system)
 	return system
 }
@@ -53,7 +53,7 @@ func (x *System) InitGlobalUuid(nodeId uint64) {
 	if err := uuid.Init(nodeId); err != nil {
 		panic(err)
 	}
-	slog.Warn("uuid init success.", "nodeId", nodeId)
+	slog.Warn("uuid init success", "nodeId", nodeId)
 }
 
 func (x *System) NodesChanged() {

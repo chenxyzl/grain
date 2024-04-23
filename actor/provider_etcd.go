@@ -7,10 +7,12 @@ import (
 	"github.com/chenxyzl/grain/actor/uuid"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"log/slog"
+	"time"
 )
 
 var _ Provider = (*ProviderEtcd)(nil)
 
+const dialTimeoutTime = time.Second * 10
 const ttlTime = 10
 
 type ProviderEtcd struct {
@@ -46,13 +48,19 @@ func (x *ProviderEtcd) Start(system *System, state NodeState, config *Config, li
 	if err := rpcService.Start(); err != nil {
 		return err
 	}
+	state.Address = rpcService.SelfAddr()
+	state.Time = time.Now()
+	state.Version = config.version
+	//
+	x.system = system
 	x.state = state
+	x.config = config
+	x.listener = listener
 	x.rpcService = rpcService
 	x.selfAddr = rpcService.SelfAddr()
 	x.logger = slog.With("ProviderEtcd", x.selfAddr)
-	x.listener = listener
 	//etcdClient
-	etcdClient, err := clientv3.New(clientv3.Config{Endpoints: config.GetRemoteUrls(), DialTimeout: ttlTime})
+	etcdClient, err := clientv3.New(clientv3.Config{Endpoints: config.GetRemoteUrls(), DialTimeout: dialTimeoutTime})
 	if err != nil {
 		return fmt.Errorf("cannot connect to etcd:%v|err:%v", config.GetRemoteUrls(), err)
 	}
@@ -120,6 +128,7 @@ func (x *ProviderEtcd) UnregisterActor(state ActorState) {
 func (x *ProviderEtcd) register() error {
 	for id := uint64(1); id <= uuid.MaxNodeMax(); id++ {
 		key := x.config.GetMemberPath(id)
+		x.state.NodeId = id
 		//
 		if !x.set(key, x.state) {
 			continue

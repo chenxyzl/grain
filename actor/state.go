@@ -7,7 +7,7 @@ import (
 
 type NodeState struct {
 	NodeId  uint64
-	Address net.Addr
+	Address string
 	Time    time.Time
 	Version string
 	Kinds   []string

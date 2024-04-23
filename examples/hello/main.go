@@ -7,7 +7,7 @@ import (
 
 func main() {
 	//config
-	config := actor.NewConfig("hello", []string{"127.0.0.1:2379"})
+	config := actor.NewConfig("hello", "0.0.1", []string{"127.0.0.1:2379"})
 	//new
 	system := actor.NewSystem[*actor.ProviderEtcd](config)
 	//start
