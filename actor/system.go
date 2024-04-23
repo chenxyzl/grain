@@ -106,18 +106,18 @@ func (x *System) sendToLocal(request *Envelope) {
 	id := request.GetTarget().GetIdentifier()
 	proc := x.registry.getByID(id)
 	if proc == nil {
-		x.Logger().Error("get actor by id fail", "id", id, "msg_type", request.MsgType)
+		x.Logger().Error("get actor by id fail", "id", id, "msgName", request.MsgName)
 		return
 	}
-	typ, err := protoregistry.GlobalTypes.FindMessageByName(protoreflect.FullName(request.MsgType))
+	typ, err := protoregistry.GlobalTypes.FindMessageByName(protoreflect.FullName(request.MsgName))
 	if err != nil {
-		x.Logger().Error("unregister msg type", "msg_type", request.MsgType, "err", err)
+		x.Logger().Error("unregister msg type", "msgName", request.MsgName, "err", err)
 		return
 	}
 	msg := typ.New().Interface().(proto.Message)
 	err = proto.Unmarshal(request.Content, msg)
 	if err != nil {
-		x.Logger().Error("msg unmarshal err", "msg_type", request.MsgType, "err", err)
+		x.Logger().Error("msg unmarshal err", "msgName", request.MsgName, "err", err)
 		return
 	}
 	//build ctx
@@ -129,18 +129,18 @@ func (x *System) sendToRemote(request *Envelope) {
 	routerId := x.router.GetIdentifier()
 	proc := x.registry.getByID(routerId)
 	if proc == nil {
-		x.Logger().Error("get actor by id fail", "id", routerId, "msg_type", request.MsgType)
+		x.Logger().Error("get actor by id fail", "id", routerId, "msgName", request.MsgName)
 		return
 	}
-	typ, err := protoregistry.GlobalTypes.FindMessageByName(protoreflect.FullName(request.MsgType))
+	typ, err := protoregistry.GlobalTypes.FindMessageByName(protoreflect.FullName(request.MsgName))
 	if err != nil {
-		x.Logger().Error("unregister msg type", "msg_type", request.MsgType, "err", err)
+		x.Logger().Error("unregister msg type", "msgName", request.MsgName, "err", err)
 		return
 	}
 	msg := typ.New().Interface().(proto.Message)
 	err = proto.Unmarshal(request.Content, msg)
 	if err != nil {
-		x.Logger().Error("msg unmarshal err", "msg_type", request.MsgType, "err", err)
+		x.Logger().Error("msg unmarshal err", "msgName", request.MsgName, "err", err)
 		return
 	}
 	//build ctx
@@ -174,7 +174,7 @@ func (x *System) Send(target *ActorRef, msg proto.Message, senders ...*ActorRef)
 		Sender:    sender,
 		Target:    target,
 		RequestId: 0,
-		MsgType:   string(msg.ProtoReflect().Descriptor().FullName()),
+		MsgName:   string(msg.ProtoReflect().Descriptor().FullName()),
 		Content:   content,
 	}
 
