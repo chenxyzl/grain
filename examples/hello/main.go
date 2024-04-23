@@ -2,11 +2,20 @@ package main
 
 import (
 	"github.com/chenxyzl/grain/actor"
-	petcd "github.com/chenxyzl/grain/actor/provider/etcd"
+	"github.com/chenxyzl/grain/utils/singal"
 )
 
 func main() {
+	//config
 	config := actor.NewConfig("hello", []string{"127.0.0.1:2379"})
-	system := actor.NewSystem[*petcd.ClusterProviderEtcd](config)
-	_ = system
+	//new
+	system := actor.NewSystem[*actor.ProviderEtcd](config)
+	//start
+	if err := system.Start(); err != nil {
+		panic(err)
+	}
+	//run wait
+	singal.WaitStopSignal(system.Logger())
+	//stop
+	system.Stop()
 }
