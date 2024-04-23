@@ -85,7 +85,7 @@ func (x *ProviderEtcd) Start(system *System, config *Config) error {
 			select {
 			case _, ok := <-keepAliveChan:
 				if ok {
-					x.Logger().Info("etcd alive")
+					//x.Logger().Info("etcd alive")
 				} else {
 					x.Logger().Warn("lease expired or KeepAlive channel closed")
 					if x.system != nil {
