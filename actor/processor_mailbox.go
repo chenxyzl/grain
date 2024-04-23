@@ -3,7 +3,7 @@ package actor
 import (
 	"fmt"
 	"github.com/chenxyzl/grain/actor/internal"
-	share "github.com/chenxyzl/grain/utils/helper"
+	"github.com/chenxyzl/grain/utils/share"
 )
 
 type processor struct {

@@ -3,7 +3,7 @@ package actor
 import (
 	"context"
 	"errors"
-	share "github.com/chenxyzl/grain/utils/helper"
+	"github.com/chenxyzl/grain/utils/share"
 	"google.golang.org/grpc"
 	"io"
 	"log/slog"
