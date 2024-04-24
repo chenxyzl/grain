@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"github.com/chenxyzl/grain/actor"
 	"github.com/chenxyzl/grain/examples/testpb"
 	"github.com/chenxyzl/grain/utils/helper"
@@ -25,11 +24,13 @@ func (x *HelloGoActor) Receive(context actor.IContext) {
 	switch msg := context.Message().(type) {
 	case *testpb.Hello:
 		{
-			x.Logger().Info(fmt.Sprintf("tell: %v", msg.GetName()))
+			_ = msg
+			//x.Logger().Info(fmt.Sprintf("tell: %v", msg.GetName()))
 		}
 	case *testpb.HelloRequest:
 		{
-			x.Logger().Info(fmt.Sprintf("request: %v", msg.GetName()))
+			_ = msg
+			//x.Logger().Info(fmt.Sprintf("request: %v", msg.GetName()))
 			x.System().Send(context.Sender(), &testpb.HelloReply{Name: "hell go reply"})
 		}
 	default:
