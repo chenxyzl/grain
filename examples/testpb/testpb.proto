@@ -1,0 +1,13 @@
+syntax = "proto3";
+package testpb;
+option go_package = "github.com/chenxyzl/grain/examples/testpb";
+
+message Hello{
+    string name = 1;
+}
+message HelloRequest{
+    string name = 1;
+}
+message HelloReply{
+    string name = 1;
+}

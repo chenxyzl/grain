@@ -209,9 +209,16 @@ func (x *System) Poison(ref *ActorRef) {
 // Request
 // wanted system.Request[T proto.Message](target *ActorRef, req proto.Message) T
 // but golang not support
-func Request[T proto.Message](system *System, target *ActorRef, req proto.Message) {
+func Request[T proto.Message](system *System, target *ActorRef, req proto.Message) T {
 	reply := newProcessorReplay[T](system, system.GetConfig().requestTimeout)
 	system.registry.add(reply)
+	system.Send(target, req)
+	ret, err := reply.Result()
+	if err != nil {
+		system.Logger().Error("request result err", "target", target, "err", err)
+		return helper.Zero[T]()
+	}
+	return ret
 }
 
 // Send api like Request
