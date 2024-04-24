@@ -212,7 +212,7 @@ func (x *System) Poison(ref *ActorRef) {
 func Request[T proto.Message](system *System, target *ActorRef, req proto.Message) T {
 	reply := newProcessorReplay[T](system, system.GetConfig().requestTimeout)
 	system.registry.add(reply)
-	system.Send(target, req)
+	system.Send(target, req, reply.self())
 	ret, err := reply.Result()
 	if err != nil {
 		system.Logger().Error("request result err", "target", target, "err", err)
