@@ -2,9 +2,12 @@ package main
 
 import (
 	"github.com/chenxyzl/grain/actor"
+	"github.com/chenxyzl/grain/utils/helper"
 )
 
 func main() {
+	//log
+	helper.InitLog("./test.log")
 	//config
 	config := actor.NewConfig("hello", "0.0.1", []string{"127.0.0.1:2379"})
 	//new

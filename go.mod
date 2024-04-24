@@ -8,6 +8,7 @@ require (
 	go.etcd.io/etcd/client/v3 v3.5.13
 	google.golang.org/grpc v1.59.0
 	google.golang.org/protobuf v1.33.0
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
 
 require (
