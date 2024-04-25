@@ -1,6 +1,7 @@
 package actor
 
 import (
+	"context"
 	"sync"
 )
 
@@ -17,36 +18,31 @@ func newRegistry(s *System) *Registry {
 	}
 }
 
-func (r *Registry) remove(id *ActorRef) {
-	//todo remove from provider
+func (r *Registry) remove(actRef *ActorRef) {
+	//todo  cluster provider
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	delete(r.lookup, id.GetId())
+	delete(r.lookup, actRef.GetId())
 }
 
-func (r *Registry) get(ref *ActorRef) iProcess {
+func (r *Registry) get(actRef *ActorRef) iProcess {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if proc, ok := r.lookup[ref.GetId()]; ok {
+	if proc, ok := r.lookup[actRef.GetId()]; ok {
 		return proc
 	}
 	return nil
 }
 
-func (r *Registry) getByID(id string) iProcess {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.lookup[id]
-}
-
 func (r *Registry) add(proc iProcess) iProcess {
-	//todo register to provider
+	//todo  cluster provider
 	r.mu.Lock()
-	id := proc.self().GetIdentifier()
+	id := proc.self().GetId()
 	if old, ok := r.lookup[id]; ok {
 		r.mu.Unlock()
+		//force to stop old proc
+		old.send(newContext(proc.self(), nil, Message.poison, context.Background()))
 		r.system.Logger().Error("duplicated process id, ignore add", "id", id)
-		return old
 	}
 	r.lookup[id] = proc
 	r.mu.Unlock()

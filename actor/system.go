@@ -119,10 +119,9 @@ func (x *System) SpawnNamed(p Producer, name string, opts ...OptFunc) *ActorRef 
 }
 
 func (x *System) sendToLocal(request *Envelope) {
-	id := request.GetTarget().GetIdentifier()
-	proc := x.registry.getByID(id)
+	proc := x.registry.get(request.GetTarget())
 	if proc == nil {
-		x.Logger().Error("get actor by id fail", "id", id, "msgName", request.MsgName)
+		x.Logger().Error("get actor failed", "actor", request.GetTarget(), "msgName", request.MsgName)
 		return
 	}
 	typ, err := protoregistry.GlobalTypes.FindMessageByName(protoreflect.FullName(request.MsgName))
@@ -142,10 +141,9 @@ func (x *System) sendToLocal(request *Envelope) {
 }
 
 func (x *System) sendToRemote(request *Envelope) {
-	routerId := x.router.GetIdentifier()
-	proc := x.registry.getByID(routerId)
+	proc := x.registry.get(x.router)
 	if proc == nil {
-		x.Logger().Error("get actor by id fail", "id", routerId, "msgName", request.MsgName)
+		x.Logger().Error("get router failed", "router", x.router, "msgName", request.MsgName)
 		return
 	}
 	typ, err := protoregistry.GlobalTypes.FindMessageByName(protoreflect.FullName(request.MsgName))
@@ -193,7 +191,6 @@ func (x *System) Send(target *ActorRef, msg proto.Message, senders ...*ActorRef)
 		MsgName:   string(msg.ProtoReflect().Descriptor().FullName()),
 		Content:   content,
 	}
-
 	//send to local
 	if target.GetAddress() == x.clusterProvider.SelfAddr() {
 		x.sendToLocal(envelope)
@@ -215,13 +212,28 @@ func Request[T proto.Message](system *System, target *ActorRef, req proto.Messag
 	system.Send(target, req, reply.self())
 	ret, err := reply.Result()
 	if err != nil {
-		system.Logger().Error("request result err", "target", target, "err", err)
+		system.Logger().Error("request result err", "target", target, "reply", reply.self(), "err", err)
 		return helper.Zero[T]()
 	}
 	return ret
 }
 
-// Send api like Request
-func Send(system *System, target *ActorRef, msg proto.Message) {
-	system.Send(target, msg)
+// for test
+
+func RequestTest[T proto.Message](system *System, target *ActorRef, req proto.Message) T {
+	reply := newProcessorReplay[T](system, system.GetConfig().requestTimeout)
+	system.registry.add(reply)
+	system.Send(target, req, reply.self())
+	return helper.New[T]()
+}
+
+func RequestTest1[T proto.Message](system *System, target *ActorRef, req proto.Message) T {
+	reply := newProcessorReplay[T](system, system.GetConfig().requestTimeout)
+	system.registry.add(reply)
+	return helper.New[T]()
+}
+func RequestTest2[T proto.Message](system *System, target *ActorRef, req proto.Message) T {
+	reply := newProcessorReplay[T](system, system.GetConfig().requestTimeout)
+	_ = reply
+	return helper.New[T]()
 }

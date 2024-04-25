@@ -5,7 +5,6 @@ import (
 	"github.com/chenxyzl/grain/actor/uuid"
 	"github.com/chenxyzl/grain/utils/helper"
 	"google.golang.org/protobuf/proto"
-	"log/slog"
 	"strconv"
 	"time"
 )
@@ -13,7 +12,6 @@ import (
 var _ iProcess = (*processorReply[proto.Message])(nil)
 
 type processorReply[T proto.Message] struct {
-	slog    *slog.Logger
 	system  *System
 	_self   *ActorRef
 	result  chan T
@@ -27,7 +25,6 @@ func newProcessorReplay[T proto.Message](system *System, timeout time.Duration) 
 		_self:   self,
 		result:  make(chan T, 1),
 		timeout: timeout,
-		slog:    slog.With("reply", self),
 	}
 }
 
@@ -48,6 +45,7 @@ func (x *processorReply[T]) Result() (T, error) {
 	case resp := <-x.result:
 		return resp, nil
 	case <-ctx.Done():
+		x.system.Logger().Error("reply result timeout", "reply", x.self())
 		return helper.Zero[T](), ctx.Err()
 	}
 }
