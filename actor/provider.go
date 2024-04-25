@@ -1,5 +1,7 @@
 package actor
 
+import "reflect"
+
 type ProviderListener interface {
 	ClusterErr()
 	InitGlobalUuid(nodeId uint64)
@@ -17,4 +19,10 @@ type Provider interface {
 	//actor
 	RegisterActor(state ActorState) error
 	UnregisterActor(state ActorState)
+}
+
+func newProvider[T Provider]() T {
+	var a T
+	var t = reflect.TypeOf(a)
+	return reflect.New(t.Elem()).Interface().(T)
 }

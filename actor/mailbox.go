@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	defaultThroughput = 10
+	defaultThroughput = 100
 )
 
 const (

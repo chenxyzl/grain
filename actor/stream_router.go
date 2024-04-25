@@ -26,7 +26,7 @@ func (x *streamRouterActor) Receive(ctx IContext) {
 
 func newStreamRouter(self *ActorRef, system *System) IActor {
 	return &streamRouterActor{
-		streams: safemap.New[string, *ActorRef](),
+		streams: safemap.NewM[string, *ActorRef](),
 	}
 }
 

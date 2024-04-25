@@ -26,9 +26,9 @@ type System struct {
 
 func NewSystem[P Provider](config *Config) *System {
 	system := &System{}
-	system.logger = slog.With()
+	system.logger = slog.Default()
 	system.config = config
-	system.clusterProvider = helper.New[P]()
+	system.clusterProvider = newProvider[P]()
 	system.registry = newRegistry(system)
 	system.closeChan = make(chan bool, 1)
 	return system
@@ -216,24 +216,4 @@ func Request[T proto.Message](system *System, target *ActorRef, req proto.Messag
 		return helper.Zero[T]()
 	}
 	return ret
-}
-
-// for test
-
-func RequestTest[T proto.Message](system *System, target *ActorRef, req proto.Message) T {
-	reply := newProcessorReplay[T](system, system.GetConfig().requestTimeout)
-	system.registry.add(reply)
-	system.Send(target, req, reply.self())
-	return helper.New[T]()
-}
-
-func RequestTest1[T proto.Message](system *System, target *ActorRef, req proto.Message) T {
-	reply := newProcessorReplay[T](system, system.GetConfig().requestTimeout)
-	system.registry.add(reply)
-	return helper.New[T]()
-}
-func RequestTest2[T proto.Message](system *System, target *ActorRef, req proto.Message) T {
-	reply := newProcessorReplay[T](system, system.GetConfig().requestTimeout)
-	_ = reply
-	return helper.New[T]()
 }

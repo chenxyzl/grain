@@ -31,7 +31,9 @@ func (x *HelloGoActor) Receive(context actor.IContext) {
 		{
 			_ = msg
 			//x.Logger().Info(fmt.Sprintf("request: %v", msg.GetName()))
-			x.System().Send(context.Sender(), &testpb.HelloReply{Name: "hell go reply"})
+			if context.Sender() != nil {
+				x.System().Send(context.Sender(), &testpb.HelloReply{Name: "hell go reply"})
+			}
 		}
 	default:
 		x.Logger().Error("xxx")

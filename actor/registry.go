@@ -2,49 +2,38 @@ package actor
 
 import (
 	"context"
-	"sync"
+	"github.com/chenxyzl/grain/utils/al/safemap"
 )
 
 type Registry struct {
-	mu     sync.RWMutex
-	lookup map[string]iProcess
+	lookup safemap.ConcurrentMap[string, iProcess]
 	system *System
 }
 
 func newRegistry(s *System) *Registry {
 	return &Registry{
-		lookup: make(map[string]iProcess, 1024),
+		lookup: safemap.NewStringC[iProcess](),
 		system: s,
 	}
 }
 
 func (r *Registry) remove(actRef *ActorRef) {
 	//todo  cluster provider
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	delete(r.lookup, actRef.GetId())
+	r.lookup.Remove(actRef.GetId())
 }
 
 func (r *Registry) get(actRef *ActorRef) iProcess {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if proc, ok := r.lookup[actRef.GetId()]; ok {
-		return proc
-	}
-	return nil
+	proc, _ := r.lookup.Get(actRef.GetId())
+	return proc
 }
 
 func (r *Registry) add(proc iProcess) iProcess {
 	//todo  cluster provider
-	r.mu.Lock()
 	id := proc.self().GetId()
-	if old, ok := r.lookup[id]; ok {
-		r.mu.Unlock()
+	if old, ok := r.lookup.Set(id, proc); ok {
 		//force to stop old proc
 		old.send(newContext(proc.self(), nil, Message.poison, context.Background()))
-		r.system.Logger().Error("duplicated process id, ignore add", "id", id)
+		r.system.Logger().Error("duplicated process id, force poison old processor", "id", id)
 	}
-	r.lookup[id] = proc
-	r.mu.Unlock()
 	return proc
 }
