@@ -3,7 +3,7 @@ package safemap
 import (
 	"encoding/json"
 	"fmt"
-	"math"
+	"strconv"
 	"sync"
 )
 
@@ -353,7 +353,15 @@ func stringFnv32(key string) uint32 {
 }
 
 func intFnv32[K int | uint | int32 | uint32 | int64 | uint64](key K) uint32 {
-	return uint32(uint64(key) % uint64(math.MaxUint32))
+	hash := uint32(2166136261)
+	const prime32 = uint32(16777619)
+	sk := strconv.Itoa(int(key))
+	keyLength := len(sk)
+	for i := 0; i < keyLength; i++ {
+		hash *= prime32
+		hash ^= uint32(sk[i])
+	}
+	return hash
 }
 
 // Reverse process of Marshal.

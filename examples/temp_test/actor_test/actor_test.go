@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"github.com/chenxyzl/grain/actor"
 	"github.com/chenxyzl/grain/examples/testpb"
-	"github.com/chenxyzl/grain/utils/al/safemap"
 	"github.com/chenxyzl/grain/utils/helper"
 	"google.golang.org/protobuf/proto"
 	"log/slog"
@@ -20,9 +19,6 @@ var (
 	idx            int64 = 0
 	parallelism          = 100
 	body                 = "123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_"
-	testMap              = safemap.NewM[string, string]()
-	testStringMap        = safemap.NewStringC[string]()
-	testIntMap           = safemap.NewIntC[int, string]()
 	helloRequest         = &testpb.HelloRequest{Name: body}
 	requestTimeout       = time.Second * 1
 )
@@ -82,9 +78,6 @@ func init() {
 	for i := int64(0); i < maxIdx; i++ {
 		actorRef := testSystem.system.Spawn(func() actor.IActor { return &HelloGoActor{} })
 		testSystem.actors = append(testSystem.actors, actorRef)
-		testMap.Set(actorRef.GetId(), actorRef.GetId())
-		testStringMap.Set(actorRef.GetId(), actorRef.GetId())
-		testIntMap.Set(int(i), actorRef.GetId())
 	}
 
 	n := runtime.NumCPU()
@@ -165,136 +158,6 @@ func BenchmarkMarshal(b *testing.B) {
 			//marshal
 			content, _ := proto.Marshal(helloRequest)
 			_ = proto.Unmarshal(content, msg)
-		}
-	})
-}
-
-func BenchmarkSafeMap1(b *testing.B) {
-	b.ResetTimer()
-	// 限制并发数
-	b.SetParallelism(parallelism)
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			v := atomic.AddInt64(&idx, 1) % maxIdx
-			//
-			actorRef := testSystem.actors[v]
-			testMap.Get(actorRef.GetId())
-			//testMap.Set(actorRef.GetId(), actorRef.GetId())
-			//testMap.Get(actorRef.GetId())
-		}
-	})
-}
-func BenchmarkSafeMap2(b *testing.B) {
-	b.ResetTimer()
-	// 限制并发数
-	b.SetParallelism(parallelism)
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			v := atomic.AddInt64(&idx, 1) % maxIdx
-			actorRef := testSystem.actors[v]
-			testMap.Get(actorRef.GetId())
-			testMap.Set(actorRef.GetId(), actorRef.GetId())
-			//testMap.Get(actorRef.GetId())
-		}
-	})
-}
-func BenchmarkSafeMap3(b *testing.B) {
-	b.ResetTimer()
-	// 限制并发数
-	b.SetParallelism(parallelism)
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			v := atomic.AddInt64(&idx, 1) % maxIdx
-			actorRef := testSystem.actors[v]
-			testMap.Get(actorRef.GetId())
-			testMap.Set(actorRef.GetId(), actorRef.GetId())
-			testMap.Get(actorRef.GetId())
-		}
-	})
-}
-
-func BenchmarkSafeMap4(b *testing.B) {
-	b.ResetTimer()
-	// 限制并发数
-	b.SetParallelism(parallelism)
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			v := atomic.AddInt64(&idx, 1) % maxIdx
-			actorRef := testSystem.actors[v]
-			testStringMap.Get(actorRef.GetId())
-			//testStringMap.Set(actorRef.GetId(), actorRef.GetId())
-			//testStringMap.Get(actorRef.GetId())
-		}
-	})
-}
-func BenchmarkSafeMap5(b *testing.B) {
-	b.ResetTimer()
-	// 限制并发数
-	b.SetParallelism(parallelism)
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			v := atomic.AddInt64(&idx, 1) % maxIdx
-			actorRef := testSystem.actors[v]
-			testStringMap.Get(actorRef.GetId())
-			testStringMap.Set(actorRef.GetId(), actorRef.GetId())
-			//testStringMap.Get(actorRef.GetId())
-		}
-	})
-}
-func BenchmarkSafeMap6(b *testing.B) {
-	b.ResetTimer()
-	// 限制并发数
-	b.SetParallelism(parallelism)
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			v := atomic.AddInt64(&idx, 1) % maxIdx
-			actorRef := testSystem.actors[v]
-			testStringMap.Get(actorRef.GetId())
-			testStringMap.Set(actorRef.GetId(), actorRef.GetId())
-			testStringMap.Get(actorRef.GetId())
-		}
-	})
-}
-
-func BenchmarkSafeMap7(b *testing.B) {
-	b.ResetTimer()
-	// 限制并发数
-	b.SetParallelism(parallelism)
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			v := atomic.AddInt64(&idx, 1) % maxIdx
-			_ = testSystem.actors[v]
-			testIntMap.Get(int(v))
-			//testIntMap.Set(actorRef.GetId(), actorRef.GetId())
-			//testIntMap.Get(actorRef.GetId())
-		}
-	})
-}
-func BenchmarkSafeMap8(b *testing.B) {
-	b.ResetTimer()
-	// 限制并发数
-	b.SetParallelism(parallelism)
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			v := atomic.AddInt64(&idx, 1) % maxIdx
-			actorRef := testSystem.actors[v]
-			testIntMap.Get(int(v))
-			testIntMap.Set(int(v), actorRef.GetId())
-			//testIntMap.Get(actorRef.GetId())
-		}
-	})
-}
-func BenchmarkSafeMap9(b *testing.B) {
-	b.ResetTimer()
-	// 限制并发数
-	b.SetParallelism(parallelism)
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			v := atomic.AddInt64(&idx, 1) % maxIdx
-			actorRef := testSystem.actors[v]
-			testIntMap.Get(int(v))
-			testIntMap.Set(int(v), actorRef.GetId())
-			testIntMap.Get(int(v))
 		}
 	})
 }

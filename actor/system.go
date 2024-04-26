@@ -109,7 +109,7 @@ func (x *System) SpawnNamed(p Producer, name string, opts ...OptFunc) *ActorRef 
 	proc := newProcessor(x, options)
 	//
 	x.registry.add(proc)
-	//
+	//1
 	if err := proc.start(); err != nil {
 		x.Logger().Info("spawn actor error.", "actor", proc.self(), "err", err)
 		x.registry.remove(proc.self())
