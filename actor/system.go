@@ -136,8 +136,7 @@ func (x *System) sendToLocal(request *Envelope) {
 		return
 	}
 	//build ctx
-	ctx := newContext(proc.self(), request.GetSender(), msg, context.Background())
-	proc.send(ctx)
+	proc.send(newContext(proc.self(), request.GetSender(), msg, context.Background()))
 }
 
 func (x *System) sendToRemote(request *Envelope) {
@@ -168,12 +167,6 @@ func (x *System) Send(target *ActorRef, msg proto.Message, senders ...*ActorRef)
 		x.Logger().Error("target actor is nil")
 		return
 	}
-	//marshal
-	content, err := proto.Marshal(msg)
-	if err != nil {
-		x.logger.Error("proto marshal err", "err", err, "msg", msg)
-		return
-	}
 	//get sender
 	var sender *ActorRef
 	l := len(senders)
@@ -183,18 +176,32 @@ func (x *System) Send(target *ActorRef, msg proto.Message, senders ...*ActorRef)
 			x.Logger().Warn("sender must length 0 or 1", "senders", senders)
 		}
 	}
-	envelope := &Envelope{
-		Header:    nil,
-		Sender:    sender,
-		Target:    target,
-		RequestId: 0,
-		MsgName:   string(msg.ProtoReflect().Descriptor().FullName()),
-		Content:   content,
-	}
-	//send to local
+	//check send target
 	if target.GetAddress() == x.clusterProvider.SelfAddr() {
-		x.sendToLocal(envelope)
+		//to local
+		proc := x.registry.get(target)
+		if proc == nil {
+			x.Logger().Error("get actor failed", "actor", target, "msgName", msg.ProtoReflect().Descriptor().FullName())
+			return
+		}
+		proc.send(newContext(proc.self(), sender, msg, context.Background()))
+		//x.sendToLocal(envelope)
 	} else {
+		//to remote
+		//marshal
+		content, err := proto.Marshal(msg)
+		if err != nil {
+			x.logger.Error("proto marshal err", "err", err, "msg", msg)
+			return
+		}
+		envelope := &Envelope{
+			Header:    nil,
+			Sender:    sender,
+			Target:    target,
+			RequestId: 0,
+			MsgName:   string(msg.ProtoReflect().Descriptor().FullName()),
+			Content:   content,
+		}
 		x.sendToRemote(envelope)
 	}
 }

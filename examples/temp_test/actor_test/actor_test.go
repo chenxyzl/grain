@@ -7,6 +7,7 @@ import (
 	"github.com/chenxyzl/grain/utils/al/safemap"
 	"github.com/chenxyzl/grain/utils/helper"
 	"google.golang.org/protobuf/proto"
+	"log/slog"
 	"runtime"
 	"sync/atomic"
 	"testing"
@@ -14,14 +15,16 @@ import (
 )
 
 var (
-	maxIdx        int64 = 16
-	testSystem          = TestSystem{}
-	idx           int64 = 0
-	parallelism         = 16
-	body                = "123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_"
-	testMap             = safemap.NewM[string, string]()
-	testStringMap       = safemap.NewStringC[string]()
-	testIntMap          = safemap.NewIntC[int, string]()
+	maxIdx         int64 = 10000
+	testSystem           = TestSystem{}
+	idx            int64 = 0
+	parallelism          = 100
+	body                 = "123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_"
+	testMap              = safemap.NewM[string, string]()
+	testStringMap        = safemap.NewStringC[string]()
+	testIntMap           = safemap.NewIntC[int, string]()
+	helloRequest         = &testpb.HelloRequest{Name: body}
+	requestTimeout       = time.Second * 1
 )
 
 type TestSystem struct {
@@ -62,11 +65,11 @@ func (x *HelloGoActor) Receive(context actor.IContext) {
 }
 
 func init() {
-
 	//log
 	helper.InitLog("./test.log")
+	slog.SetLogLoggerLevel(slog.LevelWarn)
 	//config
-	config := actor.NewConfig("hello", "0.0.1", []string{"127.0.0.1:2379"}).WithRequestTimeout(time.Second * 3)
+	config := actor.NewConfig("hello", "0.0.1", []string{"127.0.0.1:2379"}).WithRequestTimeout(requestTimeout)
 	//new
 	testSystem.system = actor.NewSystem[*actor.ProviderEtcd](config)
 	//start
@@ -88,32 +91,30 @@ func init() {
 	runtime.GOMAXPROCS(n * 2)
 }
 func BenchmarkSendOne(b *testing.B) {
+	actorRef := testSystem.system.Spawn(func() actor.IActor { return &HelloGoActor{} })
 	b.ResetTimer()
-	actorRef := testSystem.actors[0]
 	for range b.N {
 		testSystem.system.Send(actorRef, &testpb.Hello{Name: "helle grain"})
 	}
 }
 func BenchmarkSendMore(b *testing.B) {
 	b.ResetTimer()
-
 	// 限制并发数
 	b.SetParallelism(parallelism)
-
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			v := atomic.AddInt64(&idx, 1) % maxIdx
 			_ = v
 			actorRef := testSystem.actors[v]
-			testSystem.system.Send(actorRef, &testpb.HelloRequest{Name: body})
+			testSystem.system.Send(actorRef, helloRequest)
 		}
 	})
 }
 func BenchmarkRequestOne(b *testing.B) {
+	actorRef := testSystem.system.Spawn(func() actor.IActor { return &HelloGoActor{} })
 	b.ResetTimer()
-	actorRef := testSystem.actors[0]
 	for range b.N {
-		reply := actor.Request[*testpb.HelloReply](testSystem.system, actorRef, &testpb.HelloRequest{Name: body})
+		reply := actor.Request[*testpb.HelloReply](testSystem.system, actorRef, helloRequest)
 		if reply == nil {
 			b.Error()
 		}
@@ -121,16 +122,14 @@ func BenchmarkRequestOne(b *testing.B) {
 }
 func BenchmarkRequestMore(b *testing.B) {
 	b.ResetTimer()
-
 	// 限制并发数
 	b.SetParallelism(parallelism)
-
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			v := atomic.AddInt64(&idx, 1) % maxIdx
 			_ = v
 			actorRef := testSystem.actors[v]
-			reply := actor.Request[*testpb.HelloReply](testSystem.system, actorRef, &testpb.HelloRequest{Name: body})
+			reply := actor.Request[*testpb.HelloReply](testSystem.system, actorRef, helloRequest)
 			if reply == nil {
 				b.Error()
 			}
@@ -140,17 +139,15 @@ func BenchmarkRequestMore(b *testing.B) {
 
 func BenchmarkMarshalJson(b *testing.B) {
 	b.ResetTimer()
-
 	// 限制并发数
 	b.SetParallelism(parallelism)
-
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			v := atomic.AddInt64(&idx, 1) % maxIdx
 			_ = v
-			msg := &testpb.HelloRequest{Name: body}
+			msg := &testpb.HelloRequest{}
 			//marshal
-			content, _ := json.Marshal(msg)
+			content, _ := json.Marshal(helloRequest)
 			_ = json.Unmarshal(content, msg)
 		}
 	})
@@ -158,36 +155,27 @@ func BenchmarkMarshalJson(b *testing.B) {
 
 func BenchmarkMarshal(b *testing.B) {
 	b.ResetTimer()
-
 	// 限制并发数
 	b.SetParallelism(parallelism)
-
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			v := atomic.AddInt64(&idx, 1) % maxIdx
 			_ = v
-			msg := &testpb.HelloRequest{Name: body}
+			msg := &testpb.HelloRequest{}
 			//marshal
-			content, _ := proto.Marshal(msg)
+			content, _ := proto.Marshal(helloRequest)
 			_ = proto.Unmarshal(content, msg)
 		}
 	})
 }
 
-func BenchmarkMarshal1(b *testing.B) {
+func BenchmarkSafeMap1(b *testing.B) {
 	b.ResetTimer()
-
 	// 限制并发数
 	b.SetParallelism(parallelism)
-
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			v := atomic.AddInt64(&idx, 1) % maxIdx
-			_ = v
-			msg := &testpb.HelloRequest{Name: body}
-			//marshal
-			content, _ := proto.Marshal(msg)
-			_ = proto.Unmarshal(content, msg)
 			//
 			actorRef := testSystem.actors[v]
 			testMap.Get(actorRef.GetId())
@@ -196,21 +184,13 @@ func BenchmarkMarshal1(b *testing.B) {
 		}
 	})
 }
-func BenchmarkMarshal2(b *testing.B) {
+func BenchmarkSafeMap2(b *testing.B) {
 	b.ResetTimer()
-
 	// 限制并发数
 	b.SetParallelism(parallelism)
-
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			v := atomic.AddInt64(&idx, 1) % maxIdx
-			_ = v
-			msg := &testpb.HelloRequest{Name: body}
-			//marshal
-			content, _ := proto.Marshal(msg)
-			_ = proto.Unmarshal(content, msg)
-			//
 			actorRef := testSystem.actors[v]
 			testMap.Get(actorRef.GetId())
 			testMap.Set(actorRef.GetId(), actorRef.GetId())
@@ -218,21 +198,13 @@ func BenchmarkMarshal2(b *testing.B) {
 		}
 	})
 }
-func BenchmarkMarshal3(b *testing.B) {
+func BenchmarkSafeMap3(b *testing.B) {
 	b.ResetTimer()
-
 	// 限制并发数
 	b.SetParallelism(parallelism)
-
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			v := atomic.AddInt64(&idx, 1) % maxIdx
-			_ = v
-			msg := &testpb.HelloRequest{Name: body}
-			//marshal
-			content, _ := proto.Marshal(msg)
-			_ = proto.Unmarshal(content, msg)
-			//
 			actorRef := testSystem.actors[v]
 			testMap.Get(actorRef.GetId())
 			testMap.Set(actorRef.GetId(), actorRef.GetId())
@@ -241,21 +213,13 @@ func BenchmarkMarshal3(b *testing.B) {
 	})
 }
 
-func BenchmarkMarshal4(b *testing.B) {
+func BenchmarkSafeMap4(b *testing.B) {
 	b.ResetTimer()
-
 	// 限制并发数
 	b.SetParallelism(parallelism)
-
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			v := atomic.AddInt64(&idx, 1) % maxIdx
-			_ = v
-			msg := &testpb.HelloRequest{Name: body}
-			//marshal
-			content, _ := proto.Marshal(msg)
-			_ = proto.Unmarshal(content, msg)
-			//
 			actorRef := testSystem.actors[v]
 			testStringMap.Get(actorRef.GetId())
 			//testStringMap.Set(actorRef.GetId(), actorRef.GetId())
@@ -263,21 +227,13 @@ func BenchmarkMarshal4(b *testing.B) {
 		}
 	})
 }
-func BenchmarkMarshal5(b *testing.B) {
+func BenchmarkSafeMap5(b *testing.B) {
 	b.ResetTimer()
-
 	// 限制并发数
 	b.SetParallelism(parallelism)
-
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			v := atomic.AddInt64(&idx, 1) % maxIdx
-			_ = v
-			msg := &testpb.HelloRequest{Name: body}
-			//marshal
-			content, _ := proto.Marshal(msg)
-			_ = proto.Unmarshal(content, msg)
-			//
 			actorRef := testSystem.actors[v]
 			testStringMap.Get(actorRef.GetId())
 			testStringMap.Set(actorRef.GetId(), actorRef.GetId())
@@ -285,21 +241,13 @@ func BenchmarkMarshal5(b *testing.B) {
 		}
 	})
 }
-func BenchmarkMarshal6(b *testing.B) {
+func BenchmarkSafeMap6(b *testing.B) {
 	b.ResetTimer()
-
 	// 限制并发数
 	b.SetParallelism(parallelism)
-
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			v := atomic.AddInt64(&idx, 1) % maxIdx
-			_ = v
-			msg := &testpb.HelloRequest{Name: body}
-			//marshal
-			content, _ := proto.Marshal(msg)
-			_ = proto.Unmarshal(content, msg)
-			//
 			actorRef := testSystem.actors[v]
 			testStringMap.Get(actorRef.GetId())
 			testStringMap.Set(actorRef.GetId(), actorRef.GetId())
@@ -308,69 +256,42 @@ func BenchmarkMarshal6(b *testing.B) {
 	})
 }
 
-func BenchmarkMarshal7(b *testing.B) {
+func BenchmarkSafeMap7(b *testing.B) {
 	b.ResetTimer()
-
 	// 限制并发数
 	b.SetParallelism(parallelism)
-
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			v := atomic.AddInt64(&idx, 1) % maxIdx
-			_ = v
-			msg := &testpb.HelloRequest{Name: body}
-			//marshal
-			content, _ := proto.Marshal(msg)
-			_ = proto.Unmarshal(content, msg)
-			//
-			actorRef := testSystem.actors[v]
-			_ = actorRef
+			_ = testSystem.actors[v]
 			testIntMap.Get(int(v))
 			//testIntMap.Set(actorRef.GetId(), actorRef.GetId())
 			//testIntMap.Get(actorRef.GetId())
 		}
 	})
 }
-func BenchmarkMarshal8(b *testing.B) {
+func BenchmarkSafeMap8(b *testing.B) {
 	b.ResetTimer()
-
 	// 限制并发数
 	b.SetParallelism(parallelism)
-
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			v := atomic.AddInt64(&idx, 1) % maxIdx
-			_ = v
-			msg := &testpb.HelloRequest{Name: body}
-			//marshal
-			content, _ := proto.Marshal(msg)
-			_ = proto.Unmarshal(content, msg)
-			//
 			actorRef := testSystem.actors[v]
-			_ = actorRef
 			testIntMap.Get(int(v))
 			testIntMap.Set(int(v), actorRef.GetId())
 			//testIntMap.Get(actorRef.GetId())
 		}
 	})
 }
-func BenchmarkMarshal9(b *testing.B) {
+func BenchmarkSafeMap9(b *testing.B) {
 	b.ResetTimer()
-
 	// 限制并发数
 	b.SetParallelism(parallelism)
-
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			v := atomic.AddInt64(&idx, 1) % maxIdx
-			_ = v
-			msg := &testpb.HelloRequest{Name: body}
-			//marshal
-			content, _ := proto.Marshal(msg)
-			_ = proto.Unmarshal(content, msg)
-			//
 			actorRef := testSystem.actors[v]
-			_ = actorRef
 			testIntMap.Get(int(v))
 			testIntMap.Set(int(v), actorRef.GetId())
 			testIntMap.Get(int(v))

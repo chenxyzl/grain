@@ -2,12 +2,13 @@ package actor
 
 import (
 	"github.com/chenxyzl/grain/utils/al/ringbuffer"
+	"math"
 	"runtime"
 	"sync/atomic"
 )
 
 const (
-	defaultThroughput = 100
+	defaultThroughput = math.MaxInt
 )
 
 const (
