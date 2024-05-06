@@ -2,8 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"examples/testpb"
 	"github.com/chenxyzl/grain/actor"
-	"github.com/chenxyzl/grain/examples/testpb"
 	"github.com/chenxyzl/grain/utils/helper"
 	"google.golang.org/protobuf/proto"
 	"log/slog"

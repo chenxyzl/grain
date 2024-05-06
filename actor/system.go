@@ -161,6 +161,9 @@ func (x *System) sendToRemote(request *Envelope) {
 	proc.send(ctx)
 }
 
+// Send
+// msg to target
+// warning don't change msg value when send, may data race
 func (x *System) Send(target *ActorRef, msg proto.Message, senders ...*ActorRef) {
 	//check
 	if target == nil {

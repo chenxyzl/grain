@@ -1,8 +1,8 @@
 package main
 
 import (
+	"examples/testpb"
 	"github.com/chenxyzl/grain/actor"
-	"github.com/chenxyzl/grain/examples/testpb"
 	"github.com/chenxyzl/grain/utils/helper"
 	"log/slog"
 	"time"
