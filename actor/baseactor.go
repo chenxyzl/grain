@@ -1,6 +1,9 @@
 package actor
 
-import "log/slog"
+import (
+	"google.golang.org/protobuf/proto"
+	"log/slog"
+)
 
 var _ IActor = (*BaseActor)(nil)
 
@@ -27,3 +30,14 @@ func (x *BaseActor) Self() *ActorRef { return x.self }
 func (x *BaseActor) Logger() *slog.Logger { return x.logger }
 
 func (x *BaseActor) System() *System { return x.system }
+
+func (x *BaseActor) Send(target *ActorRef, msg proto.Message) {
+
+}
+
+// Request
+// wanted BaseActor.Request[T proto.Message](target *ActorRef, req proto.Message) T
+// but golang not support
+func (x *BaseActor) Request(target *ActorRef, msg proto.Message) proto.Message {
+	return nil
+}

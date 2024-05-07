@@ -8,24 +8,27 @@ import (
 type IContext interface {
 	Self() *ActorRef
 	Sender() *ActorRef
+	RequestId() uint64
 	Message() proto.Message
 }
 
 var _ IContext = (*Context)(nil)
 
 type Context struct {
-	self    *ActorRef
-	sender  *ActorRef
-	message proto.Message
+	self      *ActorRef
+	sender    *ActorRef
+	requestId uint64
+	message   proto.Message
 	context.Context
 }
 
-func newContext(self *ActorRef, sender *ActorRef, message proto.Message, ctx context.Context) *Context {
+func newContext(self *ActorRef, sender *ActorRef, message proto.Message, requestId uint64, ctx context.Context) *Context {
 	return &Context{
-		self:    self,
-		sender:  sender,
-		message: message,
-		Context: ctx,
+		self:      self,
+		sender:    sender,
+		requestId: requestId,
+		message:   message,
+		Context:   ctx,
 	}
 }
 
@@ -39,4 +42,8 @@ func (x *Context) Sender() *ActorRef {
 
 func (x *Context) Message() proto.Message {
 	return x.message
+}
+
+func (x *Context) RequestId() uint64 {
+	return x.requestId
 }

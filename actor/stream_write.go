@@ -57,7 +57,7 @@ func (x *streamWriteActor) Started() error {
 			default: // DisconnectRequest
 				x.Logger().Warn("remote stream got a msg form remote, but this stream only for write", "address", x.address, "msg", unknownMsg)
 			}
-			x.system.Send(x.Self(), Message.poison)
+			Send(x.system, x.Self(), messageDef.poison)
 		}
 	}()
 	return nil

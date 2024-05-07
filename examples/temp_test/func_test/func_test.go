@@ -2,6 +2,7 @@ package func_test
 
 import (
 	"reflect"
+	"runtime"
 	"sync/atomic"
 	"testing"
 )
@@ -54,26 +55,52 @@ func TestFun1(t *testing.T) {
 }
 
 func testGoChan() {
-	for v := range c {
-		_ = v
+	for _, v := range c {
+		go func() {
+			for v1 := range v {
+				_ = v1
+			}
+		}()
 		//fmt.Println(v)
 	}
 }
 
 var idx int64
 var maxIdx int64 = 10000
-var c = make(chan int, 1024)
+var c []chan int
+
+func init() {
+	for i := int64(0); i < maxIdx; i++ {
+		c = append(c, make(chan int, 1024))
+	}
+
+	n := runtime.NumCPU()
+	runtime.GOMAXPROCS(n * 2)
+}
 
 func BenchmarkChan(b *testing.B) {
-	b.ResetTimer()
 	go testGoChan()
+	b.ResetTimer()
 	// 限制并发数
 	b.SetParallelism(100)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			v := atomic.AddInt64(&idx, 1) % maxIdx
 			_ = v
-			c <- int(v)
+			c[0] <- int(v)
+		}
+	})
+}
+func BenchmarkChanMore(b *testing.B) {
+	go testGoChan()
+	b.ResetTimer()
+	// 限制并发数
+	b.SetParallelism(100)
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			v := atomic.AddInt64(&idx, 1) % maxIdx
+			_ = v
+			c[v] <- int(v)
 		}
 	})
 }

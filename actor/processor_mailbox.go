@@ -35,13 +35,13 @@ func (p *processor) start() error {
 	p.receiver = p.Producer()
 	p.receiver._init(p.system, p.self(), p.receiver)
 	//send start to  actor
-	p.mailBox.send(newContext(p.self(), p.self(), Message.start, p.Context))
+	p.mailBox.send(newContext(p.self(), p.self(), messageDef.start, 0, p.Context))
 	return nil
 }
 
 func (p *processor) stop() error {
 	//send stop to actor
-	p.mailBox.send(newContext(p.self(), p.self(), Message.stop, p.Context))
+	p.mailBox.send(newContext(p.self(), p.self(), messageDef.stop, 0, p.Context))
 	//stop mailbox
 	p.mailBox.stop()
 	//remove from registry

@@ -52,7 +52,7 @@ func (x *HelloGoActor) Receive(context actor.IContext) {
 			_ = msg
 			//x.Logger().Info(fmt.Sprintf("request: %v", msg.GetName()))
 			if context.Sender() != nil {
-				x.System().Send(context.Sender(), &testpb.HelloReply{Name: "hell go reply"})
+				actor.Send(x.System(), context.Sender(), &testpb.HelloReply{Name: "hell go reply"})
 			}
 		}
 	default:
@@ -87,7 +87,7 @@ func BenchmarkSendOne(b *testing.B) {
 	actorRef := testSystem.system.Spawn(func() actor.IActor { return &HelloGoActor{} })
 	b.ResetTimer()
 	for range b.N {
-		testSystem.system.Send(actorRef, &testpb.Hello{Name: "helle grain"})
+		actor.Send(testSystem.system, actorRef, &testpb.Hello{Name: "helle grain"})
 	}
 }
 func BenchmarkSendMore(b *testing.B) {
@@ -99,7 +99,7 @@ func BenchmarkSendMore(b *testing.B) {
 			v := atomic.AddInt64(&idx, 1) % maxIdx
 			_ = v
 			actorRef := testSystem.actors[v]
-			testSystem.system.Send(actorRef, helloRequest)
+			actor.Send(testSystem.system, actorRef, helloRequest)
 		}
 	})
 }
@@ -107,7 +107,7 @@ func BenchmarkRequestOne(b *testing.B) {
 	actorRef := testSystem.system.Spawn(func() actor.IActor { return &HelloGoActor{} })
 	b.ResetTimer()
 	for range b.N {
-		reply := actor.Request[*testpb.HelloReply](testSystem.system, actorRef, helloRequest)
+		reply, _ := actor.SyncRequestE[*testpb.HelloReply](testSystem.system, actorRef, helloRequest)
 		if reply == nil {
 			b.Error()
 		}
@@ -122,7 +122,7 @@ func BenchmarkRequestMore(b *testing.B) {
 			v := atomic.AddInt64(&idx, 1) % maxIdx
 			_ = v
 			actorRef := testSystem.actors[v]
-			reply := actor.Request[*testpb.HelloReply](testSystem.system, actorRef, helloRequest)
+			reply, _ := actor.SyncRequestE[*testpb.HelloReply](testSystem.system, actorRef, helloRequest)
 			if reply == nil {
 				b.Error()
 			}

@@ -8,7 +8,7 @@ import (
 
 /*
 +-----------------------------------------------------------+
-| 42 Bit Timestamp | 12 Bit NodeID | 10 Bit Sequence ID |
+| 42 Bit Timestamp | 10 Bit NodeID | 12 Bit Sequence ID |
 +-----------------------------------------------------------+
 */
 

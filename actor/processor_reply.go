@@ -14,7 +14,7 @@ var _ iProcess = (*processorReply[proto.Message])(nil)
 type processorReply[T proto.Message] struct {
 	system  *System
 	_self   *ActorRef
-	result  chan T
+	result  chan any
 	timeout time.Duration
 }
 
@@ -23,7 +23,7 @@ func newProcessorReplay[T proto.Message](system *System, timeout time.Duration) 
 	return &processorReply[T]{
 		system:  system,
 		_self:   self,
-		result:  make(chan T, 1),
+		result:  make(chan any, 1),
 		timeout: timeout,
 	}
 }
@@ -31,7 +31,7 @@ func newProcessorReplay[T proto.Message](system *System, timeout time.Duration) 
 func (x *processorReply[T]) self() *ActorRef     { return x._self }
 func (x *processorReply[T]) start() error        { return nil }
 func (x *processorReply[T]) stop() error         { return nil }
-func (x *processorReply[T]) send(ctx IContext)   { x.result <- ctx.Message().(T); x.invoke(ctx) }
+func (x *processorReply[T]) send(ctx IContext)   { x.result <- ctx.Message(); x.invoke(ctx) }
 func (x *processorReply[T]) invoke(ctx IContext) {}
 
 func (x *processorReply[T]) Result() (T, error) {
@@ -43,7 +43,7 @@ func (x *processorReply[T]) Result() (T, error) {
 
 	select {
 	case resp := <-x.result:
-		return resp, nil
+		return resp.(T), nil
 	case <-ctx.Done():
 		x.system.Logger().Error("reply result timeout", "reply", x.self())
 		return helper.Zero[T](), ctx.Err()

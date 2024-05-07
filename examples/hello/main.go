@@ -32,7 +32,7 @@ func (x *HelloGoActor) Receive(context actor.IContext) {
 			_ = msg
 			//x.Logger().Info(fmt.Sprintf("request: %v", msg.GetName()))
 			if context.Sender() != nil {
-				x.System().Send(context.Sender(), &testpb.HelloReply{Name: "hell go reply"})
+				actor.Send(x.System(), context.Sender(), &testpb.HelloReply{Name: "hell go reply"})
 			}
 		}
 	default:
@@ -55,9 +55,9 @@ func main() {
 	system.Logger().Warn("system started successfully")
 
 	actorRef := system.Spawn(func() actor.IActor { return &HelloGoActor{} })
-	system.Send(actorRef, &testpb.Hello{Name: "helle grain"})
+	actor.Send(system, actorRef, &testpb.Hello{Name: "helle grain"})
 
-	reply := actor.Request[*testpb.HelloReply](system, actorRef, &testpb.HelloRequest{Name: "hello go request"})
+	reply, _ := actor.SyncRequestE[*testpb.HelloReply](system, actorRef, &testpb.HelloRequest{Name: "hello go request"})
 	slog.Info(reply.String())
 
 	//run wait

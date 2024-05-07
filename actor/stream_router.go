@@ -43,7 +43,7 @@ func (x *streamRouterActor) dispatchMsg(msg *Envelope) {
 		x.Logger().Info("remote stream created", "address", remoteStream)
 		return
 	}
-	x.system.Send(remoteStream, msg)
+	Send(x.system, remoteStream, msg)
 }
 
 func (x *streamRouterActor) streamClosed(streamActor *ActorRef) {

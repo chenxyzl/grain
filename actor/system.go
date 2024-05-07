@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"sync/atomic"
 	"syscall"
 )
 
@@ -22,6 +23,7 @@ type System struct {
 	clusterProvider Provider
 	router          *ActorRef
 	closeChan       chan bool
+	requestId       uint64
 }
 
 func NewSystem[P Provider](config *Config) *System {
@@ -74,6 +76,7 @@ func (x *System) InitGlobalUuid(nodeId uint64) {
 	if err := uuid.Init(nodeId); err != nil {
 		panic(err)
 	}
+	x.requestId = uuid.GetBeginRequestId()
 	x.Logger().Warn("uuid init success", "nodeId", nodeId)
 }
 
@@ -136,7 +139,7 @@ func (x *System) sendToLocal(request *Envelope) {
 		return
 	}
 	//build ctx
-	proc.send(newContext(proc.self(), request.GetSender(), msg, context.Background()))
+	proc.send(newContext(proc.self(), request.GetSender(), msg, request.GetRequestId(), context.Background()))
 }
 
 func (x *System) sendToRemote(request *Envelope) {
@@ -157,27 +160,19 @@ func (x *System) sendToRemote(request *Envelope) {
 		return
 	}
 	//build ctx
-	ctx := newContext(proc.self(), request.GetSender(), msg, context.Background())
+	ctx := newContext(proc.self(), request.GetSender(), msg, request.GetRequestId(), context.Background())
 	proc.send(ctx)
 }
 
-// Send
-// msg to target
-// warning don't change msg value when send, may data race
-func (x *System) Send(target *ActorRef, msg proto.Message, senders ...*ActorRef) {
+func (x *System) getNextRequestId() uint64 {
+	return atomic.AddUint64(&x.requestId, 1)
+}
+
+func (x *System) sendWithSender(target *ActorRef, msg proto.Message, requestId uint64, sender *ActorRef) {
 	//check
 	if target == nil {
 		x.Logger().Error("target actor is nil")
 		return
-	}
-	//get sender
-	var sender *ActorRef
-	l := len(senders)
-	if l > 0 {
-		sender = senders[0]
-		if l > 1 {
-			x.Logger().Warn("sender must length 0 or 1", "senders", senders)
-		}
 	}
 	//check send target
 	if target.GetAddress() == x.clusterProvider.SelfAddr() {
@@ -187,7 +182,7 @@ func (x *System) Send(target *ActorRef, msg proto.Message, senders ...*ActorRef)
 			x.Logger().Error("get actor failed", "actor", target, "msgName", msg.ProtoReflect().Descriptor().FullName())
 			return
 		}
-		proc.send(newContext(proc.self(), sender, msg, context.Background()))
+		proc.send(newContext(proc.self(), sender, msg, requestId, context.Background()))
 		//x.sendToLocal(envelope)
 	} else {
 		//to remote
@@ -201,7 +196,7 @@ func (x *System) Send(target *ActorRef, msg proto.Message, senders ...*ActorRef)
 			Header:    nil,
 			Sender:    sender,
 			Target:    target,
-			RequestId: 0,
+			RequestId: requestId,
 			MsgName:   string(msg.ProtoReflect().Descriptor().FullName()),
 			Content:   content,
 		}
@@ -210,20 +205,27 @@ func (x *System) Send(target *ActorRef, msg proto.Message, senders ...*ActorRef)
 }
 
 func (x *System) Poison(ref *ActorRef) {
-	x.Send(ref, Message.poison)
+	Send(x, ref, messageDef.poison)
 }
 
-// Request
-// wanted system.Request[T proto.Message](target *ActorRef, req proto.Message) T
+// Send
+// msg to target
+// warning don't change msg value when send, may data race
+func Send(system *System, target *ActorRef, msg proto.Message) {
+	system.sendWithSender(target, msg, 0, nil)
+}
+
+// SyncRequestE sync request mean's not allowed re-entry
+// wanted system.SyncRequestE[T proto.Message](target *ActorRef, req proto.Message) T
 // but golang not support
-func Request[T proto.Message](system *System, target *ActorRef, req proto.Message) T {
+func SyncRequestE[T proto.Message](system *System, target *ActorRef, req proto.Message) (T, error) {
 	reply := newProcessorReplay[T](system, system.GetConfig().requestTimeout)
 	system.registry.add(reply)
-	system.Send(target, req, reply.self())
+	system.sendWithSender(target, req, system.getNextRequestId(), reply.self())
 	ret, err := reply.Result()
 	if err != nil {
 		system.Logger().Error("request result err", "target", target, "reply", reply.self(), "err", err)
-		return helper.Zero[T]()
+		return helper.Zero[T](), err
 	}
-	return ret
+	return ret, nil
 }

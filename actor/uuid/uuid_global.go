@@ -1,5 +1,7 @@
 package uuid
 
+import "time"
+
 var guuid *UUID
 
 func Init(nodeId uint64) error {
@@ -12,22 +14,20 @@ func Init(nodeId uint64) error {
 	return nil
 }
 
-func GetNodeId() uint64 {
-	if guuid == nil { //严重错误直接退出
-		panic("uuid not init")
-	}
-	return guuid.node
-}
-
-func GetMaxNodeId() uint64 {
-	return nodeMax
-}
-
+// Generate gen global uuid
 func Generate() uint64 {
 	if guuid == nil { //严重错误直接退出
 		panic("uuid not init")
 	}
 	return guuid.Generate()
+}
+
+// GetBeginRequestId return request begin id
+func GetBeginRequestId() uint64 {
+	if guuid == nil { //严重错误直接退出
+		panic("uuid not init")
+	}
+	return guuid.node << (totalBits - nodeBits) & uint64(time.Now().UnixNano())
 }
 
 // ParseSortVal

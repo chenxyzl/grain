@@ -14,4 +14,3 @@ message Poison {}
 //StreamClosed -- when StreamWrite stopped
 //Actor inner message
 message StreamClosed{}
-

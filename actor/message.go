@@ -1,13 +1,19 @@
 package actor
 
 import (
-	"google.golang.org/protobuf/types/known/anypb"
+	"github.com/chenxyzl/grain/actor/internal"
 )
 
-type messageHeader map[string]string
-
-type MessageEnvelope struct {
-	Sender  *ActorRef
-	Header  messageHeader
-	Message anypb.Any
+var messageDef = struct {
+	//
+	streamClosed *internal.StreamClosed
+	start        *internal.Start
+	stop         *internal.Stop
+	poison       *internal.Poison
+}{
+	//
+	streamClosed: &internal.StreamClosed{},
+	start:        &internal.Start{},
+	stop:         &internal.Stop{},
+	poison:       &internal.Poison{},
 }
