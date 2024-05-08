@@ -11,3 +11,16 @@ message HelloRequest{
 message HelloReply{
     string name = 1;
 }
+
+message HelloRequestA2B{
+    string name = 1;
+}
+message HelloReplyA2B{
+    string name = 1;
+}
+message HelloRequestB2A{
+    string name = 1;
+}
+message HelloReplyB2A{
+    string name = 1;
+}

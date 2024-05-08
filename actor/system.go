@@ -3,7 +3,6 @@ package actor
 import (
 	"context"
 	"github.com/chenxyzl/grain/actor/uuid"
-	"github.com/chenxyzl/grain/utils/helper"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
@@ -121,58 +120,71 @@ func (x *System) SpawnNamed(p Producer, name string, opts ...OptFunc) *ActorRef 
 	return proc.self()
 }
 
-func (x *System) sendToLocal(request *Envelope) {
-	proc := x.registry.get(request.GetTarget())
+func (x *System) sendToLocal(envelope *Envelope) {
+	proc := x.registry.get(envelope.GetTarget())
 	if proc == nil {
-		x.Logger().Error("get actor failed", "actor", request.GetTarget(), "msgName", request.MsgName)
+		x.Logger().Error("get actor failed", "actor", envelope.GetTarget(), "msgName", envelope.MsgName)
 		return
 	}
-	typ, err := protoregistry.GlobalTypes.FindMessageByName(protoreflect.FullName(request.MsgName))
+	typ, err := protoregistry.GlobalTypes.FindMessageByName(protoreflect.FullName(envelope.MsgName))
 	if err != nil {
-		x.Logger().Error("unregister msg type", "msgName", request.MsgName, "err", err)
+		x.Logger().Error("unregister msg type", "msgName", envelope.MsgName, "err", err)
 		return
 	}
 	msg := typ.New().Interface().(proto.Message)
-	err = proto.Unmarshal(request.Content, msg)
+	err = proto.Unmarshal(envelope.Content, msg)
 	if err != nil {
-		x.Logger().Error("msg unmarshal err", "msgName", request.MsgName, "err", err)
+		x.Logger().Error("msg unmarshal err", "msgName", envelope.MsgName, "err", err)
 		return
 	}
 	//build ctx
-	proc.send(newContext(proc.self(), request.GetSender(), msg, request.GetRequestId(), context.Background()))
+	proc.send(newContext(proc.self(), envelope.GetSender(), msg, envelope.GetMsgSnId(), context.Background()))
 }
 
-func (x *System) sendToRemote(request *Envelope) {
+func (x *System) sendToRemote(envelope *Envelope) {
 	proc := x.registry.get(x.router)
 	if proc == nil {
-		x.Logger().Error("get router failed", "router", x.router, "msgName", request.MsgName)
+		x.Logger().Error("get router failed", "router", x.router, "msgName", envelope.MsgName)
 		return
 	}
-	typ, err := protoregistry.GlobalTypes.FindMessageByName(protoreflect.FullName(request.MsgName))
+	typ, err := protoregistry.GlobalTypes.FindMessageByName(protoreflect.FullName(envelope.MsgName))
 	if err != nil {
-		x.Logger().Error("unregister msg type", "msgName", request.MsgName, "err", err)
+		x.Logger().Error("unregister msg type", "msgName", envelope.MsgName, "err", err)
 		return
 	}
 	msg := typ.New().Interface().(proto.Message)
-	err = proto.Unmarshal(request.Content, msg)
+	err = proto.Unmarshal(envelope.Content, msg)
 	if err != nil {
-		x.Logger().Error("msg unmarshal err", "msgName", request.MsgName, "err", err)
+		x.Logger().Error("msg unmarshal err", "msgName", envelope.MsgName, "err", err)
 		return
 	}
 	//build ctx
-	ctx := newContext(proc.self(), request.GetSender(), msg, request.GetRequestId(), context.Background())
+	ctx := newContext(proc.self(), envelope.GetSender(), msg, envelope.GetMsgSnId(), context.Background())
 	proc.send(ctx)
 }
 
-func (x *System) getNextRequestId() uint64 {
+func (x *System) getNextSnId() uint64 {
 	return atomic.AddUint64(&x.requestId, 1)
 }
+func (x *System) getNextSnIdIfNot0(d uint64) uint64 {
+	if d != 0 {
+		return d
+	}
+	return x.getNextSnId()
+}
 
-func (x *System) sendWithSender(target *ActorRef, msg proto.Message, requestId uint64, sender *ActorRef) {
+func (x *System) send(target *ActorRef, msg proto.Message, msgSnId uint64, senders ...*ActorRef) {
 	//check
 	if target == nil {
 		x.Logger().Error("target actor is nil")
 		return
+	}
+	var sender *ActorRef
+	if len(senders) > 0 {
+		sender = senders[0]
+		if len(senders) > 1 {
+			x.Logger().Warn("senders len bigger than 1, please check")
+		}
 	}
 	//check send target
 	if target.GetAddress() == x.clusterProvider.SelfAddr() {
@@ -182,7 +194,7 @@ func (x *System) sendWithSender(target *ActorRef, msg proto.Message, requestId u
 			x.Logger().Error("get actor failed", "actor", target, "msgName", msg.ProtoReflect().Descriptor().FullName())
 			return
 		}
-		proc.send(newContext(proc.self(), sender, msg, requestId, context.Background()))
+		proc.send(newContext(proc.self(), sender, msg, msgSnId, context.Background()))
 		//x.sendToLocal(envelope)
 	} else {
 		//to remote
@@ -193,39 +205,50 @@ func (x *System) sendWithSender(target *ActorRef, msg proto.Message, requestId u
 			return
 		}
 		envelope := &Envelope{
-			Header:    nil,
-			Sender:    sender,
-			Target:    target,
-			RequestId: requestId,
-			MsgName:   string(msg.ProtoReflect().Descriptor().FullName()),
-			Content:   content,
+			Header:  nil,
+			Sender:  sender,
+			Target:  target,
+			MsgSnId: msgSnId,
+			MsgName: string(msg.ProtoReflect().Descriptor().FullName()),
+			Content: content,
 		}
 		x.sendToRemote(envelope)
 	}
 }
 
-func (x *System) Poison(ref *ActorRef) {
-	Send(x, ref, messageDef.poison)
-}
-
-// Send
-// msg to target
-// warning don't change msg value when send, may data race
-func Send(system *System, target *ActorRef, msg proto.Message) {
-	system.sendWithSender(target, msg, 0, nil)
-}
-
-// SyncRequestE sync request mean's not allowed re-entry
-// wanted system.SyncRequestE[T proto.Message](target *ActorRef, req proto.Message) T
-// but golang not support
-func SyncRequestE[T proto.Message](system *System, target *ActorRef, req proto.Message) (T, error) {
+func request[T proto.Message](system *System, target *ActorRef, req proto.Message, msgSnId uint64) T {
+	//todo 判断是否在actor内运行？如果是msgSnId设置为当前正在运行的
 	reply := newProcessorReplay[T](system, system.GetConfig().requestTimeout)
 	system.registry.add(reply)
-	system.sendWithSender(target, req, system.getNextRequestId(), reply.self())
+	system.send(target, req, msgSnId, reply.self())
 	ret, err := reply.Result()
 	if err != nil {
 		system.Logger().Error("request result err", "target", target, "reply", reply.self(), "err", err)
-		return helper.Zero[T](), err
+		panic(err)
 	}
-	return ret, nil
+	return ret
+}
+
+func (x *System) Poison(ref *ActorRef) {
+	x.send(ref, messageDef.poison, x.getNextSnId())
+}
+
+// NoEntrySend
+// msg to target
+// warning don't change msg value when send, may data race
+func NoEntrySend(system *System, target *ActorRef, msg proto.Message) {
+	system.send(target, msg, system.getNextSnId())
+}
+
+// NoEntryRequestE sync request mean's not allowed re-entry
+// wanted system.NoEntryRequestE[T proto.Message](target *ActorRef, req proto.Message) T
+// but golang not support
+func NoEntryRequestE[T proto.Message](system *System, target *ActorRef, req proto.Message) (T, error) {
+	var err error
+	defer func() {
+		if e := recover(); e != nil {
+			err = e.(error)
+		}
+	}()
+	return request[T](system, target, req, system.getNextSnId()), err
 }

@@ -3,26 +3,41 @@ package actor
 import (
 	"fmt"
 	"github.com/chenxyzl/grain/actor/internal"
+	"github.com/chenxyzl/grain/utils/al/ringbuffer"
 	"github.com/chenxyzl/grain/utils/helper"
+	"runtime"
+	"sync/atomic"
+)
+
+const (
+	defaultThroughput = 10
+)
+
+const (
+	idle int32 = iota
+	running
+	stopped
 )
 
 type processor struct {
 	Opts
-	system   *System
-	mailBox  *MailBox
-	restarts int32
-	receiver IActor
+	system     *System
+	rb         *ringbuffer.RingBuffer[IContext]
+	procStatus int32
+	restarts   int32
+	receiver   IActor
 }
 
 var _ iProcess = (*processor)(nil)
 
 func newProcessor(system *System, opts Opts) *processor {
 	p := &processor{
-		Opts:     opts,
-		system:   system,
-		restarts: 0,
+		Opts:       opts,
+		system:     system,
+		rb:         ringbuffer.New[IContext](int64(opts.MailboxSize)),
+		procStatus: idle,
+		restarts:   0,
 	}
-	p.mailBox = NewMailBox(opts.MailboxSize, p)
 	return p
 }
 
@@ -35,15 +50,15 @@ func (p *processor) start() error {
 	p.receiver = p.Producer()
 	p.receiver._init(p.system, p.self(), p.receiver)
 	//send start to  actor
-	p.mailBox.send(newContext(p.self(), p.self(), messageDef.start, 0, p.Context))
+	p.send(newContext(p.self(), p.self(), messageDef.start, p.system.getNextSnIdIfNot0(p.receiver._getRunningMsgId()), p.Context))
 	return nil
 }
 
 func (p *processor) stop() error {
 	//send stop to actor
-	p.mailBox.send(newContext(p.self(), p.self(), messageDef.stop, 0, p.Context))
-	//stop mailbox
-	p.mailBox.stop()
+	p.send(newContext(p.self(), p.self(), messageDef.stop, p.system.getNextSnIdIfNot0(p.receiver._getRunningMsgId()), p.Context))
+	//stop run
+	atomic.StoreInt32(&p.procStatus, stopped)
 	//remove from registry
 	p.system.registry.remove(p.self())
 	//
@@ -51,14 +66,19 @@ func (p *processor) stop() error {
 }
 
 func (p *processor) send(ctx IContext) {
-	p.mailBox.send(ctx)
+	//for re-entry
+	if runningMsgId := p.receiver._getRunningMsgId(); runningMsgId != 0 && runningMsgId == ctx.GetMsgSnId() {
+		p.invoke(ctx)
+		return
+	}
+	p.rb.Push(ctx)
+	p.schedule()
 }
 
 func (p *processor) invoke(ctx IContext) {
 	defer helper.RecoverInfo(fmt.Sprintf("actor receive panic, id:%v ", p.self()), p.system.Logger())
 	//todo restart ?
 	//todo actor life?
-
 	switch ctx.Message().(type) {
 	case *internal.Start:
 		err := p.receiver.Started()
@@ -74,5 +94,31 @@ func (p *processor) invoke(ctx IContext) {
 		//todo deal all mailbox msg, add send stop to mailbox
 	default:
 		p.receiver.Receive(ctx)
+	}
+}
+func (p *processor) schedule() {
+	if atomic.CompareAndSwapInt32(&p.procStatus, idle, running) {
+		go p.process()
+	}
+}
+func (p *processor) process() {
+	p.run()
+	atomic.StoreInt32(&p.procStatus, idle)
+}
+func (p *processor) run() {
+	i, t := 0, defaultThroughput
+	for atomic.LoadInt32(&p.procStatus) != stopped {
+		if i > t {
+			i = 0
+			runtime.Gosched()
+		}
+		i++
+		if msg, ok := p.rb.Pop(); ok {
+			p.receiver._setRunningMsgId(msg.GetMsgSnId())
+			p.invoke(msg)
+			p.receiver._cleanRunningMsgId()
+		} else {
+			return
+		}
 	}
 }

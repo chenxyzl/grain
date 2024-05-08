@@ -3,6 +3,7 @@ package actor
 import "fmt"
 
 // NewActorRef ...
+// todo replace with system.GetRef[T IActor](id string/int) -> system.GetRef(kind string,id string/int)
 func NewActorRef(address string, identifier string) *ActorRef {
 	return &ActorRef{
 		Address:    address,

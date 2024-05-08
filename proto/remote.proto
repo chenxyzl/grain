@@ -13,7 +13,7 @@ message Envelope {
     map<string, string> header = 1; //for context k.v
     ActorRef sender = 2;
     ActorRef target = 3;
-    uint64 requestId = 4;
+    uint64 msgSnId = 4;
     string msgName = 5;
     bytes content = 6;
     string error = 7; //for reply error immediately? else waiting timeout too slow

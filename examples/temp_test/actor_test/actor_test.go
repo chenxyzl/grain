@@ -1,11 +1,9 @@
 package main
 
 import (
-	"encoding/json"
 	"examples/testpb"
 	"github.com/chenxyzl/grain/actor"
 	"github.com/chenxyzl/grain/utils/helper"
-	"google.golang.org/protobuf/proto"
 	"log/slog"
 	"runtime"
 	"sync/atomic"
@@ -52,7 +50,7 @@ func (x *HelloGoActor) Receive(context actor.IContext) {
 			_ = msg
 			//x.Logger().Info(fmt.Sprintf("request: %v", msg.GetName()))
 			if context.Sender() != nil {
-				actor.Send(x.System(), context.Sender(), &testpb.HelloReply{Name: "hell go reply"})
+				x.Send(context.Sender(), &testpb.HelloReply{Name: "hell go reply"})
 			}
 		}
 	default:
@@ -87,7 +85,7 @@ func BenchmarkSendOne(b *testing.B) {
 	actorRef := testSystem.system.Spawn(func() actor.IActor { return &HelloGoActor{} })
 	b.ResetTimer()
 	for range b.N {
-		actor.Send(testSystem.system, actorRef, &testpb.Hello{Name: "helle grain"})
+		actor.NoEntrySend(testSystem.system, actorRef, &testpb.Hello{Name: "helle grain"})
 	}
 }
 func BenchmarkSendMore(b *testing.B) {
@@ -99,7 +97,7 @@ func BenchmarkSendMore(b *testing.B) {
 			v := atomic.AddInt64(&idx, 1) % maxIdx
 			_ = v
 			actorRef := testSystem.actors[v]
-			actor.Send(testSystem.system, actorRef, helloRequest)
+			actor.NoEntrySend(testSystem.system, actorRef, helloRequest)
 		}
 	})
 }
@@ -107,7 +105,7 @@ func BenchmarkRequestOne(b *testing.B) {
 	actorRef := testSystem.system.Spawn(func() actor.IActor { return &HelloGoActor{} })
 	b.ResetTimer()
 	for range b.N {
-		reply, _ := actor.SyncRequestE[*testpb.HelloReply](testSystem.system, actorRef, helloRequest)
+		reply, _ := actor.NoEntryRequestE[*testpb.HelloReply](testSystem.system, actorRef, helloRequest)
 		if reply == nil {
 			b.Error()
 		}
@@ -122,42 +120,10 @@ func BenchmarkRequestMore(b *testing.B) {
 			v := atomic.AddInt64(&idx, 1) % maxIdx
 			_ = v
 			actorRef := testSystem.actors[v]
-			reply, _ := actor.SyncRequestE[*testpb.HelloReply](testSystem.system, actorRef, helloRequest)
+			reply, _ := actor.NoEntryRequestE[*testpb.HelloReply](testSystem.system, actorRef, helloRequest)
 			if reply == nil {
 				b.Error()
 			}
-		}
-	})
-}
-
-func BenchmarkMarshalJson(b *testing.B) {
-	b.ResetTimer()
-	// 限制并发数
-	b.SetParallelism(parallelism)
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			v := atomic.AddInt64(&idx, 1) % maxIdx
-			_ = v
-			msg := &testpb.HelloRequest{}
-			//marshal
-			content, _ := json.Marshal(helloRequest)
-			_ = json.Unmarshal(content, msg)
-		}
-	})
-}
-
-func BenchmarkMarshal(b *testing.B) {
-	b.ResetTimer()
-	// 限制并发数
-	b.SetParallelism(parallelism)
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			v := atomic.AddInt64(&idx, 1) % maxIdx
-			_ = v
-			msg := &testpb.HelloRequest{}
-			//marshal
-			content, _ := proto.Marshal(helloRequest)
-			_ = proto.Unmarshal(content, msg)
 		}
 	})
 }
