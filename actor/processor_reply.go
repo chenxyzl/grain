@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/chenxyzl/grain/actor/uuid"
-	"github.com/chenxyzl/grain/utils/helper"
 	"google.golang.org/protobuf/proto"
 	"strconv"
 	"time"
@@ -41,18 +40,17 @@ func (x *processorReply[T]) Result() (T, error) {
 		cancel()
 		x.stop(true)
 	}()
-
+	var null T
 	select {
 	case resp := <-x.result:
 		switch msg := resp.(type) {
 		case T:
 			return msg, nil
 		default:
-			var t T
-			return helper.Zero[T](), fmt.Errorf("result need %v, now: %v", t.ProtoReflect().Descriptor().FullName(), resp.ProtoReflect().Descriptor().FullName())
+			return null, fmt.Errorf("result need %v, now: %v", null.ProtoReflect().Descriptor().FullName(), msg.ProtoReflect().Descriptor().FullName())
 		}
 	case <-ctx.Done():
 		x.system.Logger().Error("reply result timeout", "reply", x.self())
-		return helper.Zero[T](), ctx.Err()
+		return null, ctx.Err()
 	}
 }
