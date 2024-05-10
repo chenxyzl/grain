@@ -38,6 +38,10 @@ func (x *BaseActor) Logger() *slog.Logger { return x.logger }
 func (x *BaseActor) System() *System { return x.system }
 
 func (x *BaseActor) Send(target *ActorRef, msg proto.Message) {
+	if target == nil {
+		x.Logger().Error("send target is nil, sender:%v,msgType:%v,msg:%v", x.Self(), msg.ProtoReflect().Descriptor().FullName(), msg)
+		return
+	}
 	x.system.send(target, msg, x.runningMsgId)
 }
 
@@ -45,6 +49,11 @@ func (x *BaseActor) Send(target *ActorRef, msg proto.Message) {
 // wanted BaseActor.Request[T proto.Message](target *ActorRef, req proto.Message) T
 // but golang not support
 func (x *BaseActor) Request(target *ActorRef, msg proto.Message) proto.Message {
+	if target == nil {
+		x.Logger().Error("request target is nil, sender:%v,msgType:%v,msg:%v", x.Self(), msg.ProtoReflect().Descriptor().FullName(), msg)
+		return nil
+	}
+
 	v, err := request[proto.Message](x.system, target, msg, x.runningMsgId)
 	if err != nil {
 		panic(errors.Join(err, fmt.Errorf("requset err, sender:%v,target:%v,request:%v", x.Self(), target, err)))

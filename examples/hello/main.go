@@ -41,25 +41,19 @@ func (x *HelloGoActorA) Receive(context actor.IContext) {
 		}
 	case *testpb.HelloRequest:
 		{
+			x.Logger().Info("HelloRequestA2B")
 			_ = msg
 			r2 := x.Request(bRef, &testpb.HelloRequestA2B{Name: body}).(*testpb.HelloReplyA2B)
-			if r2 == nil {
-				panic("x")
-			}
-			//x.Logger().Info(fmt.Sprintf("request: %v", msg.GetName()))
-			if context.Sender() != nil {
-				x.Send(context.Sender(), &testpb.HelloReply{Name: "hell go reply from A"})
-			}
+			_ = r2
+			x.Logger().Info("HelloReplyA2B end")
+			x.Send(context.Sender(), &testpb.HelloReply{Name: "hell go reply from A"})
 		}
 	case *testpb.HelloRequestB2A:
 		{
-			//x.Logger().Info(fmt.Sprintf("request: %v", msg.GetName()))
-			if context.Sender() != nil {
-				x.Send(context.Sender(), &testpb.HelloReplyB2A{Name: "hell go reply from A"})
-			}
+			x.Send(context.Sender(), &testpb.HelloReplyB2A{Name: "hell go reply from A"})
 		}
 	default:
-		x.Logger().Error("xxx")
+		x.Logger().Error("unknown msg")
 	}
 }
 
@@ -82,24 +76,21 @@ func (x *HelloGoActorB) Receive(context actor.IContext) {
 		}
 	case *testpb.HelloRequestA2B:
 		{
+			x.Logger().Info("HelloRequestB2A")
 			_ = msg
 			r2 := x.Request(aRef, &testpb.HelloRequestB2A{Name: body}).(*testpb.HelloReplyB2A)
-			if r2 == nil {
-				panic("x")
-			}
-			//x.Logger().Info(fmt.Sprintf("request: %v", msg.GetName()))
-			if context.Sender() != nil {
-				x.Send(context.Sender(), &testpb.HelloReplyA2B{Name: "hell go reply from B"})
-			}
+			_ = r2
+			x.Logger().Info("HelloReplyB2A end")
+			x.Send(context.Sender(), &testpb.HelloReplyA2B{Name: "hell go reply from B"})
 		}
 	default:
-		x.Logger().Error("xxx")
+		x.Logger().Error("unknown msg")
 	}
 }
 func init() {
 	//log
 	helper.InitLog("./test.log")
-	slog.SetLogLoggerLevel(slog.LevelWarn)
+	slog.SetLogLoggerLevel(slog.LevelInfo)
 	//config
 	config := actor.NewConfig("hello", "0.0.1", []string{"127.0.0.1:2379"}).
 		WithRequestTimeout(requestTimeout).
@@ -120,8 +111,10 @@ func init() {
 	bRef = testSystem.system.Spawn(func() actor.IActor { return &HelloGoActorB{} })
 }
 func main() {
-	r1, _ := actor.NoEntryRequestE[*testpb.HelloReply](testSystem.system, aRef, &testpb.HelloRequest{Name: body})
-	if r1 == nil {
+	slog.Info("HelloRequest")
+	r1, err := actor.NoEntryRequestE[*testpb.HelloReply](testSystem.system, aRef, &testpb.HelloRequest{Name: body})
+	if r1 == nil || err != nil {
 		panic("x")
 	}
+	slog.Info("HelloReply end")
 }
