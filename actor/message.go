@@ -6,14 +6,16 @@ import (
 
 var messageDef = struct {
 	//
-	streamClosed *internal.StreamClosed
-	start        *internal.Start
-	stop         *internal.Stop
-	poison       *internal.Poison
+	streamClosed          *internal.StreamClosed
+	start                 *internal.Start
+	stop                  *internal.Stop
+	poison                *internal.Poison
+	poisonWithoutRegistry *internal.Poison
 }{
 	//
-	streamClosed: &internal.StreamClosed{},
-	start:        &internal.Start{},
-	stop:         &internal.Stop{},
-	poison:       &internal.Poison{},
+	streamClosed:          &internal.StreamClosed{},
+	start:                 &internal.Start{},
+	stop:                  &internal.Stop{},
+	poison:                &internal.Poison{WithRegistry: true},
+	poisonWithoutRegistry: &internal.Poison{WithRegistry: false},
 }

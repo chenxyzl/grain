@@ -105,9 +105,9 @@ func BenchmarkRequestOne(b *testing.B) {
 	actorRef := testSystem.system.Spawn(func() actor.IActor { return &HelloGoActor{} })
 	b.ResetTimer()
 	for range b.N {
-		reply, _ := actor.NoEntryRequestE[*testpb.HelloReply](testSystem.system, actorRef, helloRequest)
+		reply, err := actor.NoEntryRequestE[*testpb.HelloReply](testSystem.system, actorRef, helloRequest)
 		if reply == nil {
-			b.Error()
+			b.Error(err)
 		}
 	}
 }
@@ -120,9 +120,9 @@ func BenchmarkRequestMore(b *testing.B) {
 			v := atomic.AddInt64(&idx, 1) % maxIdx
 			_ = v
 			actorRef := testSystem.actors[v]
-			reply, _ := actor.NoEntryRequestE[*testpb.HelloReply](testSystem.system, actorRef, helloRequest)
+			reply, err := actor.NoEntryRequestE[*testpb.HelloReply](testSystem.system, actorRef, helloRequest)
 			if reply == nil {
-				b.Error()
+				b.Error(err)
 			}
 		}
 	})

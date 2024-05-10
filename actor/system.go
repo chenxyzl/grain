@@ -159,8 +159,7 @@ func (x *System) sendToRemote(envelope *Envelope) {
 		return
 	}
 	//build ctx
-	ctx := newContext(proc.self(), envelope.GetSender(), msg, envelope.GetMsgSnId(), context.Background())
-	proc.send(ctx)
+	proc.send(newContext(proc.self(), envelope.GetSender(), msg, envelope.GetMsgSnId(), context.Background()))
 }
 
 func (x *System) getNextSnId() uint64 {

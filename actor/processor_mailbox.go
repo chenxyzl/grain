@@ -50,19 +50,22 @@ func (p *processor) start() error {
 	p.receiver = p.Producer()
 	p.receiver._init(p.system, p.self(), p.receiver)
 	//send start to  actor
-	p.send(newContext(p.self(), p.self(), messageDef.start, p.system.getNextSnIdIfNot0(p.receiver._getRunningMsgId()), p.Context))
+	p.invoke(newContext(p.self(), p.self(), messageDef.start, p.system.getNextSnIdIfNot0(p.receiver._getRunningMsgId()), p.Context))
 	return nil
 }
 
-func (p *processor) stop() error {
+func (p *processor) stop(withRegistry bool) {
 	//send stop to actor
-	p.send(newContext(p.self(), p.self(), messageDef.stop, p.system.getNextSnIdIfNot0(p.receiver._getRunningMsgId()), p.Context))
+	p.invoke(newContext(p.self(), p.self(), messageDef.stop, p.system.getNextSnIdIfNot0(p.receiver._getRunningMsgId()), p.Context))
 	//stop run
 	atomic.StoreInt32(&p.procStatus, stopped)
+	//todo parent?
+	//todo children?
 	//remove from registry
-	p.system.registry.remove(p.self())
-	//
-	return nil
+	if withRegistry {
+		p.system.registry.remove(p.self())
+	}
+	return
 }
 
 func (p *processor) send(ctx IContext) {
@@ -76,10 +79,12 @@ func (p *processor) send(ctx IContext) {
 }
 
 func (p *processor) invoke(ctx IContext) {
-	defer helper.RecoverInfo(fmt.Sprintf("actor receive panic, id:%v ", p.self()), p.system.Logger())
+	defer helper.RecoverInfo(func() string {
+		return fmt.Sprintf("actor receive panic, id:%v, msgType:%v, msg:%v", p.self(), ctx.Message().ProtoReflect().Descriptor().FullName(), ctx.Message())
+	}, p.system.Logger())
 	//todo restart ?
 	//todo actor life?
-	switch ctx.Message().(type) {
+	switch msg := ctx.Message().(type) {
 	case *internal.Start:
 		err := p.receiver.Started()
 		if err != nil {
@@ -91,7 +96,7 @@ func (p *processor) invoke(ctx IContext) {
 			panic(err)
 		}
 	case *internal.Poison:
-		//todo deal all mailbox msg, add send stop to mailbox
+		p.stop(msg.WithRegistry)
 	default:
 		p.receiver.Receive(ctx)
 	}

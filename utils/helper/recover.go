@@ -17,17 +17,18 @@ func Recover(logger ...*slog.Logger) {
 	}
 }
 
-func RecoverInfo(info string, logger ...*slog.Logger) {
-	if info == "" {
-		Recover()
+// RecoverInfo recover with a msg, use msgProvider instead string for performance
+func RecoverInfo(msgProvider func() string, logger ...*slog.Logger) {
+	if msgProvider == nil {
+		Recover(logger...)
 	} else {
 		err := recover()
 		if err != nil {
 			stackTrace := debug.Stack()
 			if len(logger) > 0 {
-				logger[0].Error("panic recover", "info", info, "err", err, "stackTrace", stackTrace)
+				logger[0].Error("panic recover", "msg", msgProvider(), "err", err, "stackTrace", stackTrace)
 			} else {
-				slog.Error("panic recover", "info", info, "err", err, "stackTrace", stackTrace)
+				slog.Error("panic recover", "msg", msgProvider(), "err", err, "stackTrace", stackTrace)
 			}
 		}
 	}
@@ -35,7 +36,7 @@ func RecoverInfo(info string, logger ...*slog.Logger) {
 
 func RecoverFunc(pc func(err any), logger ...*slog.Logger) {
 	if pc == nil {
-		Recover()
+		Recover(logger...)
 	} else {
 		err := recover()
 		if err != nil {
