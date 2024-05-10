@@ -47,18 +47,17 @@ func (p *processor) self() *ActorRef {
 }
 
 func (p *processor) start() {
-	p.system.registry.add(p)
 	defer func() {
 		if err := recover(); err != nil {
 			p.system.registry.remove(p.self())
 			p.system.Logger().Info("spawn recover a panic on start.", "actor", p.self(), "err", err, "stack", debug.Stack())
 		}
 	}()
-	//create actor
-	p.receiver = p.Producer()
-	p.receiver._init(p.system, p.self(), p.receiver)
+	p.system.registry.add(p)                         //add to registry
+	p.receiver = p.Producer()                        //create actor
+	p.receiver._init(p.system, p.self(), p.receiver) //bind
 	p.receiver._setRunningMsgId(p.system.getNextSnIdIfNot0(p.receiver._getRunningMsgId()))
-	p.receiver._cleanRunningMsgId()
+	defer p.receiver._cleanRunningMsgId()
 	p.receiver.Started()
 }
 
