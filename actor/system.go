@@ -36,6 +36,8 @@ func NewSystem[P Provider](config *Config) *System {
 }
 
 func (x *System) Start() error {
+	//lock config
+	x.config.markRunning()
 	//register to cluster
 	if err := x.clusterProvider.Start(x, x.config); err != nil {
 		return err
