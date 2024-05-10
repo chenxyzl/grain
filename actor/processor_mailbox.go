@@ -51,7 +51,7 @@ func (p *processor) start() {
 	defer func() {
 		if err := recover(); err != nil {
 			p.system.registry.remove(p.self())
-			p.system.Logger().Info("spawn actor error.", "actor", p.self(), "err", err)
+			p.system.Logger().Info("spawn recover a panic on start.", "actor", p.self(), "err", err, "stack", debug.Stack())
 		}
 	}()
 	//create actor
