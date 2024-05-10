@@ -34,15 +34,15 @@ func newStreamWriterActor(router *ActorRef, address string, dialOptions []grpc.D
 	}
 }
 
-func (x *streamWriteActor) Started() error {
+func (x *streamWriteActor) Started() {
 	conn, err := grpc.Dial(x.address, x.dialOptions...)
 	if err != nil {
-		return errors.Join(fmt.Errorf("connect to grpc server err, addr:%v", x.address), err)
+		panic(errors.Join(fmt.Errorf("connect to grpc server err, addr:%v", x.address), err))
 	}
 	stream, err := NewRemotingClient(conn).Listen(context.Background(), x.callOptions...)
 	if err != nil {
-		x.conn.Close()
-		return errors.Join(fmt.Errorf("listen to grpc server err, addr:%v", x.address), err)
+		_ = x.conn.Close()
+		panic(errors.Join(fmt.Errorf("listen to grpc server err, addr:%v", x.address), err))
 	}
 	x.conn = conn
 	x.remote = stream
@@ -60,10 +60,9 @@ func (x *streamWriteActor) Started() error {
 			x.system.send(x.Self(), messageDef.poison, x.system.getNextSnId())
 		}
 	}()
-	return nil
 }
 
-func (x *streamWriteActor) PreStop() error {
+func (x *streamWriteActor) PreStop() {
 	if x.remote != nil {
 		err := x.remote.CloseSend()
 		if err != nil {
@@ -79,7 +78,6 @@ func (x *streamWriteActor) PreStop() error {
 		x.conn = nil
 	}
 	x.Logger().Info("stop stream write actor end")
-	return nil
 }
 
 func (x *streamWriteActor) Receive(ctx IContext) {

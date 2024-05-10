@@ -4,7 +4,7 @@ type iProcess interface {
 	//
 	self() *ActorRef
 	//
-	start() error //
+	start() //
 	//
 	stop(withRegistry bool)
 	// to self process

@@ -1,6 +1,8 @@
 package actor
 
 import (
+	"errors"
+	"fmt"
 	"google.golang.org/protobuf/proto"
 	"log/slog"
 )
@@ -15,8 +17,8 @@ type BaseActor struct {
 	runningMsgId uint64
 }
 
-func (x *BaseActor) Started() error       { return nil }
-func (x *BaseActor) PreStop() error       { return nil }
+func (x *BaseActor) Started()             {}
+func (x *BaseActor) PreStop()             {}
 func (x *BaseActor) Receive(ctx IContext) {}
 
 func (x *BaseActor) _init(system *System, self *ActorRef, this IActor) {
@@ -43,5 +45,9 @@ func (x *BaseActor) Send(target *ActorRef, msg proto.Message) {
 // wanted BaseActor.Request[T proto.Message](target *ActorRef, req proto.Message) T
 // but golang not support
 func (x *BaseActor) Request(target *ActorRef, msg proto.Message) proto.Message {
-	return request[proto.Message](x.system, target, msg, x.runningMsgId)
+	v, err := request[proto.Message](x.system, target, msg, x.runningMsgId)
+	if err != nil {
+		panic(errors.Join(err, fmt.Errorf("requset err, sender:%v,target:%v,request:%v", x.Self(), target, err)))
+	}
+	return v
 }

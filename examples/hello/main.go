@@ -26,13 +26,11 @@ type HelloGoActorA struct {
 	times int
 }
 
-func (x *HelloGoActorA) Started() error {
+func (x *HelloGoActorA) Started() {
 	x.Logger().Info("Started")
-	return nil
 }
-func (x *HelloGoActorA) PreStop() error {
+func (x *HelloGoActorA) PreStop() {
 	x.Logger().Info("PreStop")
-	return nil
 }
 func (x *HelloGoActorA) Receive(context actor.IContext) {
 	switch msg := context.Message().(type) {
@@ -69,13 +67,11 @@ type HelloGoActorB struct {
 	actor.BaseActor
 }
 
-func (x *HelloGoActorB) Started() error {
+func (x *HelloGoActorB) Started() {
 	x.Logger().Info("Started B")
-	return nil
 }
-func (x *HelloGoActorB) PreStop() error {
+func (x *HelloGoActorB) PreStop() {
 	x.Logger().Info("PreStop B")
-	return nil
 }
 func (x *HelloGoActorB) Receive(context actor.IContext) {
 	switch msg := context.Message().(type) {
@@ -106,7 +102,8 @@ func init() {
 	slog.SetLogLoggerLevel(slog.LevelWarn)
 	//config
 	config := actor.NewConfig("hello", "0.0.1", []string{"127.0.0.1:2379"}).
-		WithRequestTimeout(requestTimeout)
+		WithRequestTimeout(requestTimeout).
+		WithKind("hello", func() actor.IActor { return &HelloGoActorA{} })
 	//new
 	testSystem.system = actor.NewSystem[*actor.ProviderEtcd](config)
 	//start

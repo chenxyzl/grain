@@ -30,13 +30,11 @@ type HelloGoActor struct {
 	actor.BaseActor
 }
 
-func (x *HelloGoActor) Started() error {
+func (x *HelloGoActor) Started() {
 	x.Logger().Info("Started")
-	return nil
 }
-func (x *HelloGoActor) PreStop() error {
+func (x *HelloGoActor) PreStop() {
 	x.Logger().Info("PreStop")
-	return nil
 }
 func (x *HelloGoActor) Receive(context actor.IContext) {
 	switch msg := context.Message().(type) {

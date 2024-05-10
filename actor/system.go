@@ -111,14 +111,8 @@ func (x *System) SpawnNamed(p Producer, name string, opts ...OptFunc) *ActorRef 
 	options := NewOpts(p, opts...)
 	//
 	proc := newProcessor(x, options)
+	proc.start()
 	//
-	x.registry.add(proc)
-	//1
-	if err := proc.start(); err != nil {
-		x.Logger().Info("spawn actor error.", "actor", proc.self(), "err", err)
-		x.registry.remove(proc.self())
-		panic(err)
-	}
 	return proc.self()
 }
 
@@ -217,17 +211,14 @@ func (x *System) send(target *ActorRef, msg proto.Message, msgSnId uint64, sende
 	}
 }
 
-func request[T proto.Message](system *System, target *ActorRef, req proto.Message, msgSnId uint64) T {
-	//todo 判断是否在actor内运行？如果是msgSnId设置为当前正在运行的
+func request[T proto.Message](system *System, target *ActorRef, req proto.Message, msgSnId uint64) (T, error) {
+	//
 	reply := newProcessorReplay[T](system, system.GetConfig().requestTimeout)
-	system.registry.add(reply)
+	reply.start()
+	//
 	system.send(target, req, msgSnId, reply.self())
-	ret, err := reply.Result()
-	if err != nil {
-		system.Logger().Error("request result err", "target", target, "reply", reply.self(), "err", err)
-		panic(err)
-	}
-	return ret
+	//
+	return reply.Result()
 }
 
 func (x *System) Poison(ref *ActorRef) {
@@ -245,11 +236,5 @@ func NoEntrySend(system *System, target *ActorRef, msg proto.Message) {
 // wanted system.NoEntryRequestE[T proto.Message](target *ActorRef, req proto.Message) T
 // but golang not support
 func NoEntryRequestE[T proto.Message](system *System, target *ActorRef, req proto.Message) (T, error) {
-	var err error
-	defer func() {
-		if e := recover(); e != nil {
-			err = e.(error)
-		}
-	}()
-	return request[T](system, target, req, system.getNextSnId()), err
+	return request[T](system, target, req, system.getNextSnId())
 }

@@ -2,6 +2,7 @@ package actor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/chenxyzl/grain/actor/uuid"
 	"google.golang.org/protobuf/proto"
@@ -29,7 +30,7 @@ func newProcessorReplay[T proto.Message](system *System, timeout time.Duration) 
 }
 
 func (x *processorReply[T]) self() *ActorRef        { return x._self }
-func (x *processorReply[T]) start() error           { return nil }
+func (x *processorReply[T]) start()                 { x.system.registry.add(x) }
 func (x *processorReply[T]) stop(withRegistry bool) { x.system.registry.remove(x._self) }
 func (x *processorReply[T]) send(ctx IContext)      { x.invoke(ctx) }
 func (x *processorReply[T]) invoke(ctx IContext)    { x.result <- ctx.Message() }
@@ -50,7 +51,6 @@ func (x *processorReply[T]) Result() (T, error) {
 			return null, fmt.Errorf("result need %v, now: %v", null.ProtoReflect().Descriptor().FullName(), msg.ProtoReflect().Descriptor().FullName())
 		}
 	case <-ctx.Done():
-		x.system.Logger().Error("reply result timeout", "reply", x.self())
-		return null, ctx.Err()
+		return null, errors.Join(ctx.Err(), fmt.Errorf("reply result timeout, id:%v", x.self()))
 	}
 }

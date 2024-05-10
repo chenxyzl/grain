@@ -76,12 +76,13 @@ func (x *Config) WithCallDialOptions(callOptions ...grpc.CallOption) *Config {
 }
 
 // WithKind set kind
-func (x *Config) WithKind(kindName string, producer Producer) {
+func (x *Config) WithKind(kindName string, producer Producer) *Config {
 	x.mustNotRunning()
 	if _, ok := x.kinds[kindName]; ok {
 		panic("duplicate kind name " + kindName)
 	}
 	x.kinds[kindName] = producer
+	return x
 }
 func (x *Config) GetMemberPath(memberId uint64) string {
 	return fmt.Sprintf("/%v/member/%d", x.name, memberId)

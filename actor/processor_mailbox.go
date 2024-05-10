@@ -6,6 +6,7 @@ import (
 	"github.com/chenxyzl/grain/utils/al/ringbuffer"
 	"github.com/chenxyzl/grain/utils/helper"
 	"runtime"
+	"runtime/debug"
 	"sync/atomic"
 )
 
@@ -45,27 +46,40 @@ func (p *processor) self() *ActorRef {
 	return p.Self
 }
 
-func (p *processor) start() error {
+func (p *processor) start() {
+	p.system.registry.add(p)
+	defer func() {
+		if err := recover(); err != nil {
+			p.system.registry.remove(p.self())
+			p.system.Logger().Info("spawn actor error.", "actor", p.self(), "err", err)
+		}
+	}()
 	//create actor
 	p.receiver = p.Producer()
 	p.receiver._init(p.system, p.self(), p.receiver)
-	//send start to  actor
-	p.invoke(newContext(p.self(), p.self(), messageDef.start, p.system.getNextSnIdIfNot0(p.receiver._getRunningMsgId()), p.Context))
-	return nil
+	p.receiver._setRunningMsgId(p.system.getNextSnIdIfNot0(p.receiver._getRunningMsgId()))
+	p.receiver._cleanRunningMsgId()
+	p.receiver.Started()
 }
 
 func (p *processor) stop(withRegistry bool) {
+	defer func() {
+		if err := recover(); err != nil {
+			p.system.Logger().Error("recover a panic on stop", "self", p.self(), "panic", err, "stack", debug.Stack())
+		}
+	}()
 	//send stop to actor
-	p.invoke(newContext(p.self(), p.self(), messageDef.stop, p.system.getNextSnIdIfNot0(p.receiver._getRunningMsgId()), p.Context))
-	//stop run
-	atomic.StoreInt32(&p.procStatus, stopped)
-	//todo parent?
-	//todo children?
-	//remove from registry
-	if withRegistry {
-		p.system.registry.remove(p.self())
-	}
-	return
+	p.receiver._setRunningMsgId(p.system.getNextSnIdIfNot0(p.receiver._getRunningMsgId()))
+	defer func() {
+		p.receiver._cleanRunningMsgId()
+		//stop run
+		atomic.StoreInt32(&p.procStatus, stopped)
+		//remove from registry
+		if withRegistry {
+			p.system.registry.remove(p.self())
+		}
+	}()
+	p.receiver.PreStop()
 }
 
 func (p *processor) send(ctx IContext) {
@@ -85,16 +99,6 @@ func (p *processor) invoke(ctx IContext) {
 	//todo restart ?
 	//todo actor life?
 	switch msg := ctx.Message().(type) {
-	case *internal.Start:
-		err := p.receiver.Started()
-		if err != nil {
-			panic(err)
-		}
-	case *internal.Stop:
-		err := p.receiver.PreStop()
-		if err != nil {
-			panic(err)
-		}
 	case *internal.Poison:
 		p.stop(msg.WithRegistry)
 	default:

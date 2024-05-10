@@ -2,12 +2,12 @@ syntax = "proto3";
 package internal;
 option go_package = "github.com/chenxyzl/grain/actor/internal";
 
-//Start --call Actor.Star
-//Actor inner message
-message Start{}
-//Start --call Actor.Stop
-//Actor inner message
-message Stop{}
+////Start --call Actor.Star
+////Actor inner message
+//message Start{}
+////Start --call Actor.Stop
+////Actor inner message
+//message Stop{}
 //Poison -- call Actor.Poison
 //Poison target actor
 message Poison {bool withRegistry = 1;}

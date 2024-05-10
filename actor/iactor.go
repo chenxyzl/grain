@@ -8,9 +8,9 @@ type IActor interface {
 	_cleanRunningMsgId()
 
 	//Started after self Instance
-	Started() error
+	Started()
 	//PreStop when receive poison, before stop self
-	PreStop() error
+	PreStop()
 	//Receive message
 	Receive(ctx IContext)
 }
