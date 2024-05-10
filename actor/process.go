@@ -6,7 +6,7 @@ type iProcess interface {
 	//
 	start() //
 	//
-	stop(withRegistry bool)
+	stop(ignoreRegistry bool)
 	// to self process
 	send(ctx IContext)
 	// for mailbox to

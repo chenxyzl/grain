@@ -62,7 +62,7 @@ func (p *processor) start() {
 	p.receiver.Started()
 }
 
-func (p *processor) stop(withRegistry bool) {
+func (p *processor) stop(ignoreRegistry bool) {
 	defer func() {
 		if err := recover(); err != nil {
 			p.system.Logger().Error("recover a panic on stop", "self", p.self(), "panic", err, "stack", debug.Stack())
@@ -75,7 +75,7 @@ func (p *processor) stop(withRegistry bool) {
 		//stop run
 		atomic.StoreInt32(&p.procStatus, stopped)
 		//remove from registry
-		if withRegistry {
+		if !ignoreRegistry {
 			p.system.registry.remove(p.self())
 		}
 	}()
@@ -100,7 +100,7 @@ func (p *processor) invoke(ctx IContext) {
 	//todo actor life?
 	switch msg := ctx.Message().(type) {
 	case *internal.Poison:
-		p.stop(msg.WithRegistry)
+		p.stop(msg.GetIgnoreRegistry())
 	default:
 		p.receiver.Receive(ctx)
 	}

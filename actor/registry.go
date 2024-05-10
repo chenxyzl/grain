@@ -32,7 +32,7 @@ func (r *Registry) add(proc iProcess) iProcess {
 	id := proc.self().GetId()
 	if old, ok := r.lookup.Set(id, proc); ok {
 		//force to stop old proc
-		old.send(newContext(proc.self(), nil, messageDef.poisonWithoutRegistry, r.system.getNextSnId(), context.Background()))
+		old.send(newContext(proc.self(), nil, messageDef.poisonIgnoreRegistry, r.system.getNextSnId(), context.Background()))
 		r.system.Logger().Error("duplicated process id, force poison old processor", "id", id)
 	}
 	return proc
