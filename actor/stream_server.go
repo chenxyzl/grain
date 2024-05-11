@@ -37,6 +37,9 @@ func (x *RPCService) Listen(server Remoting_ListenServer) error {
 				return err
 			}
 		}
+		//
+		x.ensureActorExist(msg.GetTarget())
+		//
 		x.system.sendToLocal(msg)
 	}
 }
@@ -87,4 +90,15 @@ func (x *RPCService) SelfAddr() string {
 
 func (x *RPCService) Logger() *slog.Logger {
 	return x.logger
+}
+
+func (x *RPCService) ensureActorExist(ref *ActorRef) {
+	//todo use agent or direct registry?
+
+	//todo 1. check get?
+	//todo 2. if not found, get from kind local provider?
+	//todo 2.1 if kind not found at local provider, ignore and print log
+	//todo 2.2 if found kind at local provider, new kind
+	//todo 2.2.1 add to this registry, use return to instead self(because may already add, for double check)
+	//todo return self
 }

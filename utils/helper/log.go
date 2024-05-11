@@ -1,9 +1,10 @@
 package helper
 
 import (
-	"log/slog"
-
 	"gopkg.in/natefinch/lumberjack.v2"
+	"io"
+	"log/slog"
+	"os"
 )
 
 func InitLog(name string) {
@@ -16,6 +17,15 @@ func InitLog(name string) {
 		MaxBackups: 100 * 1024 / maxSize, //Max 100G = 100 * 1024 / maxSize
 		Compress:   false,
 	}
-	logger := slog.New(slog.NewJSONHandler(r, &slog.HandlerOptions{AddSource: true, Level: slog.LevelInfo, ReplaceAttr: nil}))
+	ar := io.MultiWriter(r, os.Stdout)
+	_ = ar
+	logger := slog.New(slog.NewJSONHandler(ar, &slog.HandlerOptions{AddSource: true, Level: slog.LevelInfo, ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+		if a.Key == slog.SourceKey {
+			s := a.Value.Any().(*slog.Source)
+			//s.File = path.Base(s.File)
+			s.Function = ""
+		}
+		return a
+	}}))
 	slog.SetDefault(logger)
 }

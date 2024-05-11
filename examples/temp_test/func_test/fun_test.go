@@ -1,27 +1,30 @@
 package func_test
 
 import (
-	"errors"
 	"fmt"
 	"testing"
 )
 
-func f() error {
-	var x error = errors.New("xxx")
+type testCase struct {
+	a int
+}
+
+func f() (v *testCase) {
+	v = &testCase{}
 	defer func() {
-		if err := recover(); err != nil {
-			fmt.Println(err)
+		if r := recover(); r != nil {
+			fmt.Println("panic")
+			v.a = 111
 		}
-		x = errors.New("aaaaa")
 	}()
-	defer func() {
-		fmt.Println(1)
-		x = errors.New("bbbbb")
-	}()
-	//panic("err")
-	return x
+	panic("err1111")
+	fmt.Println("1")
+	return v
 }
 
 func TestPanic(t *testing.T) {
-	fmt.Println(f())
+	a := f()
+	fmt.Println(a.a)
+	fmt.Println(2)
+	fmt.Println(3)
 }
