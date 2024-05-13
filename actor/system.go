@@ -21,7 +21,7 @@ type System struct {
 	registry        *Registry
 	clusterProvider Provider
 	router          *ActorRef
-	closeChan       chan bool
+	forceCloseChan  chan bool
 	requestId       uint64
 }
 
@@ -31,7 +31,7 @@ func NewSystem[P Provider](config *Config) *System {
 	system.config = config
 	system.clusterProvider = newProvider[P]()
 	system.registry = newRegistry(system)
-	system.closeChan = make(chan bool, 1)
+	system.forceCloseChan = make(chan bool, 1)
 	return system
 }
 
@@ -39,14 +39,14 @@ func (x *System) Start() error {
 	//lock config
 	x.config.markRunning()
 	//register to cluster
-	if err := x.clusterProvider.Start(x, x.config); err != nil {
+	if err := x.clusterProvider.start(x, x.config); err != nil {
 		return err
 	}
 	//overwrite logger
-	x.logger = slog.With("system", x.clusterProvider.SelfAddr(), "node", x.config.state.NodeId)
+	x.logger = slog.With("system", x.clusterProvider.addr(), "node", x.config.state.NodeId)
 	//create router
 	x.router = x.Spawn(func() IActor {
-		return newStreamRouter(NewActorRefLocal(x.clusterProvider.SelfAddr(), "stream_router"), x)
+		return newStreamRouter(NewActorRefLocal(x.clusterProvider.addr(), "stream_router"), x)
 	})
 	return nil
 }
@@ -58,10 +58,14 @@ func (x *System) WaitStopSignal() {
 	select {
 	case sig := <-signals:
 		x.Logger().Warn("system will exit by signal", "signal", sig.String())
-	case <-x.closeChan:
-		x.Logger().Warn("system will exit by closeChan")
+	case <-x.forceCloseChan:
+		x.Logger().Warn("system will exit by forceCloseChan")
 	}
-	//todo stop somethings
+	x.clusterProvider.stop()
+}
+
+func (x *System) ForceStop() {
+	x.forceCloseChan <- true
 }
 
 func (x *System) ClusterErr() {
@@ -69,7 +73,7 @@ func (x *System) ClusterErr() {
 		return
 	}
 	x.Logger().Error("cluster provider error. will stop system")
-	x.Stop()
+	x.ForceStop()
 }
 
 func (x *System) InitGlobalUuid(nodeId uint64) {
@@ -83,10 +87,6 @@ func (x *System) InitGlobalUuid(nodeId uint64) {
 
 func (x *System) NodesChanged() {
 
-}
-
-func (x *System) Stop() {
-	x.closeChan <- true
 }
 
 func (x *System) GetConfig() *Config {
@@ -107,7 +107,7 @@ func (x *System) Spawn(p Producer, opts ...OptFunc) *ActorRef {
 
 func (x *System) SpawnNamed(p Producer, name string, opts ...OptFunc) *ActorRef {
 	//
-	opts = append(opts, withSelf(x.clusterProvider.SelfAddr(), name))
+	opts = append(opts, withSelf(x.clusterProvider.addr(), name))
 	options := NewOpts(p, opts...)
 	//
 	return newProcessor(x, options).self()
@@ -179,7 +179,7 @@ func (x *System) send(target *ActorRef, msg proto.Message, msgSnId uint64, sende
 		}
 	}
 	//check send target
-	if target.GetAddress() == x.clusterProvider.SelfAddr() {
+	if target.GetAddress() == x.clusterProvider.addr() {
 		//to local
 		proc := x.registry.get(target)
 		if proc == nil {

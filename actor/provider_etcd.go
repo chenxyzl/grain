@@ -33,7 +33,7 @@ type ProviderEtcd struct {
 	rpcService *RPCService
 }
 
-func (x *ProviderEtcd) SelfAddr() string {
+func (x *ProviderEtcd) addr() string {
 	return x.selfAddr
 }
 
@@ -41,7 +41,7 @@ func (x *ProviderEtcd) Address() string {
 	return x.selfAddr
 }
 
-func (x *ProviderEtcd) Start(system *System, config *Config) error {
+func (x *ProviderEtcd) start(system *System, config *Config) error {
 	rpcService := NewRpcServer(system)
 	//start grpc
 	if err := rpcService.Start(); err != nil {
@@ -51,7 +51,7 @@ func (x *ProviderEtcd) Start(system *System, config *Config) error {
 	x.system = system
 	x.config = config
 	x.rpcService = rpcService
-	x.selfAddr = rpcService.SelfAddr()
+	x.selfAddr = rpcService.Addr()
 	x.logger = slog.With("ProviderEtcd", x.selfAddr)
 	//etcdClient
 	etcdClient, err := clientv3.New(clientv3.Config{Endpoints: config.GetRemoteUrls(), DialTimeout: dialTimeoutTime})
@@ -96,7 +96,13 @@ func (x *ProviderEtcd) Start(system *System, config *Config) error {
 	}()
 	return nil
 }
-func (x *ProviderEtcd) Stop() error {
+func (x *ProviderEtcd) stop() {
+	if x.rpcService != nil {
+		err := x.rpcService.Stop()
+		if err != nil {
+			x.Logger().Warn("rpc service stop err", "err", err)
+		}
+	}
 	if x.leaseId != 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), dialTimeoutTime)
 		defer cancel()
@@ -110,27 +116,11 @@ func (x *ProviderEtcd) Stop() error {
 		}
 	}
 	x.Logger().Info("cluster provider etcd stopped")
-	return nil
 }
-func (x *ProviderEtcd) GetNodesByKind(kind string) []NodeState {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (x *ProviderEtcd) RegisterActor(state ActorState) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (x *ProviderEtcd) UnregisterActor(state ActorState) {
-	//TODO implement me
-	panic("implement me")
-}
-
 func (x *ProviderEtcd) register() error {
 	for id := uint64(1); id <= uuid.MaxNodeMax(); id++ {
 		key := x.config.GetMemberPath(id)
-		state := x.config.InitState(x.SelfAddr(), id)
+		state := x.config.InitState(x.addr(), id)
 		//
 		if !x.set(key, state) {
 			continue

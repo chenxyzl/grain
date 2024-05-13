@@ -7,24 +7,24 @@ import (
 	"log/slog"
 )
 
-var _ IActor = (*BaseActor)(nil)
+//var _ IActor = (*BaseActor)(nil)
 
 type BaseActor struct {
-	IActor
+	//impl         IActor
 	self         *ActorRef
 	system       *System
 	logger       *slog.Logger
 	runningMsgId uint64
 }
 
-func (x *BaseActor) Started()             {}
-func (x *BaseActor) PreStop()             {}
-func (x *BaseActor) Receive(ctx IContext) {}
+//func (x *BaseActor) Started()             {}
+//func (x *BaseActor) PreStop()             {}
+//func (x *BaseActor) Receive(ctx IContext) {}
 
 func (x *BaseActor) _init(system *System, self *ActorRef, this IActor) {
 	x.system = system
 	x.self = self
-	x.IActor = this
+	//x.impl = this
 	x.logger = slog.With("actor", x.self) //warning: slog.With performance too slow
 }
 func (x *BaseActor) _getRunningMsgId() uint64             { return x.runningMsgId }

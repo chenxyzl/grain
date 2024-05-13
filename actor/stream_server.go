@@ -38,7 +38,7 @@ func (x *RPCService) Listen(server Remoting_ListenServer) error {
 			}
 		}
 		//
-		//x.system.clusterProvider.ensureActorExist(msg.GetTarget())
+		x.system.clusterProvider.ensureLocalActorExist(msg.GetTarget())
 		//
 		x.system.sendToLocal(msg)
 	}
@@ -84,7 +84,7 @@ func (x *RPCService) Stop() error {
 	return nil
 }
 
-func (x *RPCService) SelfAddr() string {
+func (x *RPCService) Addr() string {
 	return x.addr
 }
 

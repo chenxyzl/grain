@@ -10,15 +10,13 @@ type ProviderListener interface {
 
 type Provider interface {
 	//
-	SelfAddr() string
+	addr() string
 	//life
-	Start(system *System, config *Config) error
-	Stop() error
-	//node
-	GetNodesByKind(kind string) []NodeState
+	start(system *System, config *Config) error
+	stop()
+
 	//actor
-	RegisterActor(state ActorState) error
-	UnregisterActor(state ActorState)
+	ensureLocalActorExist(ref *ActorRef)
 }
 
 func newProvider[T Provider]() T {

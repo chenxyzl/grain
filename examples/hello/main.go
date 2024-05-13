@@ -29,6 +29,7 @@ type HelloGoActorA struct {
 func (x *HelloGoActorA) Started() {
 	x.Logger().Info("Started")
 }
+
 func (x *HelloGoActorA) PreStop() {
 	x.Logger().Info("PreStop")
 }

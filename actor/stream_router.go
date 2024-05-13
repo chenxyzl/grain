@@ -13,6 +13,10 @@ type streamRouterActor struct {
 	streams *safemap.SafeMap[string, *ActorRef]
 }
 
+func (x *streamRouterActor) Started() {}
+
+func (x *streamRouterActor) PreStop() {}
+
 func (x *streamRouterActor) Receive(ctx IContext) {
 	switch msg := ctx.Message().(type) {
 	case *Envelope:
