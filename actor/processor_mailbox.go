@@ -2,10 +2,8 @@ package actor
 
 import (
 	"context"
-	"fmt"
 	"github.com/chenxyzl/grain/actor/internal"
 	"github.com/chenxyzl/grain/utils/al/ringbuffer"
-	"github.com/chenxyzl/grain/utils/helper"
 	"runtime"
 	"runtime/debug"
 	"sync/atomic"
@@ -65,9 +63,11 @@ func (x *processorMailBox) send(ctx IContext) {
 }
 
 func (x *processorMailBox) invoke(ctx IContext) {
-	defer helper.RecoverInfo(func() string {
-		return fmt.Sprintf("actor receive panic, id:%v, msgType:%v, msg:%v", x.self(), ctx.Message().ProtoReflect().Descriptor().FullName(), ctx.Message())
-	}, x.system.Logger())
+	defer func() {
+		if err := recover(); err != nil {
+			x.system.Logger().Error("actor receive panic, id:%v, msgType:%v, msg:%v", x.self(), ctx.Message().ProtoReflect().Descriptor().FullName(), ctx.Message())
+		}
+	}()
 	//todo restart ?
 	//todo actor life?
 	switch ctx.Message().(type) {
@@ -108,8 +108,10 @@ func (x *processorMailBox) run() {
 func (x *processorMailBox) start() {
 	defer func() {
 		if err := recover(); err != nil {
-			x.system.Logger().Info("spawn recover a panic on start. will poison", "actor", x.self(), "err", err, "stack", debug.Stack())
-			x.send(newContext(x.self(), nil, messageDef.poison, x.system.getNextSnId(), context.Background()))
+			x.system.Logger().Error("spawn recover a panic on start. force to stop self", "id", x.self(), "err", err, "stack", debug.Stack())
+			//force to stop self
+			x.stop()
+			//x.send(newContext(x.self(), nil, messageDef.poison, x.system.getNextSnId(), context.Background()))
 		}
 	}()
 	x.receiver.Started()
