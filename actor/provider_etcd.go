@@ -85,8 +85,8 @@ func (x *ProviderEtcd) start(system *System, config *Config) error {
 				if ok {
 					//x.Logger().Info("etcd alive")
 				} else {
-					x.Logger().Warn("lease expired or KeepAlive channel closed")
 					if x.system != nil {
+						x.Logger().Warn("lease expired or KeepAlive channel closed")
 						x.system.ClusterErr()
 					}
 					return
@@ -97,6 +97,9 @@ func (x *ProviderEtcd) start(system *System, config *Config) error {
 	return nil
 }
 func (x *ProviderEtcd) stop() {
+	//
+	x.system = nil
+	//
 	if x.rpcService != nil {
 		err := x.rpcService.Stop()
 		if err != nil {

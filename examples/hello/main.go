@@ -118,4 +118,5 @@ func main() {
 		panic("x")
 	}
 	slog.Info("HelloReply end")
+	testSystem.system.WaitStopSignal()
 }
