@@ -158,12 +158,6 @@ func (x *System) sendToRemote(envelope *Envelope) {
 func (x *System) getNextSnId() uint64 {
 	return atomic.AddUint64(&x.requestId, 1)
 }
-func (x *System) getNextSnIdIfNot0(d uint64) uint64 {
-	if d != 0 {
-		return d
-	}
-	return x.getNextSnId()
-}
 
 func (x *System) send(target *ActorRef, msg proto.Message, msgSnId uint64, senders ...*ActorRef) {
 	//check
