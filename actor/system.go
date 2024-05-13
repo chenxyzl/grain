@@ -46,7 +46,7 @@ func (x *System) Start() error {
 	x.logger = slog.With("system", x.clusterProvider.SelfAddr(), "node", x.config.state.NodeId)
 	//create router
 	x.router = x.Spawn(func() IActor {
-		return newStreamRouter(NewActorRef(x.clusterProvider.SelfAddr(), "stream_router"), x)
+		return newStreamRouter(NewActorRefLocal(x.clusterProvider.SelfAddr(), "stream_router"), x)
 	})
 	return nil
 }
@@ -111,7 +111,6 @@ func (x *System) SpawnNamed(p Producer, name string, opts ...OptFunc) *ActorRef 
 	options := NewOpts(p, opts...)
 	//
 	proc := newProcessor(x, options)
-	proc.start()
 	//
 	return proc.self()
 }

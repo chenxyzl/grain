@@ -20,26 +20,31 @@ type processorReply[T proto.Message] struct {
 }
 
 func newProcessorReplay[T proto.Message](system *System, timeout time.Duration) *processorReply[T] {
-	self := NewActorRef(system.clusterProvider.SelfAddr(), "reply/"+strconv.Itoa(int(uuid.Generate())))
-	return &processorReply[T]{
+	self := NewActorRefWithKind(system.clusterProvider.SelfAddr(), "reply", strconv.Itoa(int(uuid.Generate())))
+	p := &processorReply[T]{
 		system:  system,
 		_self:   self,
 		result:  make(chan proto.Message, 1),
 		timeout: timeout,
 	}
+	p = system.registry.add(p).(*processorReply[T])
+	p.init()
+	return p
 }
 
-func (x *processorReply[T]) self() *ActorRef          { return x._self }
-func (x *processorReply[T]) start()                   { x.system.registry.add(x) }
-func (x *processorReply[T]) stop(ignoreRegistry bool) { x.system.registry.remove(x._self) }
-func (x *processorReply[T]) send(ctx IContext)        { x.invoke(ctx) }
-func (x *processorReply[T]) invoke(ctx IContext)      { x.result <- ctx.Message() }
+func (x *processorReply[T]) self() *ActorRef { return x._self }
+
+func (x *processorReply[T]) init()               {}
+func (x *processorReply[T]) start()              {}
+func (x *processorReply[T]) stop()               { x.system.registry.remove(x._self) }
+func (x *processorReply[T]) send(ctx IContext)   { x.invoke(ctx) }
+func (x *processorReply[T]) invoke(ctx IContext) { x.result <- ctx.Message() }
 
 func (x *processorReply[T]) Result() (T, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), x.timeout)
 	defer func() {
 		cancel()
-		x.stop(true)
+		x.stop()
 	}()
 	var null T
 	select {

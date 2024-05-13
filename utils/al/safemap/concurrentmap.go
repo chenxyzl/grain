@@ -80,6 +80,19 @@ func (m *ConcurrentMap[K, V]) Set(key K, value V) (V, bool) {
 	return v, b
 }
 
+// SetIfNotExist if not exist, sets the given value under the specified key, else return old value.
+func (m *ConcurrentMap[K, V]) SetIfNotExist(key K, value V) (V, bool) {
+	// Get map shard.
+	shard := m.GetShard(key)
+	shard.Lock()
+	v, b := shard.items[key]
+	if !b {
+		shard.items[key] = value
+	}
+	shard.Unlock()
+	return v, b
+}
+
 // UpsertCb
 // Callback to return new element to be inserted into the map
 // It is called while lock is held, therefore it MUST NOT

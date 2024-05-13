@@ -1,7 +1,6 @@
 package actor
 
 import (
-	"context"
 	"github.com/chenxyzl/grain/utils/al/safemap"
 )
 
@@ -28,12 +27,14 @@ func (r *Registry) get(actRef *ActorRef) iProcess {
 }
 
 func (r *Registry) add(proc iProcess) iProcess {
-	//todo  cluster provider
 	id := proc.self().GetId()
-	if old, ok := r.lookup.Set(id, proc); ok {
+	old, ok := r.lookup.SetIfNotExist(id, proc)
+	if ok {
 		//force to stop old proc
-		old.send(newContext(proc.self(), nil, messageDef.poisonIgnoreRegistry, r.system.getNextSnId(), context.Background()))
-		r.system.Logger().Error("duplicated process id, force poison old processor", "id", id)
+		//old.send(newContext(proc.self(), nil, messageDef.poisonIgnoreRegistry, r.system.getNextSnId(), context.Background()))
+		//r.system.Logger().Error("duplicated process id, force poison old processorMailBox", "id", id)
+		r.system.Logger().Warn("duplicated process id, ignore new processor, return old processor", "id", id)
+		return old
 	}
 	return proc
 }

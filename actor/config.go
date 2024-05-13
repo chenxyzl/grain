@@ -87,6 +87,23 @@ func (x *Config) WithKind(kindName string, producer Producer) *Config {
 func (x *Config) GetMemberPath(memberId uint64) string {
 	return fmt.Sprintf("/%v/member/%d", x.name, memberId)
 }
+
+// GetRemoteUrls ...
 func (x *Config) GetRemoteUrls() []string {
 	return x.remoteUrls
+}
+
+// GetKinds get all kinds
+func (x *Config) GetKinds() []string {
+	kinds := make([]string, 0, len(x.kinds))
+	for kind := range x.kinds {
+		kinds = append(kinds, kind)
+	}
+	return kinds
+}
+
+// InitState after register
+func (x *Config) InitState(addr string, nodeId uint64) NodeState {
+	x.state = NodeState{NodeId: nodeId, Address: addr, Time: time.Now().Format(time.DateTime), Version: x.version, Kinds: x.GetKinds()}
+	return x.state
 }

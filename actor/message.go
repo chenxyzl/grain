@@ -6,12 +6,12 @@ import (
 
 var messageDef = struct {
 	//
-	streamClosed         *internal.StreamClosed
-	poison               *internal.Poison
-	poisonIgnoreRegistry *internal.Poison
+	streamClosed *internal.StreamClosed
+	initialize   *internal.Initialize
+	poison       *internal.Poison
 }{
 	//
-	streamClosed:         &internal.StreamClosed{},
-	poison:               &internal.Poison{},
-	poisonIgnoreRegistry: &internal.Poison{IgnoreRegistry: true},
+	streamClosed: &internal.StreamClosed{},
+	initialize:   &internal.Initialize{},
+	poison:       &internal.Poison{},
 }

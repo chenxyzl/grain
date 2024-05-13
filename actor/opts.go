@@ -2,7 +2,6 @@ package actor
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"time"
 )
@@ -22,7 +21,6 @@ var (
 	}
 )
 
-type Producer func() IActor
 type OptFunc func(*Opts)
 
 type Opts struct {
@@ -78,6 +76,6 @@ func WithDefaultKindName(kindName string) OptFunc {
 }
 func withSelf(address string, name string) OptFunc {
 	return func(opts *Opts) {
-		opts.Self = NewActorRef(address, fmt.Sprintf("/kinds/%s/%s", opts.Kind, name))
+		opts.Self = NewActorRefWithKind(address, opts.Kind, name)
 	}
 }

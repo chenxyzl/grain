@@ -1,6 +1,7 @@
 package actor
 
 import (
+	"context"
 	"fmt"
 	"github.com/chenxyzl/grain/actor/internal"
 	"github.com/chenxyzl/grain/utils/al/ringbuffer"
@@ -20,7 +21,7 @@ const (
 	stopped
 )
 
-type processor struct {
+type processorMailBox struct {
 	Opts
 	system     *System
 	rb         *ringbuffer.RingBuffer[IContext]
@@ -29,102 +30,103 @@ type processor struct {
 	receiver   IActor
 }
 
-var _ iProcess = (*processor)(nil)
+var _ iProcess = (*processorMailBox)(nil)
 
-func newProcessor(system *System, opts Opts) *processor {
-	p := &processor{
+func newProcessor(system *System, opts Opts) iProcess {
+	p := &processorMailBox{
 		Opts:       opts,
 		system:     system,
 		rb:         ringbuffer.New[IContext](int64(opts.MailboxSize)),
 		procStatus: idle,
 		restarts:   0,
 	}
+	p = system.registry.add(p).(*processorMailBox)
+	p.init()
 	return p
 }
 
-func (p *processor) self() *ActorRef {
-	return p.Self
+func (x *processorMailBox) self() *ActorRef {
+	return x.Self
 }
 
-func (p *processor) start() {
+func (x *processorMailBox) init() {
+	x.receiver = x.Producer()                        //create actor
+	x.receiver._init(x.system, x.self(), x.receiver) //bind
+	x.send(newContext(x.self(), nil, messageDef.initialize, x.system.getNextSnId(), context.Background()))
+}
+
+func (x *processorMailBox) start() {
 	defer func() {
 		if err := recover(); err != nil {
-			p.system.registry.remove(p.self())
-			p.system.Logger().Info("spawn recover a panic on start.", "actor", p.self(), "err", err, "stack", debug.Stack())
+			x.system.Logger().Info("spawn recover a panic on start. will poison", "actor", x.self(), "err", err, "stack", debug.Stack())
+			x.send(newContext(x.self(), nil, messageDef.poison, x.system.getNextSnId(), context.Background()))
 		}
 	}()
-	p.system.registry.add(p)                         //add to registry
-	p.receiver = p.Producer()                        //create actor
-	p.receiver._init(p.system, p.self(), p.receiver) //bind
-	p.receiver._setRunningMsgId(p.system.getNextSnIdIfNot0(p.receiver._getRunningMsgId()))
-	defer p.receiver._cleanRunningMsgId()
-	p.receiver.Started()
+	x.receiver.Started()
 }
 
-func (p *processor) stop(ignoreRegistry bool) {
+func (x *processorMailBox) stop() {
 	defer func() {
 		if err := recover(); err != nil {
-			p.system.Logger().Error("recover a panic on stop", "self", p.self(), "panic", err, "stack", debug.Stack())
+			x.system.Logger().Error("recover a panic on stop", "self", x.self(), "panic", err, "stack", debug.Stack())
 		}
 	}()
 	//send stop to actor
-	p.receiver._setRunningMsgId(p.system.getNextSnIdIfNot0(p.receiver._getRunningMsgId()))
 	defer func() {
-		p.receiver._cleanRunningMsgId()
 		//stop run
-		atomic.StoreInt32(&p.procStatus, stopped)
+		atomic.StoreInt32(&x.procStatus, stopped)
 		//remove from registry
-		if !ignoreRegistry {
-			p.system.registry.remove(p.self())
-		}
+		x.system.registry.remove(x.self())
 	}()
-	p.receiver.PreStop()
+	x.receiver.PreStop()
 }
 
-func (p *processor) send(ctx IContext) {
+func (x *processorMailBox) send(ctx IContext) {
 	//for re-entry
-	if runningMsgId := p.receiver._getRunningMsgId(); runningMsgId != 0 && runningMsgId == ctx.GetMsgSnId() {
-		p.invoke(ctx)
+	if runningMsgId := x.receiver._getRunningMsgId(); runningMsgId != 0 && runningMsgId == ctx.GetMsgSnId() {
+		x.invoke(ctx)
 		return
 	}
-	p.rb.Push(ctx)
-	p.schedule()
+	x.rb.Push(ctx)
+	x.schedule()
 }
 
-func (p *processor) invoke(ctx IContext) {
+func (x *processorMailBox) invoke(ctx IContext) {
 	defer helper.RecoverInfo(func() string {
-		return fmt.Sprintf("actor receive panic, id:%v, msgType:%v, msg:%v", p.self(), ctx.Message().ProtoReflect().Descriptor().FullName(), ctx.Message())
-	}, p.system.Logger())
+		return fmt.Sprintf("actor receive panic, id:%v, msgType:%v, msg:%v", x.self(), ctx.Message().ProtoReflect().Descriptor().FullName(), ctx.Message())
+	}, x.system.Logger())
 	//todo restart ?
 	//todo actor life?
-	switch msg := ctx.Message().(type) {
+	switch ctx.Message().(type) {
+	case *internal.Initialize:
+		x.start()
 	case *internal.Poison:
-		p.stop(msg.GetIgnoreRegistry())
+		x.stop()
 	default:
-		p.receiver.Receive(ctx)
+		x.receiver.Receive(ctx)
 	}
 }
-func (p *processor) schedule() {
-	if atomic.CompareAndSwapInt32(&p.procStatus, idle, running) {
-		go p.process()
+func (x *processorMailBox) schedule() {
+	if atomic.CompareAndSwapInt32(&x.procStatus, idle, running) {
+		go x.process()
 	}
 }
-func (p *processor) process() {
-	p.run()
-	atomic.StoreInt32(&p.procStatus, idle)
+func (x *processorMailBox) process() {
+	x.dispatch()
+	atomic.StoreInt32(&x.procStatus, idle)
 }
-func (p *processor) run() {
+func (x *processorMailBox) dispatch() {
 	i, t := 0, defaultThroughput
-	for atomic.LoadInt32(&p.procStatus) != stopped {
+	for atomic.LoadInt32(&x.procStatus) != stopped {
 		if i > t {
 			i = 0
 			runtime.Gosched()
 		}
 		i++
-		if msg, ok := p.rb.Pop(); ok {
-			p.receiver._setRunningMsgId(msg.GetMsgSnId())
-			p.invoke(msg)
-			p.receiver._cleanRunningMsgId()
+		if msg, ok := x.rb.Pop(); ok {
+			x.receiver._setRunningMsgId(msg.GetMsgSnId())
+			x.invoke(msg)
+			x.receiver._cleanRunningMsgId()
 		} else {
 			return
 		}

@@ -47,9 +47,7 @@ func (x *ProviderEtcd) Start(system *System, config *Config) error {
 	if err := rpcService.Start(); err != nil {
 		return err
 	}
-
 	//
-	config.state = NodeState{Address: rpcService.SelfAddr(), Time: time.Now().Format(time.DateTime), Version: config.version}
 	x.system = system
 	x.config = config
 	x.rpcService = rpcService
@@ -132,15 +130,15 @@ func (x *ProviderEtcd) UnregisterActor(state ActorState) {
 func (x *ProviderEtcd) register() error {
 	for id := uint64(1); id <= uuid.MaxNodeMax(); id++ {
 		key := x.config.GetMemberPath(id)
-		x.config.state.NodeId = id
+		state := x.config.InitState(x.SelfAddr(), id)
 		//
-		if !x.set(key, x.config.state) {
+		if !x.set(key, state) {
 			continue
 		}
 		x.logger = x.logger.With("node", id)
 		x.system.InitGlobalUuid(id)
 		//
-		x.Logger().Info("register node to etcd success", "key", key, "val", x.config.state)
+		x.Logger().Info("register node to etcd success", "key", key, "val", state)
 		return nil
 	}
 	return errors.New("register node to etcd error")
@@ -160,4 +158,29 @@ func (x *ProviderEtcd) set(key string, val any) bool {
 
 func (x *ProviderEtcd) Logger() *slog.Logger {
 	return x.logger
+}
+
+func (x *ProviderEtcd) ensureLocalActorExist(ref *ActorRef) {
+	if ref == nil {
+		x.Logger().Warn("ignore ensure, actor ref is nil")
+		return
+	}
+	refKind := ref.GetKind()
+	prod, ok := x.config.kinds[refKind]
+	if !ok {
+		x.Logger().Error("ignore ensure, actor ref kind not exist", "kind", refKind)
+		return
+	}
+	if x.system.registry.get(ref) == nil {
+		x.system.SpawnNamed(prod, ref.GetName())
+	}
+
+	//todo use agent or direct registry?
+
+	//todo 1. check get?
+	//todo 2. if not found, get from kind local provider?
+	//todo 2.1 if kind not found at local provider, ignore and print log
+	//todo 2.2 if found kind at local provider, new kind
+	//todo 2.2.1 add to this registry, use return to instead self(because may already add, for double check)
+	//todo return self
 }

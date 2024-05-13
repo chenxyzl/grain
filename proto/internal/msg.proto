@@ -8,9 +8,12 @@ option go_package = "github.com/chenxyzl/grain/actor/internal";
 ////Start --call Actor.Stop
 ////Actor inner message
 //message Stop{}
+//Initialized -- call after actor new
+//Initialized
+message Initialize{}
 //Poison -- call Actor.Poison
 //Poison target actor
-message Poison {bool ignoreRegistry = 1;}
+message Poison {/*bool ignoreRegistry = 1;*/}
 //StreamClosed -- when StreamWrite stopped
 //Actor inner message
 message StreamClosed{}
