@@ -28,15 +28,12 @@ func newProcessorReplay[T proto.Message](system *System, timeout time.Duration) 
 		timeout: timeout,
 	}
 	p = system.registry.add(p).(*processorReply[T])
-	p.init()
 	return p
 }
 
 func (x *processorReply[T]) self() *ActorRef { return x._self }
 
 func (x *processorReply[T]) init()               {}
-func (x *processorReply[T]) start()              {}
-func (x *processorReply[T]) stop()               { x.system.registry.remove(x._self) }
 func (x *processorReply[T]) send(ctx IContext)   { x.invoke(ctx) }
 func (x *processorReply[T]) invoke(ctx IContext) { x.result <- ctx.Message() }
 
@@ -44,7 +41,7 @@ func (x *processorReply[T]) Result() (T, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), x.timeout)
 	defer func() {
 		cancel()
-		x.stop()
+		x.system.registry.remove(x._self)
 	}()
 	var null T
 	select {

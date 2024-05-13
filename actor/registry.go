@@ -36,5 +36,6 @@ func (r *Registry) add(proc iProcess) iProcess {
 		r.system.Logger().Warn("duplicated process id, ignore new processor, return old processor", "id", id)
 		return old
 	}
+	proc.init()
 	return proc
 }

@@ -110,9 +110,7 @@ func (x *System) SpawnNamed(p Producer, name string, opts ...OptFunc) *ActorRef 
 	opts = append(opts, withSelf(x.clusterProvider.SelfAddr(), name))
 	options := NewOpts(p, opts...)
 	//
-	proc := newProcessor(x, options)
-	//
-	return proc.self()
+	return newProcessor(x, options).self()
 }
 
 func (x *System) sendToLocal(envelope *Envelope) {
@@ -213,7 +211,6 @@ func (x *System) send(target *ActorRef, msg proto.Message, msgSnId uint64, sende
 func request[T proto.Message](system *System, target *ActorRef, req proto.Message, msgSnId uint64) (T, error) {
 	//
 	reply := newProcessorReplay[T](system, system.GetConfig().requestTimeout)
-	reply.start()
 	//
 	system.send(target, req, msgSnId, reply.self())
 	//

@@ -41,7 +41,6 @@ func newProcessor(system *System, opts Opts) iProcess {
 		restarts:   0,
 	}
 	p = system.registry.add(p).(*processorMailBox)
-	p.init()
 	return p
 }
 
@@ -53,32 +52,6 @@ func (x *processorMailBox) init() {
 	x.receiver = x.Producer()                        //create actor
 	x.receiver._init(x.system, x.self(), x.receiver) //bind
 	x.send(newContext(x.self(), nil, messageDef.initialize, x.system.getNextSnId(), context.Background()))
-}
-
-func (x *processorMailBox) start() {
-	defer func() {
-		if err := recover(); err != nil {
-			x.system.Logger().Info("spawn recover a panic on start. will poison", "actor", x.self(), "err", err, "stack", debug.Stack())
-			x.send(newContext(x.self(), nil, messageDef.poison, x.system.getNextSnId(), context.Background()))
-		}
-	}()
-	x.receiver.Started()
-}
-
-func (x *processorMailBox) stop() {
-	defer func() {
-		if err := recover(); err != nil {
-			x.system.Logger().Error("recover a panic on stop", "self", x.self(), "panic", err, "stack", debug.Stack())
-		}
-	}()
-	//send stop to actor
-	defer func() {
-		//stop run
-		atomic.StoreInt32(&x.procStatus, stopped)
-		//remove from registry
-		x.system.registry.remove(x.self())
-	}()
-	x.receiver.PreStop()
 }
 
 func (x *processorMailBox) send(ctx IContext) {
@@ -112,10 +85,10 @@ func (x *processorMailBox) schedule() {
 	}
 }
 func (x *processorMailBox) process() {
-	x.dispatch()
+	x.run()
 	atomic.StoreInt32(&x.procStatus, idle)
 }
-func (x *processorMailBox) dispatch() {
+func (x *processorMailBox) run() {
 	i, t := 0, defaultThroughput
 	for atomic.LoadInt32(&x.procStatus) != stopped {
 		if i > t {
@@ -131,4 +104,28 @@ func (x *processorMailBox) dispatch() {
 			return
 		}
 	}
+}
+func (x *processorMailBox) start() {
+	defer func() {
+		if err := recover(); err != nil {
+			x.system.Logger().Info("spawn recover a panic on start. will poison", "actor", x.self(), "err", err, "stack", debug.Stack())
+			x.send(newContext(x.self(), nil, messageDef.poison, x.system.getNextSnId(), context.Background()))
+		}
+	}()
+	x.receiver.Started()
+}
+func (x *processorMailBox) stop() {
+	defer func() {
+		if err := recover(); err != nil {
+			x.system.Logger().Error("recover a panic on stop", "self", x.self(), "panic", err, "stack", debug.Stack())
+		}
+	}()
+	//send stop to actor
+	defer func() {
+		//stop run
+		atomic.StoreInt32(&x.procStatus, stopped)
+		//remove from registry
+		x.system.registry.remove(x.self())
+	}()
+	x.receiver.PreStop()
 }

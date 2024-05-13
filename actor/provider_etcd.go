@@ -171,6 +171,7 @@ func (x *ProviderEtcd) ensureLocalActorExist(ref *ActorRef) {
 		x.Logger().Error("ignore ensure, actor ref kind not exist", "kind", refKind)
 		return
 	}
+	//double check
 	if x.system.registry.get(ref) == nil {
 		x.system.SpawnNamed(prod, ref.GetName())
 	}
