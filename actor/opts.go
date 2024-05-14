@@ -7,9 +7,10 @@ import (
 )
 
 const (
-	defaultMailboxSize = 1024
-	defaultMaxRestarts = 3
-	defaultKindName    = "local"
+	defaultMailboxSize   = 1024
+	defaultMaxRestarts   = 3
+	defaultLocalKindName = "local"
+	defaultReplyKindName = "reply"
 )
 
 var (
@@ -38,7 +39,7 @@ func NewOpts(p Producer, opts ...OptFunc) Opts {
 	ret := Opts{
 		Producer:     p,
 		MailboxSize:  defaultMailboxSize,
-		Kind:         defaultKindName,
+		Kind:         defaultLocalKindName,
 		MaxRestarts:  defaultMaxRestarts,
 		RestartDelay: defaultRestartDelay,
 		Context:      context.Background(),

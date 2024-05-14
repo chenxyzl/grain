@@ -7,17 +7,17 @@ import (
 
 // NewActorRefLocal ...
 // todo replace with system.GetRef[T IActor](id string/int) -> system.GetRef(kind string,id string/int)
-func NewActorRefLocal(address string, identifier string) *ActorRef {
+func NewActorRefLocal(address string, name string) *ActorRef {
 	return &ActorRef{
 		Address:    address,
-		Identifier: fmt.Sprintf("kinds/%s/%s", defaultKindName, identifier),
+		Identifier: fmt.Sprintf("kinds/%s/%s", defaultLocalKindName, name),
 	}
 }
 
-func NewActorRefWithKind(address string, kind string, id string) *ActorRef {
+func NewActorRefWithKind(address string, kind string, name string) *ActorRef {
 	return &ActorRef{
 		Address:    address,
-		Identifier: fmt.Sprintf("kinds/%s/%s", kind, id),
+		Identifier: fmt.Sprintf("kinds/%s/%s", kind, name),
 	}
 }
 
@@ -40,7 +40,7 @@ func (x *ActorRef) GetKind() string {
 	return strings.SplitN(ident, "/", 3)[1]
 }
 
-// GetKind ...
+// GetName ...
 func (x *ActorRef) GetName() string {
 	ident := x.GetIdentifier()
 	if ident == "" {

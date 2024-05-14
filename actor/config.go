@@ -9,7 +9,8 @@ import (
 )
 
 const (
-	defaultRequestTimeout = time.Second * 1
+	defaultRequestTimeout     = time.Second * 1
+	defaultStopWaitTimeSecond = 120
 )
 
 type KindProps struct {
@@ -19,25 +20,27 @@ type KindProps struct {
 }
 
 type Config struct {
-	running        int32
-	name           string
-	version        string
-	remoteUrls     []string
-	requestTimeout time.Duration
-	dialOptions    []grpc.DialOption
-	callOptions    []grpc.CallOption
-	kinds          map[string]Producer
-	addr           net.Addr
-	state          NodeState
+	running            int32
+	name               string
+	version            string
+	remoteUrls         []string
+	requestTimeout     time.Duration
+	stopWaitTimeSecond int
+	dialOptions        []grpc.DialOption
+	callOptions        []grpc.CallOption
+	kinds              map[string]Producer
+	addr               net.Addr
+	state              NodeState
 }
 
 func NewConfig(clusterName string, version string, remoteUrls []string) *Config {
 	return &Config{
-		name:           clusterName,
-		version:        version,
-		remoteUrls:     remoteUrls,
-		requestTimeout: defaultRequestTimeout,
-		kinds:          make(map[string]Producer),
+		name:               clusterName,
+		version:            version,
+		remoteUrls:         remoteUrls,
+		requestTimeout:     defaultRequestTimeout,
+		stopWaitTimeSecond: defaultStopWaitTimeSecond,
+		kinds:              make(map[string]Producer),
 	}
 }
 
@@ -58,6 +61,12 @@ func (x *Config) mustNotRunning() {
 // WithRequestTimeout set request timeout
 func (x *Config) WithRequestTimeout(d time.Duration) *Config {
 	x.requestTimeout = d
+	return x
+}
+
+// WithStopWaitTimeSecond stop wait time second
+func (x *Config) WithStopWaitTimeSecond(t int) *Config {
+	x.stopWaitTimeSecond = t
 	return x
 }
 

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"sync/atomic"
 	"syscall"
+	"time"
 )
 
 type System struct {
@@ -61,11 +62,36 @@ func (x *System) WaitStopSignal() {
 	case <-x.forceCloseChan:
 		x.Logger().Warn("system will exit by forceCloseChan")
 	}
+	x.stopActors()
 	x.clusterProvider.stop()
 }
 
 func (x *System) ForceStop() {
 	x.forceCloseChan <- true
+}
+
+func (x *System) stopActors() {
+	for {
+		var left []*ActorRef
+		times := 0
+		x.registry.lookup.IterCb(func(key string, v iProcess) {
+			if v.self().GetAddress() == x.clusterProvider.addr() && v.self().GetKind() != defaultReplyKindName {
+				x.send(v.self(), messageDef.poison, x.getNextSnId())
+				left = append(left, v.self())
+			}
+		})
+		time.Sleep(time.Second)
+		times++
+		if len(left) == 0 {
+			x.Logger().Warn("waiting actors stop success", "times", times)
+			break
+		} else if times >= defaultStopWaitTimeSecond {
+			x.Logger().Warn("waiting stop timeout", "left", len(left), "times", times, "actors", left)
+			break
+		} else {
+			x.Logger().Info("waiting actors stop ..., ", "count", len(left), "times", times)
+		}
+	}
 }
 
 func (x *System) ClusterErr() {

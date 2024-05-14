@@ -4,6 +4,24 @@ import (
 	"github.com/chenxyzl/grain/actor"
 )
 
+var _ actor.IActor = (*PlayerActor)(nil)
+
+type PlayerActor struct {
+	actor.BaseActor
+}
+
+func (p *PlayerActor) Started() {
+	p.Logger().Info("Started")
+}
+
+func (p *PlayerActor) PreStop() {
+	p.Logger().Info("PreStop")
+}
+
+func (p *PlayerActor) Receive(ctx actor.IContext) {
+	p.Logger().Info(string(ctx.Message().ProtoReflect().Descriptor().FullName()))
+}
+
 func main() {
 	//config
 	config := actor.NewConfig("hello", "0.0.1", []string{"127.0.0.1:2379"})
