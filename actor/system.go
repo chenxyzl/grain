@@ -2,6 +2,7 @@ package actor
 
 import (
 	"context"
+	"github.com/chenxyzl/grain/actor/internal"
 	"github.com/chenxyzl/grain/actor/uuid"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -66,6 +67,7 @@ func (x *System) ForceStop() {
 }
 
 func (x *System) stopActors() {
+	x.Logger().Info("begin stop all actors")
 	for {
 		var left []*ActorRef
 		times := 0
@@ -188,7 +190,11 @@ func (x *System) send(target *ActorRef, msg proto.Message, msgSnId uint64, sende
 		//to local
 		proc := x.registry.get(target)
 		if proc == nil {
-			x.Logger().Error("get actor failed", "actor", target, "msgName", msg.ProtoReflect().Descriptor().FullName())
+			if _, ok := msg.(*internal.Poison); ok {
+				//ignore poison msg if proc not found
+			} else {
+				x.Logger().Error("get actor failed", "actor", target, "msgName", msg.ProtoReflect().Descriptor().FullName())
+			}
 			return
 		}
 		proc.send(newContext(proc.self(), sender, msg, msgSnId, context.Background(), x))

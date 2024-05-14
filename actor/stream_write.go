@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"io"
 )
@@ -52,14 +54,19 @@ func (x *streamWriteActor) Started() {
 			unknownMsg, err := stream.Recv()
 			switch {
 			case errors.Is(err, io.EOF):
-				x.Logger().Info("remote stream closed", "address", x.address)
+				x.Logger().Info("remote stream closed 1", "address", x.address)
+			case status.Code(err) == codes.Canceled || status.Code(err) == codes.OK || status.Code(err) == codes.Unavailable:
+				x.Logger().Info("remote stream closed 2", "address", x.address, "cod", status.Code(err))
+			case status.Code(err) > 0:
+				x.Logger().Warn("remote stream closed 3", "address", x.address, "cod", status.Code(err))
 			case err != nil:
-				x.Logger().Error("remote stream lost connection", "address", x.address, "error", err)
-			default: // DisconnectRequest
+				x.Logger().Warn("remote stream lost connection with err", "address", x.address, "error", err)
+			default:
 				x.Logger().Warn("remote stream got a msg form remote, but this stream only for write", "address", x.address, "msg", unknownMsg)
 			}
+			//only can send, not allowed Recv
 			x.system.Poison(x.self)
-			break
+			return
 		}
 	}()
 }

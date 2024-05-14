@@ -1,10 +1,10 @@
 package actor
 
 import (
-	"context"
-	"errors"
 	"github.com/chenxyzl/grain/utils/helper"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"io"
 	"log/slog"
 	"net"
@@ -28,14 +28,20 @@ func (x *RPCService) Listen(server Remoting_ListenServer) error {
 	//save to
 	for {
 		msg, err := server.Recv()
-		if err != nil {
-			if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
-				x.Logger().Info("Connection Closed")
-				return nil
-			} else {
-				x.Logger().Error("Read Failed, Close Connection", "err", err)
-				return err
-			}
+		switch {
+		case err == io.EOF:
+			x.Logger().Info("Connection Closed 1")
+			return nil
+		case status.Code(err) == codes.Canceled:
+			x.Logger().Info("Connection Closed 2")
+			return nil
+		case status.Code(err) > 0:
+			x.Logger().Info("Connection Closed 3", "cod", status.Code(err))
+		case err != nil:
+			x.Logger().Error("Read Failed, Close Connection", "err", err)
+			return err
+		default:
+			//do something left
 		}
 		if msg.GetTarget().GetAddress() != x.addr {
 			x.Logger().Warn("target address is not match", "target_address", msg.GetTarget().GetAddress(), "self_address", x.addr)
