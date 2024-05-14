@@ -6,12 +6,9 @@ import (
 
 var messageDef = struct {
 	//
-	streamClosed *internal.StreamClosed
-	initialize   *internal.Initialize
-	poison       *internal.Poison
+	initialize *internal.Initialize
+	poison     *internal.Poison
 }{
-	//
-	streamClosed: &internal.StreamClosed{},
-	initialize:   &internal.Initialize{},
-	poison:       &internal.Poison{},
+	initialize: &internal.Initialize{},
+	poison:     &internal.Poison{},
 }

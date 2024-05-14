@@ -3,6 +3,7 @@ package actor
 import (
 	"fmt"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"net"
 	"sync/atomic"
 	"time"
@@ -10,8 +11,10 @@ import (
 
 const (
 	defaultRequestTimeout     = time.Second * 1
-	defaultStopWaitTimeSecond = 120
-	defaultNameStreamRouter   = "stream_router"
+	defaultStopWaitTimeSecond = 3
+	defaultLocalKindName      = "local"
+	defaultReplyKindName      = "reply"
+	remoteStreamKind          = "remote_stream"
 )
 
 type KindProps struct {
@@ -42,6 +45,7 @@ func NewConfig(clusterName string, version string, remoteUrls []string) *Config 
 		requestTimeout:     defaultRequestTimeout,
 		stopWaitTimeSecond: defaultStopWaitTimeSecond,
 		kinds:              make(map[string]Producer),
+		dialOptions:        []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())},
 	}
 }
 
@@ -93,6 +97,9 @@ func (x *Config) WithKind(kindName string, producer Producer) *Config {
 	}
 	x.kinds[kindName] = producer
 	return x
+}
+func (x *Config) GetMemberPrefix() string {
+	return fmt.Sprintf("/%v/member/", x.name)
 }
 func (x *Config) GetMemberPath(memberId uint64) string {
 	return fmt.Sprintf("/%v/member/%d", x.name, memberId)

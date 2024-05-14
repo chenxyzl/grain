@@ -7,10 +7,8 @@ import (
 )
 
 const (
-	defaultMailboxSize   = 1024
-	defaultMaxRestarts   = 3
-	defaultLocalKindName = "local"
-	defaultReplyKindName = "reply"
+	defaultMailboxSize = 1024
+	defaultMaxRestarts = 3
 )
 
 var (
@@ -70,13 +68,13 @@ func WithMaxRestarts(n int) OptFunc {
 		opts.MaxRestarts = int32(n)
 	}
 }
-func WithDefaultKindName(kindName string) OptFunc {
+func WithKindName(kindName string) OptFunc {
 	return func(opts *Opts) {
 		opts.Kind = kindName
 	}
 }
 func withSelf(address string, name string) OptFunc {
 	return func(opts *Opts) {
-		opts.Self = NewActorRefWithKind(address, opts.Kind, name)
+		opts.Self = newActorRefWithKind(address, opts.Kind, name)
 	}
 }

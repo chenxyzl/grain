@@ -14,8 +14,5 @@ message Initialize{}
 //Poison -- call Actor.Poison
 //Poison target actor
 message Poison {/*bool ignoreRegistry = 1;*/}
-//StreamClosed -- when StreamWrite stopped
-//Actor inner message
-message StreamClosed{}
 //Error --
 message Error{int32 code = 1; string des = 2;}

@@ -5,29 +5,15 @@ import (
 	"strings"
 )
 
-// NewActorRefLocal ...
-// todo replace with system.GetRef[T IActor](id string/int) -> system.GetRef(kind string,id string/int)
-func NewActorRefLocal(address string, name string) *ActorRef {
-	return &ActorRef{
-		Address:    address,
-		Identifier: fmt.Sprintf("kinds/%s/%s", defaultLocalKindName, name),
-	}
-}
-
-func NewActorRefWithKind(address string, kind string, name string) *ActorRef {
+func newActorRefWithKind(address string, kind string, name string) *ActorRef {
 	return &ActorRef{
 		Address:    address,
 		Identifier: fmt.Sprintf("kinds/%s/%s", kind, name),
 	}
 }
 
-// NewIdentifier ...
-func NewIdentifier(kind, key string) *Identifier {
-	return &Identifier{Kind: kind, Key: key}
-}
-
-// GetId addres@ident
-func (x *ActorRef) GetId() string {
+// GetFullIdentifier addres@ident
+func (x *ActorRef) GetFullIdentifier() string {
 	return fmt.Sprintf("%s@%s", x.GetAddress(), x.GetIdentifier())
 }
 

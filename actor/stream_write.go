@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 	"io"
 )
 
@@ -57,7 +58,8 @@ func (x *streamWriteActor) Started() {
 			default: // DisconnectRequest
 				x.Logger().Warn("remote stream got a msg form remote, but this stream only for write", "address", x.address, "msg", unknownMsg)
 			}
-			x.system.send(x.Self(), messageDef.poison, x.system.getNextSnId())
+			x.system.Poison(x.self)
+			break
 		}
 	}()
 }
@@ -81,12 +83,24 @@ func (x *streamWriteActor) PreStop() {
 }
 
 func (x *streamWriteActor) Receive(ctx IContext) {
-	switch msg := ctx.Message().(type) {
-	case *Envelope:
-		x.sendToRemote(msg)
-	default:
-		x.Logger().Error("receive unknown msg", "msg.type", msg.ProtoReflect().Descriptor().FullName(), "msg.content", msg)
+	//
+	msg := ctx.Message()
+	msgName := string(msg.ProtoReflect().Descriptor().FullName())
+	//marshal
+	content, err := proto.Marshal(msg)
+	if err != nil {
+		x.logger.Error("proto marshal err", "from", ctx.Sender(), "target", ctx.Target(), "msgName", msgName, "msg", msg, "err", err)
+		return
 	}
+	envelope := &Envelope{
+		Header:  nil,
+		Sender:  ctx.Sender(),
+		Target:  ctx.Target(),
+		MsgSnId: ctx.GetMsgSnId(),
+		MsgName: msgName,
+		Content: content,
+	}
+	x.sendToRemote(envelope)
 }
 
 func (x *streamWriteActor) sendToRemote(msg *Envelope) {

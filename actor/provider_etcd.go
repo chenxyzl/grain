@@ -2,11 +2,19 @@ package actor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/chenxyzl/grain/actor/uuid"
+	"github.com/chenxyzl/grain/utils/al/safemap"
+	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"hash"
+	"hash/fnv"
 	"log/slog"
+	"slices"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -31,6 +39,16 @@ type ProviderEtcd struct {
 	//self rpc
 	selfAddr   string
 	rpcService *RPCService
+
+	//
+	nodeMap *safemap.SafeMap[string, NodeState]
+	//
+	hasher     hash.Hash32
+	hasherLock sync.Mutex
+}
+
+func (x *ProviderEtcd) Logger() *slog.Logger {
+	return x.logger
 }
 
 func (x *ProviderEtcd) addr() string {
@@ -48,6 +66,8 @@ func (x *ProviderEtcd) start(system *System, config *Config) error {
 		return err
 	}
 	//
+	x.hasher = fnv.New32a()
+	x.nodeMap = safemap.NewM[string, NodeState]()
 	x.system = system
 	x.config = config
 	x.rpcService = rpcService
@@ -64,36 +84,27 @@ func (x *ProviderEtcd) start(system *System, config *Config) error {
 	if err != nil {
 		return err
 	}
+	//lease
+	x.leaseId = leaseResp.ID
+	//keep
 	ctx, cancel := context.WithCancel(context.Background())
 	x.cancelFunc = cancel
 	keepAliveChan, err := etcdClient.KeepAlive(ctx, leaseResp.ID)
 	if err != nil {
 		return err
 	}
-	//lease
-	x.leaseId = leaseResp.ID
 	//register
 	err = x.register()
 	if err != nil {
 		return err
 	}
-	//watch
-	go func() {
-		for {
-			select {
-			case _, ok := <-keepAliveChan:
-				if ok {
-					//x.Logger().Info("etcd alive")
-				} else {
-					if x.system != nil {
-						x.Logger().Warn("lease expired or KeepAlive channel closed")
-						x.system.ClusterErr()
-					}
-					return
-				}
-			}
-		}
-	}()
+	//watcher
+	err = x.watch()
+	if err != nil {
+		return err
+	}
+	//keep
+	x.keepAlive(keepAliveChan)
 	return nil
 }
 func (x *ProviderEtcd) stop() {
@@ -123,7 +134,8 @@ func (x *ProviderEtcd) stop() {
 func (x *ProviderEtcd) register() error {
 	for id := uint64(1); id <= uuid.MaxNodeMax(); id++ {
 		key := x.config.GetMemberPath(id)
-		state := x.config.InitState(x.addr(), id)
+		s, _ := json.Marshal(x.config.InitState(x.addr(), id))
+		state := string(s)
 		//
 		if !x.set(key, state) {
 			continue
@@ -149,32 +161,118 @@ func (x *ProviderEtcd) set(key string, val any) bool {
 	return true
 }
 
-func (x *ProviderEtcd) Logger() *slog.Logger {
-	return x.logger
+func (x *ProviderEtcd) keepAlive(keepAliveChan <-chan *clientv3.LeaseKeepAliveResponse) {
+	go func() {
+		for {
+			select {
+			case _, ok := <-keepAliveChan:
+				if ok {
+					//x.Logger().Info("etcd alive")
+				} else {
+					if x.system != nil {
+						x.Logger().Warn("lease expired or KeepAlive channel closed")
+						x.system.ClusterErr()
+					}
+					return
+				}
+			}
+		}
+	}()
+}
+func (x *ProviderEtcd) watch() error {
+	//first
+	rsp, err := x.client.Get(context.Background(), x.config.GetMemberPrefix(), clientv3.WithPrefix())
+	if err != nil {
+		return errors.Join(err, errors.New("first load node state err"))
+	}
+	for _, kv := range rsp.Kvs {
+		err = x.parseWatch(mvccpb.PUT, string(kv.Key), kv.Value)
+		if err != nil {
+			return err
+		}
+	}
+	//real watch
+	wch := x.client.Watch(context.Background(), x.config.GetMemberPrefix(), clientv3.WithPrefix(), clientv3.WithPrevKV())
+	go func() {
+		for v := range wch {
+			for _, kv := range v.Events {
+				_ = x.parseWatch(kv.Type, string(kv.Kv.Key), kv.Kv.Value)
+			}
+		}
+	}()
+	return nil
 }
 
-func (x *ProviderEtcd) ensureLocalActorExist(ref *ActorRef) {
+func (x *ProviderEtcd) parseWatch(op mvccpb.Event_EventType, key string, value []byte) (err error) {
+	arr := strings.Split(key, "/")
+	if len(arr) > 0 {
+		key = arr[len(arr)-1]
+	}
+	if op == mvccpb.DELETE {
+		x.nodeMap.Delete(key)
+		return nil
+	}
+	a := NodeState{}
+	if err = json.Unmarshal(value, &a); err != nil {
+		x.nodeMap.Delete(key)
+		x.Logger().Error("watcher key changed, bug parse err, remove node", "node", key, "v", string(value), "err", err)
+	} else {
+		x.nodeMap.Set(key, a)
+		x.Logger().Warn("watcher key changed, success", "key", key, "v", a)
+	}
+	return err
+}
+
+func (x *ProviderEtcd) ensureRemoteKindActorExist(ref *ActorRef) {
 	if ref == nil {
 		x.Logger().Warn("ignore ensure, actor ref is nil")
 		return
 	}
 	refKind := ref.GetKind()
 	prod, ok := x.config.kinds[refKind]
-	if !ok {
-		x.Logger().Error("ignore ensure, actor ref kind not exist", "kind", refKind)
-		return
+	if ok && ref.GetAddress() == x.Address() && x.system.registry.get(ref) == nil {
+		x.system.SpawnNamed(prod, ref.GetName(), WithKindName(ref.GetKind()))
 	}
-	//double check
-	if x.system.registry.get(ref) == nil {
-		x.system.SpawnNamed(prod, ref.GetName())
+}
+
+func (x *ProviderEtcd) getAddressByKind7Id(kind string, name string) string {
+	var nodes []NodeState
+	x.nodeMap.Range(func(_ string, state NodeState) {
+		if slices.Contains(state.Kinds, kind) {
+			nodes = append(nodes, state)
+		}
+	})
+	l := len(nodes)
+	if l == 0 {
+		return ""
+	}
+	if l == 1 {
+		return nodes[0].Address
+	}
+	keyBytes := []byte(name)
+	var maxScore uint32
+	var maxMember *NodeState
+	var score uint32
+	for _, node := range nodes {
+		score = x.hash([]byte(node.Address), keyBytes)
+		if score > maxScore {
+			maxScore = score
+			maxMember = &node
+		}
 	}
 
-	//todo use agent or direct registry?
+	if maxMember == nil {
+		return ""
+	}
+	return maxMember.Address
+}
 
-	//todo 1. check get?
-	//todo 2. if not found, get from kind local provider?
-	//todo 2.1 if kind not found at local provider, ignore and print log
-	//todo 2.2 if found kind at local provider, new kind
-	//todo 2.2.1 add to this registry, use return to instead self(because may already add, for double check)
-	//todo return self
+func (r *ProviderEtcd) hash(node, key []byte) uint32 {
+	r.hasherLock.Lock()
+	defer r.hasherLock.Unlock()
+
+	r.hasher.Reset()
+	_, _ = r.hasher.Write(key)
+	_, _ = r.hasher.Write(node)
+	return r.hasher.Sum32()
 }

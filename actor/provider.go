@@ -16,7 +16,9 @@ type Provider interface {
 	stop()
 
 	//actor
-	ensureLocalActorExist(ref *ActorRef)
+	ensureRemoteKindActorExist(ref *ActorRef)
+	//
+	getAddressByKind7Id(kind string, name string) string
 }
 
 func newProvider[T Provider]() T {

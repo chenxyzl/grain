@@ -91,7 +91,6 @@ func (x *HelloGoActorB) Receive(context actor.IContext) {
 func init() {
 	//log
 	helper.InitLog("./test.log")
-	slog.SetLogLoggerLevel(slog.LevelInfo)
 	//config
 	config := actor.NewConfig("hello", "0.0.1", []string{"127.0.0.1:2379"}).
 		WithRequestTimeout(requestTimeout).

@@ -17,17 +17,16 @@ func newRegistry(s *System) *Registry {
 }
 
 func (r *Registry) remove(actRef *ActorRef) {
-	//todo  cluster provider
-	r.lookup.Remove(actRef.GetId())
+	r.lookup.Remove(actRef.GetFullIdentifier())
 }
 
 func (r *Registry) get(actRef *ActorRef) iProcess {
-	proc, _ := r.lookup.Get(actRef.GetId())
+	proc, _ := r.lookup.Get(actRef.GetFullIdentifier())
 	return proc
 }
 
 func (r *Registry) add(proc iProcess) iProcess {
-	id := proc.self().GetId()
+	id := proc.self().GetFullIdentifier()
 	old, ok := r.lookup.SetIfNotExist(id, proc)
 	if ok {
 		//force to stop old proc

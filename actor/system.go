@@ -21,7 +21,6 @@ type System struct {
 	logger          *slog.Logger
 	registry        *Registry
 	clusterProvider Provider
-	router          *ActorRef
 	forceCloseChan  chan bool
 	requestId       uint64
 }
@@ -45,8 +44,6 @@ func (x *System) Start() error {
 	}
 	//overwrite logger
 	x.logger = slog.With("system", x.clusterProvider.addr(), "node", x.config.state.NodeId)
-	//create router
-	x.router = x.SpawnNamed(func() IActor { return newStreamRouter() }, defaultNameStreamRouter)
 	return nil
 }
 func (x *System) WaitStopSignal() {
@@ -137,31 +134,21 @@ func (x *System) SpawnNamed(p Producer, name string, opts ...OptFunc) *ActorRef 
 	return newProcessor(x, options).self()
 }
 
+func (x *System) GetRemoteActorRef(kind string, name string) *ActorRef {
+	addr := x.clusterProvider.getAddressByKind7Id(kind, name)
+	if addr == "" {
+		return nil
+	}
+	return newActorRefWithKind(addr, kind, name)
+}
+func (x *System) GetLocalActorRef(kind string, name string) *ActorRef {
+	return newActorRefWithKind(x.clusterProvider.addr(), kind, name)
+}
+
 func (x *System) sendToLocal(envelope *Envelope) {
 	proc := x.registry.get(envelope.GetTarget())
 	if proc == nil {
 		x.Logger().Error("get actor failed", "actor", envelope.GetTarget(), "msgName", envelope.MsgName)
-		return
-	}
-	typ, err := protoregistry.GlobalTypes.FindMessageByName(protoreflect.FullName(envelope.MsgName))
-	if err != nil {
-		x.Logger().Error("unregister msg type", "msgName", envelope.MsgName, "err", err)
-		return
-	}
-	msg := typ.New().Interface().(proto.Message)
-	err = proto.Unmarshal(envelope.Content, msg)
-	if err != nil {
-		x.Logger().Error("msg unmarshal err", "msgName", envelope.MsgName, "err", err)
-		return
-	}
-	//build ctx
-	proc.send(newContext(proc.self(), envelope.GetSender(), msg, envelope.GetMsgSnId(), context.Background(), x))
-}
-
-func (x *System) sendToRemote(envelope *Envelope) {
-	proc := x.registry.get(x.router)
-	if proc == nil {
-		x.Logger().Error("get router failed", "router", x.router, "msgName", envelope.MsgName)
 		return
 	}
 	typ, err := protoregistry.GlobalTypes.FindMessageByName(protoreflect.FullName(envelope.MsgName))
@@ -207,22 +194,20 @@ func (x *System) send(target *ActorRef, msg proto.Message, msgSnId uint64, sende
 		proc.send(newContext(proc.self(), sender, msg, msgSnId, context.Background(), x))
 		//x.sendToLocal(envelope)
 	} else {
+		remoteActorRef := newActorRefWithKind(x.clusterProvider.addr(), remoteStreamKind, target.GetAddress())
+		proc := x.registry.get(remoteActorRef)
+		if proc == nil {
+			x.SpawnNamed(func() IActor {
+				return newStreamWriterActor(remoteActorRef, target.GetAddress(), x.GetConfig().dialOptions, x.GetConfig().callOptions)
+			}, target.GetAddress(), WithKindName(remoteStreamKind))
+		}
 		//to remote
-		//marshal
-		content, err := proto.Marshal(msg)
-		if err != nil {
-			x.logger.Error("proto marshal err", "err", err, "msg", msg)
+		proc = x.registry.get(remoteActorRef)
+		if proc == nil {
+			x.Logger().Error("get remote failed", "remote", remoteActorRef, "msgName", msg.ProtoReflect().Descriptor().FullName())
 			return
 		}
-		envelope := &Envelope{
-			Header:  nil,
-			Sender:  sender,
-			Target:  target,
-			MsgSnId: msgSnId,
-			MsgName: string(msg.ProtoReflect().Descriptor().FullName()),
-			Content: content,
-		}
-		x.sendToRemote(envelope)
+		proc.send(newContext(target, sender, msg, msgSnId, context.Background(), x))
 	}
 }
 

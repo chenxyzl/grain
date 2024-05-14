@@ -6,7 +6,7 @@ import (
 )
 
 type IContext interface {
-	Self() *ActorRef
+	Target() *ActorRef
 	Sender() *ActorRef
 	GetMsgSnId() uint64
 	Message() proto.Message
@@ -17,7 +17,7 @@ var _ IContext = (*Context)(nil)
 
 type Context struct {
 	system  *System
-	self    *ActorRef
+	target  *ActorRef
 	sender  *ActorRef
 	msgSnId uint64
 	message proto.Message
@@ -28,10 +28,10 @@ func (x *Context) Reply(message proto.Message) {
 	x.system.send(x.Sender(), message, x.msgSnId)
 }
 
-func newContext(self *ActorRef, sender *ActorRef, message proto.Message, msgSnId uint64, ctx context.Context, system *System) *Context {
+func newContext(target *ActorRef, sender *ActorRef, message proto.Message, msgSnId uint64, ctx context.Context, system *System) *Context {
 	return &Context{
 		system:  system,
-		self:    self,
+		target:  target,
 		sender:  sender,
 		msgSnId: msgSnId,
 		message: message,
@@ -39,8 +39,8 @@ func newContext(self *ActorRef, sender *ActorRef, message proto.Message, msgSnId
 	}
 }
 
-func (x *Context) Self() *ActorRef {
-	return x.self
+func (x *Context) Target() *ActorRef {
+	return x.target
 }
 
 func (x *Context) Sender() *ActorRef {

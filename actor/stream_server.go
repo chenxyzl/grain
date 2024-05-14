@@ -37,8 +37,12 @@ func (x *RPCService) Listen(server Remoting_ListenServer) error {
 				return err
 			}
 		}
+		if msg.GetTarget().GetAddress() != x.addr {
+			x.Logger().Warn("target address is not match", "target_address", msg.GetTarget().GetAddress(), "self_address", x.addr)
+			continue
+		}
 		//
-		x.system.clusterProvider.ensureLocalActorExist(msg.GetTarget())
+		x.system.clusterProvider.ensureRemoteKindActorExist(msg.GetTarget())
 		//
 		x.system.sendToLocal(msg)
 	}
