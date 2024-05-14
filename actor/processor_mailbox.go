@@ -68,8 +68,6 @@ func (x *processorMailBox) invoke(ctx IContext) {
 			x.system.Logger().Error("actor receive panic, id:%v, msgType:%v, msg:%v", x.self(), ctx.Message().ProtoReflect().Descriptor().FullName(), ctx.Message())
 		}
 	}()
-	//todo restart ?
-	//todo actor life?
 	switch ctx.Message().(type) {
 	case *internal.Initialize:
 		x.start()
