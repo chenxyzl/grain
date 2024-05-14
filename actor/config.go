@@ -11,6 +11,7 @@ import (
 const (
 	defaultRequestTimeout     = time.Second * 1
 	defaultStopWaitTimeSecond = 120
+	defaultNameStreamRouter   = "stream_router"
 )
 
 type KindProps struct {

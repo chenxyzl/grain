@@ -46,9 +46,7 @@ func (x *System) Start() error {
 	//overwrite logger
 	x.logger = slog.With("system", x.clusterProvider.addr(), "node", x.config.state.NodeId)
 	//create router
-	x.router = x.Spawn(func() IActor {
-		return newStreamRouter(NewActorRefLocal(x.clusterProvider.addr(), "stream_router"), x)
-	})
+	x.router = x.SpawnNamed(func() IActor { return newStreamRouter() }, defaultNameStreamRouter)
 	return nil
 }
 func (x *System) WaitStopSignal() {
