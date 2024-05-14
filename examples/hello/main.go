@@ -47,11 +47,11 @@ func (x *HelloGoActorA) Receive(context actor.IContext) {
 			r2 := x.Request(bRef, &testpb.HelloRequestA2B{Name: body}).(*testpb.HelloReplyA2B)
 			_ = r2
 			x.Logger().Info("HelloReplyA2B end")
-			x.Send(context.Sender(), &testpb.HelloReply{Name: "hell go reply from A"})
+			context.Reply(&testpb.HelloReply{Name: "hell go reply from A"})
 		}
 	case *testpb.HelloRequestB2A:
 		{
-			x.Send(context.Sender(), &testpb.HelloReplyB2A{Name: "hell go reply from A"})
+			context.Reply(&testpb.HelloReplyB2A{Name: "hell go reply from A"})
 		}
 	default:
 		x.Logger().Error("unknown msg")
@@ -82,7 +82,7 @@ func (x *HelloGoActorB) Receive(context actor.IContext) {
 			r2 := x.Request(aRef, &testpb.HelloRequestB2A{Name: body}).(*testpb.HelloReplyB2A)
 			_ = r2
 			x.Logger().Info("HelloReplyB2A end")
-			x.Send(context.Sender(), &testpb.HelloReplyA2B{Name: "hell go reply from B"})
+			context.Reply(&testpb.HelloReplyA2B{Name: "hell go reply from B"})
 		}
 	default:
 		x.Logger().Error("unknown msg")

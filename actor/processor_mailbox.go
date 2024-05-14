@@ -49,7 +49,7 @@ func (x *processorMailBox) self() *ActorRef {
 func (x *processorMailBox) init() {
 	x.receiver = x.Producer()                        //create actor
 	x.receiver._init(x.system, x.self(), x.receiver) //bind
-	x.send(newContext(x.self(), nil, messageDef.initialize, x.system.getNextSnId(), context.Background()))
+	x.send(newContext(x.self(), nil, messageDef.initialize, x.system.getNextSnId(), context.Background(), x.system))
 }
 
 func (x *processorMailBox) send(ctx IContext) {

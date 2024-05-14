@@ -155,7 +155,7 @@ func (x *System) sendToLocal(envelope *Envelope) {
 		return
 	}
 	//build ctx
-	proc.send(newContext(proc.self(), envelope.GetSender(), msg, envelope.GetMsgSnId(), context.Background()))
+	proc.send(newContext(proc.self(), envelope.GetSender(), msg, envelope.GetMsgSnId(), context.Background(), x))
 }
 
 func (x *System) sendToRemote(envelope *Envelope) {
@@ -176,7 +176,7 @@ func (x *System) sendToRemote(envelope *Envelope) {
 		return
 	}
 	//build ctx
-	proc.send(newContext(proc.self(), envelope.GetSender(), msg, envelope.GetMsgSnId(), context.Background()))
+	proc.send(newContext(proc.self(), envelope.GetSender(), msg, envelope.GetMsgSnId(), context.Background(), x))
 }
 
 func (x *System) getNextSnId() uint64 {
@@ -204,7 +204,7 @@ func (x *System) send(target *ActorRef, msg proto.Message, msgSnId uint64, sende
 			x.Logger().Error("get actor failed", "actor", target, "msgName", msg.ProtoReflect().Descriptor().FullName())
 			return
 		}
-		proc.send(newContext(proc.self(), sender, msg, msgSnId, context.Background()))
+		proc.send(newContext(proc.self(), sender, msg, msgSnId, context.Background(), x))
 		//x.sendToLocal(envelope)
 	} else {
 		//to remote

@@ -10,11 +10,13 @@ type IContext interface {
 	Sender() *ActorRef
 	GetMsgSnId() uint64
 	Message() proto.Message
+	Reply(message proto.Message)
 }
 
 var _ IContext = (*Context)(nil)
 
 type Context struct {
+	system  *System
 	self    *ActorRef
 	sender  *ActorRef
 	msgSnId uint64
@@ -22,8 +24,13 @@ type Context struct {
 	context.Context
 }
 
-func newContext(self *ActorRef, sender *ActorRef, message proto.Message, msgSnId uint64, ctx context.Context) *Context {
+func (x *Context) Reply(message proto.Message) {
+	x.system.send(x.Sender(), message, x.msgSnId)
+}
+
+func newContext(self *ActorRef, sender *ActorRef, message proto.Message, msgSnId uint64, ctx context.Context, system *System) *Context {
 	return &Context{
+		system:  system,
 		self:    self,
 		sender:  sender,
 		msgSnId: msgSnId,
