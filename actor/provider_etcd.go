@@ -19,7 +19,6 @@ import (
 )
 
 var _ Provider = (*ProviderEtcd)(nil)
-var _ ProviderListener = (*System)(nil)
 
 const dialTimeoutTime = time.Second * 10
 const ttlTime = 10

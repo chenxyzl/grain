@@ -19,10 +19,12 @@ const (
 	eventStreamName           = "event_stream"
 )
 
-type KindProps struct {
-	kind     string
-	producer Producer
-	onInit   func(ctx IActor)
+type NodeState struct {
+	NodeId  uint64
+	Address string
+	Version string
+	Time    string
+	Kinds   []string
 }
 
 type Config struct {

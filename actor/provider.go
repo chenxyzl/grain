@@ -4,12 +4,6 @@ import (
 	"reflect"
 )
 
-type ProviderListener interface {
-	ClusterErr()
-	InitGlobalUuid(nodeId uint64)
-	NodesChanged()
-}
-
 type Provider interface {
 	//
 	addr() string
