@@ -14,7 +14,7 @@ const (
 	defaultStopWaitTimeSecond = 3
 	defaultLocalKindName      = "local"
 	defaultReplyKindName      = "reply"
-	remoteStreamKind          = "remote_stream"
+	writeStreamKind           = "write_stream"
 )
 
 type KindProps struct {
@@ -38,7 +38,7 @@ type Config struct {
 }
 
 func NewConfig(clusterName string, version string, remoteUrls []string) *Config {
-	return &Config{
+	config := &Config{
 		name:               clusterName,
 		version:            version,
 		remoteUrls:         remoteUrls,
@@ -47,6 +47,7 @@ func NewConfig(clusterName string, version string, remoteUrls []string) *Config 
 		kinds:              make(map[string]Producer),
 		dialOptions:        []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())},
 	}
+	return config
 }
 
 // markRunning ...
@@ -92,6 +93,11 @@ func (x *Config) WithCallDialOptions(callOptions ...grpc.CallOption) *Config {
 // WithKind set kind
 func (x *Config) WithKind(kindName string, producer Producer) *Config {
 	x.mustNotRunning()
+	if kindName == defaultLocalKindName ||
+		kindName == defaultReplyKindName ||
+		kindName == writeStreamKind {
+		panic("invalid kind name, please change")
+	}
 	if _, ok := x.kinds[kindName]; ok {
 		panic("duplicate kind name " + kindName)
 	}

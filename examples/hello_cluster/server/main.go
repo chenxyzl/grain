@@ -34,7 +34,7 @@ func (p *PlayerActor) Receive(ctx actor.IContext) {
 func main() {
 	helper.InitLog("./test.log")
 	//config
-	config := actor.NewConfig("hello_kind", "0.0.1", []string{"127.0.0.1:2379"}).WithKind("player", func() actor.IActor { return &PlayerActor{} })
+	config := actor.NewConfig("hello_cluster", "0.0.1", []string{"127.0.0.1:2379"}).WithKind("player", func() actor.IActor { return &PlayerActor{} })
 	//new
 	system := actor.NewSystem[*actor.ProviderEtcd](config.WithRequestTimeout(time.Second * 100))
 	//start

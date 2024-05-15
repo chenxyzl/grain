@@ -72,7 +72,8 @@ func (x *System) stopActors() {
 		var left []*ActorRef
 		times := 0
 		x.registry.lookup.IterCb(func(key string, v iProcess) {
-			if v.self().GetAddress() == x.clusterProvider.addr() && v.self().GetKind() != defaultReplyKindName {
+			if v.self().GetAddress() == x.clusterProvider.addr() &&
+				v.self().GetKind() != defaultReplyKindName {
 				x.send(v.self(), messageDef.poison, x.getNextSnId())
 				left = append(left, v.self())
 			}
@@ -200,12 +201,12 @@ func (x *System) send(target *ActorRef, msg proto.Message, msgSnId uint64, sende
 		proc.send(newContext(proc.self(), sender, msg, msgSnId, context.Background(), x))
 		//x.sendToLocal(envelope)
 	} else {
-		remoteActorRef := newActorRefWithKind(x.clusterProvider.addr(), remoteStreamKind, target.GetAddress())
+		remoteActorRef := newActorRefWithKind(x.clusterProvider.addr(), writeStreamKind, target.GetAddress())
 		proc := x.registry.get(remoteActorRef)
 		if proc == nil {
 			x.SpawnNamed(func() IActor {
 				return newStreamWriterActor(remoteActorRef, target.GetAddress(), x.GetConfig().dialOptions, x.GetConfig().callOptions)
-			}, target.GetAddress(), WithKindName(remoteStreamKind))
+			}, target.GetAddress(), WithKindName(writeStreamKind))
 		}
 		//to remote
 		proc = x.registry.get(remoteActorRef)
