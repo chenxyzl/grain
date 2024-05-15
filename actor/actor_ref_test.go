@@ -16,7 +16,7 @@ func TestTemp(t *testing.T) {
 		time.Sleep(time.Millisecond * 2)
 		v := uuid.Generate()
 		ac := newActorRefWithKind("", "local", strconv.Itoa(int(v)))
-		lookup.Set(int(v), ac.GetFullIdentifier())
+		lookup.Set(int(v), ac.GetId())
 	}
 	fmt.Println(":1")
 }
@@ -28,7 +28,7 @@ func TestTemp1(t *testing.T) {
 		//time.Sleep(time.Millisecond * 2)
 		v := uuid.Generate()
 		ac := newActorRefWithKind("", "local", strconv.Itoa(int(v)))
-		lookup.Set(int(v), ac.GetFullIdentifier())
+		lookup.Set(int(v), ac.GetId())
 	}
 	fmt.Println(":1")
 }

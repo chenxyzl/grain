@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/chenxyzl/grain/actor/internal"
 	"github.com/chenxyzl/grain/utils/al/ringbuffer"
+	"google.golang.org/protobuf/proto"
 	"runtime"
 	"runtime/debug"
 	"sync/atomic"
@@ -65,7 +66,7 @@ func (x *processorMailBox) send(ctx IContext) {
 func (x *processorMailBox) invoke(ctx IContext) {
 	defer func() {
 		if err := recover(); err != nil {
-			x.system.Logger().Error("actor receive panic, id:%v, msgType:%v, msg:%v", x.self(), ctx.Message().ProtoReflect().Descriptor().FullName(), ctx.Message())
+			x.system.Logger().Error("actor receive panic", "id", x.self(), "msgName", proto.MessageName(ctx.Message()), ctx.Message())
 		}
 	}()
 	switch ctx.Message().(type) {

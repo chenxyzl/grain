@@ -24,6 +24,7 @@ type System struct {
 	clusterProvider Provider
 	forceCloseChan  chan bool
 	requestId       uint64
+	eventStream     *ActorRef
 }
 
 func NewSystem[P Provider](config *Config) *System {
@@ -43,6 +44,8 @@ func (x *System) Start() error {
 	if err := x.clusterProvider.start(x, x.config); err != nil {
 		return err
 	}
+	//init eventStream
+	x.eventStream = x.SpawnNamed(func() IActor { return newEventStream() }, eventStreamName, WithKindName(defaultSystemKind))
 	//overwrite logger
 	x.logger = slog.With("system", x.clusterProvider.addr(), "node", x.config.state.NodeId)
 	return nil
@@ -73,7 +76,7 @@ func (x *System) stopActors() {
 		times := 0
 		x.registry.lookup.IterCb(func(key string, v iProcess) {
 			if v.self().GetAddress() == x.clusterProvider.addr() &&
-				v.self().GetKind() != defaultReplyKindName {
+				v.self().GetKind() != defaultReplyKind {
 				x.send(v.self(), messageDef.poison, x.getNextSnId())
 				left = append(left, v.self())
 			}
@@ -201,12 +204,13 @@ func (x *System) send(target *ActorRef, msg proto.Message, msgSnId uint64, sende
 		proc.send(newContext(proc.self(), sender, msg, msgSnId, context.Background(), x))
 		//x.sendToLocal(envelope)
 	} else {
-		remoteActorRef := newActorRefWithKind(x.clusterProvider.addr(), writeStreamKind, target.GetAddress())
+		address := target.GetAddress()
+		remoteActorRef := newActorRefWithKind(x.clusterProvider.addr(), writeStreamKind, address)
 		proc := x.registry.get(remoteActorRef)
 		if proc == nil {
 			x.SpawnNamed(func() IActor {
-				return newStreamWriterActor(remoteActorRef, target.GetAddress(), x.GetConfig().dialOptions, x.GetConfig().callOptions)
-			}, target.GetAddress(), WithKindName(writeStreamKind))
+				return newStreamWriterActor(remoteActorRef, address, x.GetConfig().dialOptions, x.GetConfig().callOptions)
+			}, address, WithKindName(writeStreamKind))
 		}
 		//to remote
 		proc = x.registry.get(remoteActorRef)

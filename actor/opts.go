@@ -37,7 +37,7 @@ func NewOpts(p Producer, opts ...OptFunc) Opts {
 	ret := Opts{
 		Producer:     p,
 		MailboxSize:  defaultMailboxSize,
-		Kind:         defaultLocalKindName,
+		Kind:         defaultLocalKind,
 		MaxRestarts:  defaultMaxRestarts,
 		RestartDelay: defaultRestartDelay,
 		Context:      context.Background(),

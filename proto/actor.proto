@@ -4,5 +4,16 @@ option go_package = "github.com/chenxyzl/grain/actor";
 
 message ActorRef {
     string address = 1; //server address
-    string identifier = 2; // /kinds/kind/name
+    string _path = 2; // /kinds/kind/name
+}
+
+//Subscribe
+message Subscribe{
+    ActorRef self = 1;
+    string eventName = 2; //
+}
+//Unsubscribe
+message Unsubscribe{
+    ActorRef self = 1;
+    string eventName = 2; //
 }

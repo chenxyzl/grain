@@ -223,6 +223,14 @@ func (x *ProviderEtcd) parseWatch(op mvccpb.Event_EventType, key string, value [
 	return err
 }
 
+func (x *ProviderEtcd) getNodes() []NodeState {
+	var nodes []NodeState
+	x.nodeMap.Range(func(s string, state NodeState) {
+		nodes = append(nodes, state)
+	})
+	return nodes
+}
+
 func (x *ProviderEtcd) ensureRemoteKindActorExist(ref *ActorRef) {
 	if ref == nil {
 		x.Logger().Warn("ignore ensure, actor ref is nil")

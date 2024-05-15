@@ -21,7 +21,7 @@ type processorReply[T proto.Message] struct {
 }
 
 func newProcessorReplay[T proto.Message](system *System, timeout time.Duration) *processorReply[T] {
-	self := newActorRefWithKind(system.clusterProvider.addr(), defaultReplyKindName, strconv.Itoa(int(uuid.Generate())))
+	self := newActorRefWithKind(system.clusterProvider.addr(), defaultReplyKind, strconv.Itoa(int(uuid.Generate())))
 	p := &processorReply[T]{
 		system:  system,
 		_self:   self,

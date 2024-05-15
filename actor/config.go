@@ -12,9 +12,11 @@ import (
 const (
 	defaultRequestTimeout     = time.Second * 1
 	defaultStopWaitTimeSecond = 3
-	defaultLocalKindName      = "local"
-	defaultReplyKindName      = "reply"
+	defaultLocalKind          = "local"
+	defaultReplyKind          = "reply"
 	writeStreamKind           = "write_stream"
+	defaultSystemKind         = "system"
+	eventStreamName           = "event_stream"
 )
 
 type KindProps struct {
@@ -93,8 +95,8 @@ func (x *Config) WithCallDialOptions(callOptions ...grpc.CallOption) *Config {
 // WithKind set kind
 func (x *Config) WithKind(kindName string, producer Producer) *Config {
 	x.mustNotRunning()
-	if kindName == defaultLocalKindName ||
-		kindName == defaultReplyKindName ||
+	if kindName == defaultLocalKind ||
+		kindName == defaultReplyKind ||
 		kindName == writeStreamKind {
 		panic("invalid kind name, please change")
 	}

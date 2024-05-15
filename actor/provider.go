@@ -15,6 +15,9 @@ type Provider interface {
 	start(system *System, config *Config) error
 	stop()
 
+	//event
+	getNodes() []NodeState
+
 	//actor
 	ensureRemoteKindActorExist(ref *ActorRef)
 	//

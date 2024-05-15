@@ -17,16 +17,16 @@ func newRegistry(s *System) *Registry {
 }
 
 func (r *Registry) remove(actRef *ActorRef) {
-	r.lookup.Remove(actRef.GetFullIdentifier())
+	r.lookup.Remove(actRef.GetId())
 }
 
 func (r *Registry) get(actRef *ActorRef) iProcess {
-	proc, _ := r.lookup.Get(actRef.GetFullIdentifier())
+	proc, _ := r.lookup.Get(actRef.GetId())
 	return proc
 }
 
 func (r *Registry) add(proc iProcess) iProcess {
-	id := proc.self().GetFullIdentifier()
+	id := proc.self().GetId()
 	old, ok := r.lookup.SetIfNotExist(id, proc)
 	if ok {
 		//force to stop old proc

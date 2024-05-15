@@ -20,12 +20,6 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// //Start --call Actor.Star
-// //Actor inner message
-// message Start{}
-// //Start --call Actor.Stop
-// //Actor inner message
-// message Stop{}
 // Initialized -- call after actor new
 // Initialized
 type Initialize struct {
