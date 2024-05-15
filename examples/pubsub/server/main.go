@@ -1,6 +1,7 @@
 package main
 
 import (
+	"examples/pubsub/shared"
 	"examples/testpb"
 	"github.com/chenxyzl/grain/actor"
 	"github.com/chenxyzl/grain/utils/helper"
@@ -29,7 +30,7 @@ func (p *PlayerActor) Receive(ctx actor.IContext) {
 	case *testpb.Hello:
 		p.times++
 		p.Logger().Info("reev publish msg", "name", msg.Name, "times", p.times)
-		if p.times >= 3 {
+		if p.times >= shared.PublishTimes/2 {
 			p.System().Unsubscribe(p.Self(), &testpb.Hello{})
 		}
 	case *testpb.HelloRequest:

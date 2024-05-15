@@ -39,7 +39,7 @@ func (x *BaseActor) System() *System { return x.system }
 
 func (x *BaseActor) Send(target *ActorRef, msg proto.Message) {
 	if target == nil {
-		x.Logger().Error("send target is nil, sender:%v,msgType:%v,msg:%v", x.Self(), msg.ProtoReflect().Descriptor().FullName(), msg)
+		x.Logger().Error("send target is nil", "id", x.Self(), "msgName", proto.MessageName(msg), "msg", msg)
 		return
 	}
 	x.system.send(target, msg, x.runningMsgId)
@@ -50,7 +50,7 @@ func (x *BaseActor) Send(target *ActorRef, msg proto.Message) {
 // but golang not support
 func (x *BaseActor) Request(target *ActorRef, msg proto.Message) proto.Message {
 	if target == nil {
-		x.Logger().Error("request target is nil, sender:%v,msgType:%v,msg:%v", x.Self(), msg.ProtoReflect().Descriptor().FullName(), msg)
+		x.Logger().Error("request target is nil", "id", x.Self(), "msgName", proto.MessageName(msg), "msg", msg)
 		return nil
 	}
 

@@ -41,8 +41,7 @@ type ProviderEtcd struct {
 	rpcService *RPCService
 
 	//
-	nodeMap *safemap.SafeMap[string, NodeState]
-	//
+	nodeMap    *safemap.SafeMap[string, NodeState]
 	hasher     hash.Hash32
 	hasherLock sync.Mutex
 }
@@ -93,16 +92,20 @@ func (x *ProviderEtcd) start(system *System, config *Config) error {
 	if err != nil {
 		return err
 	}
-	//register
+	//register self
 	err = x.register()
 	if err != nil {
 		return err
 	}
-	//watcher
+	//watcher nodes
 	err = x.watch()
 	if err != nil {
 		return err
 	}
+	//init eventStream
+	x.system.eventStream = x.system.SpawnNamed(func() IActor {
+		return newEventStream(x.config.state.NodeId, x.client, x.leaseId, x.config.GetEventStreamPrefix())
+	}, eventStreamName, WithKindName(defaultSystemKind))
 	//keep
 	x.keepAlive(keepAliveChan)
 	return nil

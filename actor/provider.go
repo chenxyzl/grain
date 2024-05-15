@@ -1,6 +1,8 @@
 package actor
 
-import "reflect"
+import (
+	"reflect"
+)
 
 type ProviderListener interface {
 	ClusterErr()
@@ -15,12 +17,10 @@ type Provider interface {
 	start(system *System, config *Config) error
 	stop()
 
-	//event
+	//nodes
 	getNodes() []NodeState
-
 	//actor
 	ensureRemoteKindActorExist(ref *ActorRef)
-	//
 	getAddressByKind7Id(kind string, name string) string
 }
 

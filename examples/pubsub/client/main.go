@@ -1,6 +1,7 @@
 package main
 
 import (
+	"examples/pubsub/shared"
 	"examples/testpb"
 	"github.com/chenxyzl/grain/actor"
 	"github.com/chenxyzl/grain/utils/helper"
@@ -27,16 +28,14 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	//
-	system.PublishLocal(&testpb.Hello{Name: "xxxxx:xxx"})
 
 	//
 	times := 0
 	for {
 		time.Sleep(time.Second)
-		system.PublishGlobal(&testpb.Hello{Name: "xxxxx:times:" + strconv.Itoa(times)})
+		system.Publish(&testpb.Hello{Name: "xxxxx:times:" + strconv.Itoa(times)})
 		system.Logger().Info("publish global", "times", times)
-		if times++; times == 10 {
+		if times++; times == shared.PublishTimes {
 			break
 		}
 	}

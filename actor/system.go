@@ -44,8 +44,6 @@ func (x *System) Start() error {
 	if err := x.clusterProvider.start(x, x.config); err != nil {
 		return err
 	}
-	//init eventStream
-	x.eventStream = x.SpawnNamed(func() IActor { return newEventStream() }, eventStreamName, WithKindName(defaultSystemKind))
 	//overwrite logger
 	x.logger = slog.With("system", x.clusterProvider.addr(), "node", x.config.state.NodeId)
 	return nil
