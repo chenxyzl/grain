@@ -53,6 +53,14 @@ func main() {
 		panic(err)
 	}
 	system.Logger().Warn("system started successfully")
+	// create a remote actor
+	_, err := actor.NoEntryRequestE[*testpb.HelloReply](system, system.GetRemoteActorRef("player", "cluster_xxx"), &testpb.HelloRequest{Name: "xxx"})
+	if err != nil {
+		panic(err)
+	}
+	//create a local actor
+	system.SpawnNamed(func() actor.IActor { return &PlayerActor{} }, "local_yyy")
+
 	//run wait
 	system.WaitStopSignal()
 	//

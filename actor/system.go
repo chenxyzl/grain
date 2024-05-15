@@ -152,7 +152,7 @@ func (x *System) GetLocalActorRef(kind string, name string) *ActorRef {
 func (x *System) sendToLocal(envelope *Envelope) {
 	proc := x.registry.get(envelope.GetTarget())
 	if proc == nil {
-		x.Logger().Error("get actor failed", "actor", envelope.GetTarget(), "msgName", envelope.MsgName)
+		x.Logger().Error("sendToLocal, get actor failed", "actor", envelope.GetTarget(), "msgName", envelope.MsgName)
 		return
 	}
 	typ, err := protoregistry.GlobalTypes.FindMessageByName(protoreflect.FullName(envelope.MsgName))
@@ -194,9 +194,14 @@ func (x *System) send(target *ActorRef, msg proto.Message, msgSnId uint64, sende
 		if proc == nil {
 			if _, ok := msg.(*internal.Poison); ok {
 				//ignore poison msg if proc not found
+				return
 			} else {
-				x.Logger().Error("get actor failed", "actor", target, "msgName", msg.ProtoReflect().Descriptor().FullName())
+				x.clusterProvider.ensureRemoteKindActorExist(target)
+				proc = x.registry.get(target)
 			}
+		}
+		if proc == nil {
+			x.Logger().Error("send, get actor failed", "actor", target, "msgName", msg.ProtoReflect().Descriptor().FullName())
 			return
 		}
 		proc.send(newContext(proc.self(), sender, msg, msgSnId, context.Background(), x))

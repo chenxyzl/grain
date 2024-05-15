@@ -21,13 +21,6 @@ func main() {
 		panic(err)
 	}
 	system.Logger().Warn("system started successfully")
-	//
-	remote := system.GetRemoteActorRef("player", "name")
-	system.Logger().Info("request target", "remote", remote)
-	_, err := actor.NoEntryRequestE[*testpb.HelloReply](system, remote, &testpb.HelloRequest{Name: "xxx"})
-	if err != nil {
-		panic(err)
-	}
 
 	//
 	times := 0
