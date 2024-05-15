@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/chenxyzl/grain/actor/internal"
 	"github.com/chenxyzl/grain/actor/uuid"
 	"google.golang.org/protobuf/proto"
 	"strconv"
@@ -49,6 +50,10 @@ func (x *processorReply[T]) Result() (T, error) {
 		switch msg := resp.(type) {
 		case T:
 			return msg, nil
+		case *internal.Error:
+			return null, fmt.Errorf("grain error, code:%v, des:%s", msg.Code, msg.Des)
+		case error:
+			return null, msg
 		default:
 			return null, fmt.Errorf("result need %v, now: %v", null.ProtoReflect().Descriptor().FullName(), msg.ProtoReflect().Descriptor().FullName())
 		}
