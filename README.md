@@ -7,6 +7,6 @@
 - [X] mailbox[inbox]
 - [X] dispatcher
 - [X] messageEnvelope
-- [ ] eventstream[pub,sub]:注册kind到etcd
+- [X] eventstream[pub,sub]:注册kind到etcd
 - [ ] middleware
 - [ ] schedule
