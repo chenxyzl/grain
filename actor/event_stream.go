@@ -20,8 +20,8 @@ type EventStream struct {
 	leaseId           clientv3.LeaseID
 	nodeId            uint64
 	eventStreamPrefix string
-	//eventName:eventStreamId:eventStreamActorRef
-	eventStreamMaps *safemap.SafeMap[string, *safemap.SafeMap[string, *ActorRef]]
+	//eventName:eventStreamId:nodeId-actorId
+	eventStreamMaps *safemap.SafeMap[string, *safemap.SafeMap[uint64, *ActorRef]]
 	//eventName:localActorRef
 	sub map[string]map[string]bool // eventName:actorId:_
 }
@@ -32,7 +32,7 @@ func newEventStream(nodeId uint64, client *clientv3.Client, leaseId clientv3.Lea
 		client:            client,
 		leaseId:           leaseId,
 		eventStreamPrefix: eventStreamPrefix,
-		eventStreamMaps:   safemap.NewM[string, *safemap.SafeMap[string, *ActorRef]](),
+		eventStreamMaps:   safemap.NewM[string, *safemap.SafeMap[uint64, *ActorRef]](),
 		sub:               make(map[string]map[string]bool)}
 }
 
@@ -136,27 +136,31 @@ func (x *EventStream) parseWatchEventStream(op mvccpb.Event_EventType, key strin
 	key = strings.TrimPrefix(key, "/")
 	arr := strings.SplitN(key, "/", 4)
 	if len(arr) != 4 {
-		return fmt.Errorf("invalid eventStream key:%v", key)
+		return fmt.Errorf("invalid eventStream, len err, key:%v", key)
 	}
 	eventName := arr[2]
-	actorId := arr[3]
+	nodeId, err := strconv.Atoi(arr[3])
+	if err != nil {
+		return fmt.Errorf("invalid eventStream, convert to nodeId err, key:%v, err:%v", key, err)
+	}
+
 	actors, b := x.eventStreamMaps.Get(eventName)
 	if op == mvccpb.DELETE {
 		if b && actors != nil {
-			actors.Delete(actorId)
+			actors.Delete(uint64(nodeId))
 		}
 		x.Logger().Warn("event stream key delete, success", "key", key)
 		return nil
 	} else {
 		if actors == nil {
-			actors = safemap.NewM[string, *ActorRef]()
+			actors = safemap.NewM[uint64, *ActorRef]()
 			x.eventStreamMaps.Set(eventName, actors)
 		}
 		actorRef := newActorRefFromId(string(value))
 		if actorRef == nil {
 			return fmt.Errorf("invalid eventStream, id to actorRef err, key:%v", key)
 		}
-		actors.Set(actorId, actorRef)
+		actors.Set(uint64(nodeId), actorRef)
 		x.Logger().Warn("event stream key add, success", "key", key)
 	}
 	return nil
@@ -177,10 +181,10 @@ func (x *EventStream) registerEventStream(eventName string) {
 	//change local
 	actors, _ := x.eventStreamMaps.Get(eventName)
 	if actors == nil {
-		actors = safemap.NewM[string, *ActorRef]()
+		actors = safemap.NewM[uint64, *ActorRef]()
 		x.eventStreamMaps.Set(eventName, actors)
 	}
-	actors.Set(x.system.eventStream.GetId(), x.system.eventStream)
+	actors.Set(x.nodeId, x.Self())
 }
 func (x *EventStream) unregisterEventStream(eventName string) {
 	path := x.getEventNamePath(eventName)
@@ -191,7 +195,7 @@ func (x *EventStream) unregisterEventStream(eventName string) {
 	}
 	//change local
 	actors, _ := x.eventStreamMaps.Get(eventName)
-	actors.Delete(x.system.eventStream.GetId())
+	actors.Delete(x.nodeId)
 }
 func (x *EventStream) getActorsByEventFromEventStream(event proto.Message) []*ActorRef {
 	eventName := string(proto.MessageName(event))
@@ -200,7 +204,7 @@ func (x *EventStream) getActorsByEventFromEventStream(event proto.Message) []*Ac
 		return nil
 	}
 	var ret []*ActorRef
-	actors.Range(func(s string, ref *ActorRef) {
+	actors.Range(func(nodeId uint64, ref *ActorRef) {
 		ret = append(ret, ref)
 	})
 	return ret
