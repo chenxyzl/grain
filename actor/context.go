@@ -25,7 +25,7 @@ type Context struct {
 }
 
 func (x *Context) Reply(message proto.Message) {
-	x.system.send(x.Sender(), message, x.msgSnId)
+	x.system.sendWithoutSender(x.Sender(), message, x.msgSnId)
 }
 
 func newContext(target *ActorRef, sender *ActorRef, message proto.Message, msgSnId uint64, ctx context.Context, system *System) *Context {

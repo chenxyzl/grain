@@ -5,8 +5,6 @@ import (
 	"github.com/chenxyzl/grain/actor/internal"
 	"github.com/chenxyzl/grain/actor/uuid"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/reflect/protoreflect"
-	"google.golang.org/protobuf/reflect/protoregistry"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -23,6 +21,7 @@ type System struct {
 	registry        *Registry
 	clusterProvider Provider
 	forceCloseChan  chan bool
+	timerSchedule   *timerSchedule
 	requestId       uint64
 	eventStream     *ActorRef
 }
@@ -34,6 +33,7 @@ func NewSystem[P Provider](config *Config) *System {
 	system.clusterProvider = newProvider[P]()
 	system.registry = newRegistry(system)
 	system.forceCloseChan = make(chan bool, 1)
+	system.timerSchedule = newTimerSchedule(system.sendWithoutSender)
 	return system
 }
 
@@ -75,7 +75,7 @@ func (x *System) stopActors() {
 		x.registry.lookup.IterCb(func(key string, v iProcess) {
 			if v.self().GetAddress() == x.clusterProvider.addr() &&
 				v.self().GetKind() != defaultReplyKind {
-				x.send(v.self(), messageDef.poison, x.getNextSnId())
+				x.sendWithoutSender(v.self(), messageDef.poison)
 				left = append(left, v.self())
 			}
 		})
@@ -149,44 +149,28 @@ func (x *System) GetLocalActorRef(kind string, name string) *ActorRef {
 	return newActorRefWithKind(x.clusterProvider.addr(), kind, name)
 }
 
-func (x *System) sendToLocal(envelope *Envelope) {
-	proc := x.registry.get(envelope.GetTarget())
-	if proc == nil {
-		x.Logger().Error("sendToLocal, get actor failed", "actor", envelope.GetTarget(), "msgName", envelope.MsgName)
-		return
-	}
-	typ, err := protoregistry.GlobalTypes.FindMessageByName(protoreflect.FullName(envelope.MsgName))
-	if err != nil {
-		x.Logger().Error("unregister msg type", "msgName", envelope.MsgName, "err", err)
-		return
-	}
-	msg := typ.New().Interface().(proto.Message)
-	err = proto.Unmarshal(envelope.Content, msg)
-	if err != nil {
-		x.Logger().Error("msg unmarshal err", "msgName", envelope.MsgName, "err", err)
-		return
-	}
-	//build ctx
-	proc.send(newContext(proc.self(), envelope.GetSender(), msg, envelope.GetMsgSnId(), context.Background(), x))
-}
-
 func (x *System) getNextSnId() uint64 {
 	return atomic.AddUint64(&x.requestId, 1)
 }
 
-func (x *System) send(target *ActorRef, msg proto.Message, msgSnId uint64, senders ...*ActorRef) {
+func (x *System) sendWithoutSender(target *ActorRef, msg proto.Message, msgSnId ...uint64) {
+	x.sendWithSender(target, msg, nil, msgSnId...)
+}
+
+func (x *System) sendWithSender(target *ActorRef, msg proto.Message, sender *ActorRef, msgSnIds ...uint64) {
 	//check
 	if target == nil {
 		x.Logger().Error("target actor is nil")
 		return
 	}
-	var sender *ActorRef
-	if len(senders) > 0 {
-		sender = senders[0]
-		if len(senders) > 1 {
-			x.Logger().Warn("senders len bigger than 1, please check")
-		}
+	//messageId
+	var msgSnId uint64
+	if len(msgSnIds) > 0 {
+		msgSnId = msgSnIds[0]
+	} else {
+		msgSnId = x.getNextSnId()
 	}
+
 	//check send target
 	if target.GetAddress() == x.clusterProvider.addr() {
 		//to local
@@ -196,6 +180,7 @@ func (x *System) send(target *ActorRef, msg proto.Message, msgSnId uint64, sende
 				//ignore poison msg if proc not found
 				return
 			} else {
+				//ensure remote kind actor
 				x.clusterProvider.ensureRemoteKindActorExist(target)
 				proc = x.registry.get(target)
 			}
@@ -229,11 +214,11 @@ func request[T proto.Message](system *System, target *ActorRef, req proto.Messag
 	//
 	reply := newProcessorReplay[T](system, system.GetConfig().requestTimeout)
 	//
-	system.send(target, req, msgSnId, reply.self())
+	system.sendWithSender(target, req, reply.self(), msgSnId)
 	//
 	return reply.Result()
 }
 
 func (x *System) Poison(ref *ActorRef) {
-	x.send(ref, messageDef.poison, x.getNextSnId())
+	x.sendWithoutSender(ref, messageDef.poison)
 }

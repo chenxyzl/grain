@@ -6,7 +6,7 @@ import "google.golang.org/protobuf/proto"
 // msg to target
 // warning don't change msg value when send, may data race
 func NoEntrySend(system *System, target *ActorRef, msg proto.Message) {
-	system.send(target, msg, system.getNextSnId())
+	system.sendWithoutSender(target, msg)
 }
 
 // NoEntryRequestE sync request mean's not allowed re-entry

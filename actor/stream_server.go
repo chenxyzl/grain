@@ -5,6 +5,9 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
 	"io"
 	"log/slog"
 	"net"
@@ -30,15 +33,15 @@ func (x *RPCService) Listen(server Remoting_ListenServer) error {
 		msg, err := server.Recv()
 		switch {
 		case err == io.EOF:
-			x.Logger().Info("Connection Closed 1")
+			x.Logger().Info("connection closed 1")
 			return nil
 		case status.Code(err) == codes.Canceled:
-			x.Logger().Info("Connection Closed 2")
+			x.Logger().Info("connection closed 2")
 			return nil
 		case status.Code(err) > 0:
-			x.Logger().Info("Connection Closed 3", "cod", status.Code(err))
+			x.Logger().Info("connection closed 3", "cod", status.Code(err))
 		case err != nil:
-			x.Logger().Error("Read Failed, Close Connection", "err", err)
+			x.Logger().Error("read failed, close connection", "err", err)
 			return err
 		default:
 			//do something left
@@ -47,10 +50,8 @@ func (x *RPCService) Listen(server Remoting_ListenServer) error {
 			x.Logger().Warn("target address is not match", "target_address", msg.GetTarget().GetAddress(), "self_address", x.addr)
 			continue
 		}
-		//
-		x.system.clusterProvider.ensureRemoteKindActorExist(msg.GetTarget())
-		//
-		x.system.sendToLocal(msg)
+		//get proc
+		x.sendToLocal(msg)
 	}
 }
 
@@ -100,4 +101,20 @@ func (x *RPCService) Addr() string {
 
 func (x *RPCService) Logger() *slog.Logger {
 	return x.logger
+}
+
+func (x *RPCService) sendToLocal(envelope *Envelope) {
+	typ, err := protoregistry.GlobalTypes.FindMessageByName(protoreflect.FullName(envelope.MsgName))
+	if err != nil {
+		x.Logger().Error("sendToLocal, unregister msg type", "actor", envelope.GetTarget(), "msgName", envelope.GetMsgName(), "err", err)
+		return
+	}
+	bodyMsg := typ.New().Interface().(proto.Message)
+	err = proto.Unmarshal(envelope.Content, bodyMsg)
+	if err != nil {
+		x.Logger().Error("sendToLocal, msg unmarshal err", "actor", envelope.GetTarget(), "msgName", envelope.GetMsgName(), "err", err)
+		return
+	}
+	//build ctx
+	x.system.sendWithSender(envelope.GetTarget(), bodyMsg, envelope.GetTarget(), envelope.GetMsgSnId())
 }

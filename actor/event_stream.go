@@ -95,7 +95,7 @@ func (x *EventStream) unsubscribe(ctx IContext, msg *Unsubscribe) {
 func (x *EventStream) publishWrapper(ctx IContext, msg proto.Message) {
 	actors := x.getActorsByEventFromEventStream(msg)
 	for _, actorRef := range actors {
-		x.system.send(actorRef, msg, ctx.GetMsgSnId())
+		x.system.sendWithoutSender(actorRef, msg)
 	}
 }
 
@@ -103,7 +103,7 @@ func (x *EventStream) publish(ctx IContext, msg proto.Message) {
 	eventName := string(proto.MessageName(msg))
 	for ref := range x.sub[eventName] {
 		actorRef := newActorRefFromId(ref)
-		x.system.send(actorRef, msg, ctx.GetMsgSnId())
+		x.system.sendWithoutSender(actorRef, msg)
 	}
 }
 

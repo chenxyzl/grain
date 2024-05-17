@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"google.golang.org/protobuf/proto"
 	"log/slog"
+	"time"
 )
 
 //var _ IActor = (*BaseActor)(nil)
@@ -42,7 +43,9 @@ func (x *BaseActor) Send(target *ActorRef, msg proto.Message) {
 		x.Logger().Error("send target is nil", "id", x.Self(), "msgName", proto.MessageName(msg), "msg", msg)
 		return
 	}
-	x.system.send(target, msg, x.runningMsgId)
+	//todo check reply
+	//x.system.sendWithoutSender(target, msg, x.runningMsgId)
+	x.system.sendWithoutSender(target, msg)
 }
 
 // Request
@@ -59,4 +62,12 @@ func (x *BaseActor) Request(target *ActorRef, msg proto.Message) proto.Message {
 		panic(errors.Join(err, fmt.Errorf("requset err, sender:%v,target:%v,request:%v", x.Self(), target, err)))
 	}
 	return v
+}
+
+func (x *BaseActor) ScheduleSelfOnce(delay time.Duration, msg proto.Message) CancelScheduleFunc {
+	return x.system.timerSchedule.sendOnce(x.Self(), delay, msg)
+}
+
+func (x *BaseActor) ScheduleSelfRepeated(delay time.Duration, interval time.Duration, msg proto.Message) CancelScheduleFunc {
+	return x.system.timerSchedule.sendRepeatedly(x.Self(), delay, interval, msg)
 }
