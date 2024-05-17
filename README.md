@@ -9,4 +9,4 @@
 - [X] messageEnvelope
 - [X] eventstream[pub,sub]:注册kind到etcd
 - [ ] middleware
-- [ ] schedule
+- [X] schedule
