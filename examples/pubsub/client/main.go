@@ -26,7 +26,8 @@ func main() {
 	times := 0
 	for {
 		time.Sleep(time.Second)
-		system.Publish(&testpb.Hello{Name: "xxxxx:times:" + strconv.Itoa(times)})
+		system.PublishGlobal(&testpb.Hello{Name: "xxxxx:times:" + strconv.Itoa(times)}) //actor can recv
+		system.PublishGlobal(&testpb.Hello{Name: "yyyyy:times:" + strconv.Itoa(times)}) //actor can't recv
 		system.Logger().Info("publish global", "times", times)
 		if times++; times == shared.PublishTimes {
 			break

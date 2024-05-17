@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/chenxyzl/grain/actor"
 	"github.com/chenxyzl/grain/utils/helper"
+	"strconv"
 	"time"
 )
 
@@ -31,9 +32,6 @@ func (p *PlayerActor) Receive(ctx actor.IContext) {
 	case *testpb.Hello:
 		p.times++
 		p.Logger().Info("reev publish msg", "name", msg.Name, "times", p.times)
-		if p.times >= shared.PublishTimes/2 {
-			p.System().Unsubscribe(p.Self(), &testpb.Hello{})
-		}
 	case *testpb.HelloRequest:
 		ctx.Reply(&testpb.HelloReply{})
 		p.Logger().Info("hello replay")
@@ -61,6 +59,16 @@ func main() {
 	}
 	//create a local actor
 	system.SpawnNamed(func() actor.IActor { return &PlayerActor{} }, "local_yyy")
+
+	times := 0
+	for {
+		time.Sleep(time.Second)
+		system.PublishLocal(&testpb.Hello{Name: "zzzzzz:times:" + strconv.Itoa(times)}) //actor can recv
+		system.Logger().Info("publish local", "times", times)
+		if times++; times == shared.PublishTimes {
+			break
+		}
+	}
 
 	//run wait
 	system.WaitStopSignal()
