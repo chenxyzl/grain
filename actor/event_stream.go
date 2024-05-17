@@ -58,9 +58,9 @@ func (x *EventStream) Receive(ctx IContext) {
 	case *Unsubscribe:
 		x.unsubscribe(ctx, msg)
 	case *internal.BroadcastPublishProtoWrapper:
-		x.publishWrapper(ctx, msg.Message)
+		x.broadcastPublish(ctx, msg.Message)
 	case proto.Message:
-		x.publish(ctx, msg)
+		x.onPublish(ctx, msg)
 	}
 }
 
@@ -93,14 +93,14 @@ func (x *EventStream) unsubscribe(ctx IContext, msg *Unsubscribe) {
 	}
 }
 
-func (x *EventStream) publishWrapper(ctx IContext, msg proto.Message) {
+func (x *EventStream) broadcastPublish(ctx IContext, msg proto.Message) {
 	actors := x.getActorsByEventFromEventStream(msg)
 	for _, actorRef := range actors {
 		x.system.sendWithoutSender(actorRef, msg)
 	}
 }
 
-func (x *EventStream) publish(ctx IContext, msg proto.Message) {
+func (x *EventStream) onPublish(ctx IContext, msg proto.Message) {
 	eventName := string(proto.MessageName(msg))
 	for ref := range x.sub[eventName] {
 		actorRef := newActorRefFromId(ref)
