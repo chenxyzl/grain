@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	defaultRequestTimeout     = time.Second * 1
+	defaultRequestTimeout     = time.Second * 3
 	defaultStopWaitTimeSecond = 3
 	defaultLocalKind          = "local"
 	defaultReplyKind          = "reply"
@@ -116,6 +116,9 @@ func (x *Config) GetMemberPath(memberId uint64) string {
 }
 func (x *Config) GetEventStreamPrefix() string {
 	return fmt.Sprintf("/%v/%v/", x.name, eventStreamName)
+}
+func (x *Config) GetRemoteActorKind(ref *ActorRef) string {
+	return fmt.Sprintf("/%v/remote/%v", x.name, ref.GetXPath())
 }
 
 // GetRemoteUrls ...

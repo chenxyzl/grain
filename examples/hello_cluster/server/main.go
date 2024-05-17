@@ -2,6 +2,7 @@ package main
 
 import (
 	"examples/testpb"
+	"fmt"
 	"github.com/chenxyzl/grain/actor"
 	"github.com/chenxyzl/grain/utils/helper"
 	"time"
@@ -27,7 +28,7 @@ func (p *PlayerActor) Receive(ctx actor.IContext) {
 		ctx.Reply(&testpb.HelloReply{Name: msg.GetName()})
 		p.Logger().Info("recv request hello, reply", "name", msg.Name)
 	default:
-		panic("not register msg type")
+		panic(fmt.Sprintf("not register msg type, msgType:%v, msg:%v", msg.ProtoReflect().Descriptor().FullName(), msg))
 	}
 }
 

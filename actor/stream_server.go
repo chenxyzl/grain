@@ -116,5 +116,5 @@ func (x *RPCService) sendToLocal(envelope *Envelope) {
 		return
 	}
 	//build ctx
-	x.system.sendWithSender(envelope.GetTarget(), bodyMsg, envelope.GetTarget(), envelope.GetMsgSnId())
+	x.system.sendWithSender(envelope.GetTarget(), bodyMsg, envelope.GetSender(), envelope.GetMsgSnId())
 }

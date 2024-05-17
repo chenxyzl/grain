@@ -139,7 +139,7 @@ func (x *ProviderEtcd) register() error {
 		s, _ := json.Marshal(x.config.InitState(x.addr(), id))
 		state := string(s)
 		//
-		if !x.set(key, state) {
+		if !x.setTxn(key, state) {
 			continue
 		}
 		x.logger = x.logger.With("node", id)
@@ -151,10 +151,21 @@ func (x *ProviderEtcd) register() error {
 	return errors.New("register node to etcd error")
 }
 
-func (x *ProviderEtcd) set(key string, val any) bool {
+func (x *ProviderEtcd) setTxn(key string, val string) bool {
 	tx := x.client.Txn(context.Background())
 	tx.If(clientv3.Compare(clientv3.CreateRevision(key), "=", 0)).
 		Then(clientv3.OpPut(key, fmt.Sprintf("%v", val), clientv3.WithLease(x.leaseId))).
+		Else()
+	txnRes, err := tx.Commit()
+	if err != nil || !txnRes.Succeeded { //抢锁失败
+		return false
+	}
+	return true
+}
+func (x *ProviderEtcd) removeTxn(key string, val string) bool {
+	tx := x.client.Txn(context.Background())
+	tx.If(clientv3.Compare(clientv3.Value(key), "=", val)).
+		Then(clientv3.OpDelete(key, clientv3.WithLease(x.leaseId))).
 		Else()
 	txnRes, err := tx.Commit()
 	if err != nil || !txnRes.Succeeded { //抢锁失败
@@ -277,12 +288,19 @@ func (x *ProviderEtcd) getAddressByKind7Id(kind string, name string) string {
 	return maxMember.Address
 }
 
-func (r *ProviderEtcd) hash(node, key []byte) uint32 {
-	r.hasherLock.Lock()
-	defer r.hasherLock.Unlock()
+func (x *ProviderEtcd) hash(node, key []byte) uint32 {
+	x.hasherLock.Lock()
+	defer x.hasherLock.Unlock()
 
-	r.hasher.Reset()
-	_, _ = r.hasher.Write(key)
-	_, _ = r.hasher.Write(node)
-	return r.hasher.Sum32()
+	x.hasher.Reset()
+	_, _ = x.hasher.Write(key)
+	_, _ = x.hasher.Write(node)
+	return x.hasher.Sum32()
+}
+
+func (x *ProviderEtcd) registerRemoteActorKind(ref *ActorRef) bool {
+	return x.setTxn(x.system.config.GetRemoteActorKind(ref), ref.GetAddress())
+}
+func (x *ProviderEtcd) unRegisterRemoteActorKind(ref *ActorRef) bool {
+	return x.removeTxn(x.system.config.GetRemoteActorKind(ref), ref.GetAddress())
 }

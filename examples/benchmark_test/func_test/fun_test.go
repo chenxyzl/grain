@@ -42,3 +42,13 @@ func TestMapKey(t *testing.T) {
 	m[v] = 6
 	fmt.Println(m)
 }
+
+func TestShift(t *testing.T) {
+	fmt.Println(1 << (2 - 2))
+	fmt.Println(1 << (3 - 2))
+	fmt.Println(1 << (4 - 2))
+	fmt.Println(1 << (5 - 2))
+
+	fmt.Println(1 << 3)
+	fmt.Println("xxx")
+}

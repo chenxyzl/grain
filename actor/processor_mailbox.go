@@ -4,9 +4,9 @@ import (
 	"context"
 	"github.com/chenxyzl/grain/actor/internal"
 	"github.com/chenxyzl/grain/utils/al/ringbuffer"
+	"github.com/chenxyzl/grain/utils/helper"
 	"google.golang.org/protobuf/proto"
 	"runtime"
-	"runtime/debug"
 	"sync/atomic"
 )
 
@@ -66,7 +66,12 @@ func (x *processorMailBox) send(ctx IContext) {
 func (x *processorMailBox) invoke(ctx IContext) {
 	defer func() {
 		if err := recover(); err != nil {
-			x.system.Logger().Error("actor receive panic", "id", x.self(), "msgName", proto.MessageName(ctx.Message()), ctx.Message())
+			x.system.Logger().Error("actor receive panic",
+				"id", x.self(),
+				"msgName", proto.MessageName(ctx.Message()),
+				"msg", ctx.Message(),
+				"err", err,
+				"stack", helper.StackTrace())
 		}
 	}()
 	switch ctx.Message().(type) {
@@ -107,18 +112,25 @@ func (x *processorMailBox) run() {
 func (x *processorMailBox) start() {
 	defer func() {
 		if err := recover(); err != nil {
-			x.system.Logger().Error("spawn recover a panic on start. force to stop self", "id", x.self(), "err", err, "stack", debug.Stack())
+			x.system.Logger().Error("spawn recover a panic on start. force to stop self",
+				"id", x.self(),
+				"err", err,
+				"stack", helper.StackTrace())
 			//force to stop self
 			x.stop()
 			//x.send(newContext(x.self(), nil, messageDef.poison, x.system.getNextSnId(), context.Background()))
 		}
 	}()
+	x.receiver._preStart()
 	x.receiver.Started()
 }
 func (x *processorMailBox) stop() {
 	defer func() {
 		if err := recover(); err != nil {
-			x.system.Logger().Error("recover a panic on stop", "self", x.self(), "panic", err, "stack", debug.Stack())
+			x.system.Logger().Error("recover a panic on stop",
+				"id", x.self(),
+				"err", err,
+				"stack", helper.StackTrace())
 		}
 	}()
 	//send stop to actor
@@ -129,4 +141,5 @@ func (x *processorMailBox) stop() {
 		x.system.registry.remove(x.self())
 	}()
 	x.receiver.PreStop()
+	x.receiver._afterStop()
 }

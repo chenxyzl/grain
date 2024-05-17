@@ -110,10 +110,6 @@ func (x *System) InitGlobalUuid(nodeId uint64) {
 	x.Logger().Warn("uuid init success", "nodeId", nodeId)
 }
 
-func (x *System) NodesChanged() {
-
-}
-
 func (x *System) GetConfig() *Config {
 	return x.config
 }

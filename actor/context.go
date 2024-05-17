@@ -11,6 +11,7 @@ type IContext interface {
 	GetMsgSnId() uint64
 	Message() proto.Message
 	Reply(message proto.Message)
+	Forward(target *ActorRef)
 }
 
 var _ IContext = (*Context)(nil)
@@ -53,4 +54,8 @@ func (x *Context) Message() proto.Message {
 
 func (x *Context) GetMsgSnId() uint64 {
 	return x.msgSnId
+}
+
+func (x *Context) Forward(target *ActorRef) {
+	x.system.sendWithSender(target, x.message, x.sender, x.msgSnId)
 }

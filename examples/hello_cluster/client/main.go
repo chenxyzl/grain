@@ -20,7 +20,7 @@ func main() {
 	}
 	system.Logger().Warn("system started successfully")
 	//
-	remote := system.GetRemoteActorRef("player", "name")
+	remote := system.GetRemoteActorRef("player", "123456")
 	system.Logger().Info("request target", "remote", remote)
 	reply, err := actor.NoEntryRequestE[*testpb.HelloReply](system, remote, &testpb.HelloRequest{Name: "xxx"})
 	if err != nil {
