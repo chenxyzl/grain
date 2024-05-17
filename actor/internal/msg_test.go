@@ -1,14 +1,13 @@
-package actor
+package internal
 
 import (
 	"fmt"
-	"github.com/chenxyzl/grain/actor/internal"
 	"google.golang.org/protobuf/proto"
 	"testing"
 )
 
 func TestCustomProto(t *testing.T) {
-	test := newPublishWrapper(&internal.Initialize{})
+	test := &BroadcastPublishProtoWrapper{&Initialize{}}
 	v1 := test.ProtoReflect().Descriptor().FullName()
 	fmt.Println(v1)
 	v2 := proto.MessageName(test)

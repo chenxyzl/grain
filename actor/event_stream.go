@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/chenxyzl/grain/actor/internal"
 	"github.com/chenxyzl/grain/utils/al/safemap"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -56,7 +57,7 @@ func (x *EventStream) Receive(ctx IContext) {
 		x.subscribe(ctx, msg)
 	case *Unsubscribe:
 		x.unsubscribe(ctx, msg)
-	case *publishWrapper:
+	case *internal.BroadcastPublishProtoWrapper:
 		x.publishWrapper(ctx, msg.Message)
 	case proto.Message:
 		x.publish(ctx, msg)
