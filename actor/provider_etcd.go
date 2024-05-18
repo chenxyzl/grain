@@ -60,17 +60,17 @@ func (x *ProviderEtcd) Address() string {
 }
 
 func (x *ProviderEtcd) start(system *System, config *Config) error {
-	rpcService := newRpcServer(system)
+	gs := newRpcServer(system.sendWithSender)
 	//start grpc
-	if err := rpcService.Start(); err != nil {
+	if err := gs.Start(); err != nil {
 		return err
 	}
 	//
 	x.nodeMap = safemap.NewM[string, NodeState]()
 	x.system = system
 	x.config = config
-	x.rpcService = rpcService
-	x.selfAddr = rpcService.Addr()
+	x.rpcService = gs
+	x.selfAddr = gs.Addr()
 	x.logger = slog.With("ProviderEtcd", x.selfAddr)
 	//etcdClient
 	etcdClient, err := clientv3.New(clientv3.Config{Endpoints: config.GetRemoteUrls(), DialTimeout: dialTimeoutTime})

@@ -1,7 +1,6 @@
 package actor
 
 import (
-	"context"
 	"github.com/chenxyzl/grain/actor/internal"
 	"github.com/chenxyzl/grain/utils/al/ringbuffer"
 	"github.com/chenxyzl/grain/utils/helper"
@@ -50,7 +49,7 @@ func (x *processorMailBox) self() *ActorRef {
 func (x *processorMailBox) init() {
 	x.receiver = x.Producer()                        //create actor
 	x.receiver._init(x.system, x.self(), x.receiver) //bind
-	x.send(newContext(x.self(), nil, messageDef.initialize, x.system.getNextSnId(), context.Background(), x.system))
+	x.send(newContext(x.self(), nil, messageDef.initialize, x.system.getNextSnId(), x.system.sendWithSender))
 }
 
 func (x *processorMailBox) send(ctx Context) {

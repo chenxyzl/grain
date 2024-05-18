@@ -1,7 +1,6 @@
 package actor
 
 import (
-	"context"
 	"github.com/chenxyzl/grain/actor/internal"
 	"github.com/chenxyzl/grain/actor/uuid"
 	"google.golang.org/protobuf/proto"
@@ -35,7 +34,7 @@ func NewSystem[P Provider](config *Config) *System {
 	system.config = config
 	//
 	system.logger = slog.Default()
-	system.registry = newRegistry(system)
+	system.registry = newRegistry(system.Logger())
 	system.clusterProvider = newProvider[P]()
 	system.forceCloseChan = make(chan bool, 1)
 	system.timerSchedule = newTimerSchedule(system.sendWithoutSender)
@@ -127,7 +126,7 @@ func (x *System) sendWithSender(target *ActorRef, msg proto.Message, sender *Act
 			x.Logger().Error("send, get actor failed", "actor", target, "msgName", msg.ProtoReflect().Descriptor().FullName())
 			return
 		}
-		proc.send(newContext(proc.self(), sender, msg, msgSnId, context.Background(), x))
+		proc.send(newContext(proc.self(), sender, msg, msgSnId, x.sendWithSender))
 		//x.sendToLocal(envelope)
 	} else {
 		targetAddress := target.GetAddress()
@@ -144,7 +143,7 @@ func (x *System) sendWithSender(target *ActorRef, msg proto.Message, sender *Act
 			x.Logger().Error("get remote failed", "remote", remoteActorRef, "msgName", msg.ProtoReflect().Descriptor().FullName())
 			return
 		}
-		proc.send(newContext(target, sender, msg, msgSnId, context.Background(), x))
+		proc.send(newContext(target, sender, msg, msgSnId, x.sendWithSender))
 	}
 }
 

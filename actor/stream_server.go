@@ -15,15 +15,15 @@ import (
 )
 
 type rpcService struct {
-	system *System
+	senderFunc Sender
 	//
 	logger *slog.Logger
 	addr   string
 	gs     *grpc.Server
 }
 
-func newRpcServer(system *System) *rpcService {
-	return &rpcService{system: system}
+func newRpcServer(senderFunc Sender) *rpcService {
+	return &rpcService{senderFunc: senderFunc}
 }
 
 func (x *rpcService) Listen(server Remoting_ListenServer) error {
@@ -116,5 +116,5 @@ func (x *rpcService) sendToLocal(envelope *Envelope) {
 		return
 	}
 	//build ctx
-	x.system.sendWithSender(envelope.GetTarget(), bodyMsg, envelope.GetSender(), envelope.GetMsgSnId())
+	x.senderFunc(envelope.GetTarget(), bodyMsg, envelope.GetSender(), envelope.GetMsgSnId())
 }

@@ -2,17 +2,18 @@ package actor
 
 import (
 	"github.com/chenxyzl/grain/utils/al/safemap"
+	"log/slog"
 )
 
 type registry struct {
 	lookup safemap.ConcurrentMap[string, iProcess]
-	system *System
+	logger *slog.Logger
 }
 
-func newRegistry(s *System) *registry {
+func newRegistry(logger *slog.Logger) *registry {
 	return &registry{
 		lookup: safemap.NewStringC[iProcess](),
-		system: s,
+		logger: logger,
 	}
 }
 
@@ -29,7 +30,7 @@ func (r *registry) add(proc iProcess) iProcess {
 	id := proc.self().GetId()
 	old, ok := r.lookup.SetIfNotExist(id, proc)
 	if ok {
-		r.system.Logger().Warn("duplicated process id, ignore new processor, return old processor", "id", id)
+		r.logger.Warn("duplicated process id, ignore new processor, return old processor", "id", id)
 		return old
 	}
 	proc.init()
