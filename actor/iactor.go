@@ -2,6 +2,10 @@ package actor
 
 // Producer actor producer
 type Producer func() IActor
+type Kind struct {
+	producer Producer
+	opts     []OptFunc
+}
 
 // IActor actor interface
 type IActor interface {
@@ -10,9 +14,6 @@ type IActor interface {
 	_getRunningMsgId() uint64
 	_setRunningMsgId(uint64)
 	_cleanRunningMsgId()
-	//
-	_preStart()
-	_afterStop()
 
 	//Started after self Instance
 	Started()

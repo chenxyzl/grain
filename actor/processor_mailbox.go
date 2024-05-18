@@ -121,7 +121,9 @@ func (x *processorMailBox) start() {
 			//x.send(newContext(x.self(), nil, messageDef.poison, x.system.getNextSnId(), context.Background()))
 		}
 	}()
-	x.receiver._preStart()
+	if x.Opts.RegisterToRemote != nil {
+		x.Opts.RegisterToRemote(x.system.clusterProvider, x.system.config, x.self())
+	}
 	x.receiver.Started()
 }
 func (x *processorMailBox) stop() {
@@ -141,5 +143,7 @@ func (x *processorMailBox) stop() {
 		x.system.registry.remove(x.self())
 	}()
 	x.receiver.PreStop()
-	x.receiver._afterStop()
+	if x.Opts.UnRegisterFromRemote != nil {
+		x.Opts.UnRegisterFromRemote(x.system.clusterProvider, x.system.config, x.self())
+	}
 }

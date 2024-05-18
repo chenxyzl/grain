@@ -36,7 +36,7 @@ type Config struct {
 	stopWaitTimeSecond int
 	dialOptions        []grpc.DialOption
 	callOptions        []grpc.CallOption
-	kinds              map[string]Producer
+	kinds              map[string]Kind
 	addr               net.Addr
 	state              NodeState
 }
@@ -48,7 +48,7 @@ func NewConfig(clusterName string, version string, remoteUrls []string) *Config 
 		remoteUrls:         remoteUrls,
 		requestTimeout:     defaultRequestTimeout,
 		stopWaitTimeSecond: defaultStopWaitTimeSecond,
-		kinds:              make(map[string]Producer),
+		kinds:              make(map[string]Kind),
 		dialOptions:        []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())},
 	}
 	return config
@@ -95,7 +95,7 @@ func (x *Config) WithCallDialOptions(callOptions ...grpc.CallOption) *Config {
 }
 
 // WithKind set kind
-func (x *Config) WithKind(kindName string, producer Producer) *Config {
+func (x *Config) WithKind(kindName string, producer Producer, opts ...OptFunc) *Config {
 	x.mustNotRunning()
 	if kindName == defaultLocalKind ||
 		kindName == defaultSystemKind ||
@@ -105,7 +105,7 @@ func (x *Config) WithKind(kindName string, producer Producer) *Config {
 	if _, ok := x.kinds[kindName]; ok {
 		panic("duplicate kind name " + kindName)
 	}
-	x.kinds[kindName] = producer
+	x.kinds[kindName] = Kind{producer, opts}
 	return x
 }
 

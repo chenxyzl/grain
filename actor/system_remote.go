@@ -20,9 +20,9 @@ func (x *System) ensureRemoteKindActorExist(ref *ActorRef) {
 		return
 	}
 	refKind := ref.GetKind()
-	prod, ok := x.config.kinds[refKind]
+	kind, ok := x.config.kinds[refKind]
 	if ok && ref.GetAddress() == x.clusterProvider.addr() && x.registry.get(ref) == nil {
-		x.SpawnNamed(prod, ref.GetName(), withKindName(ref.GetKind()))
+		x.SpawnNamed(kind.producer, ref.GetName(), append(kind.opts, withKindName(ref.GetKind()))...)
 	}
 }
 
@@ -63,12 +63,4 @@ func (x *System) hash(node, key []byte) uint32 {
 	_, _ = x.hasher.Write(key)
 	_, _ = x.hasher.Write(node)
 	return x.hasher.Sum32()
-}
-
-func (x *System) registerRemoteActor(ref *ActorRef) bool {
-	return x.clusterProvider.setTxn(x.config.GetRemoteActorKind(ref), ref.GetAddress())
-}
-
-func (x *System) unRegisterRemoteActor(ref *ActorRef) bool {
-	return x.clusterProvider.removeTxn(x.config.GetRemoteActorKind(ref), ref.GetAddress())
 }

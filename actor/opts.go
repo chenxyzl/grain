@@ -3,6 +3,7 @@ package actor
 import (
 	"context"
 	"math"
+	"slices"
 	"time"
 )
 
@@ -18,6 +19,38 @@ var (
 		}
 		return 100 * time.Millisecond * time.Duration(math.Pow(2, float64(restartTimes-1)))
 	}
+	defaultRegisterToRemote = func(clusterProvider Provider, config *Config, ref *ActorRef) {
+		//register to remote
+		if slices.Contains(config.state.Kinds, ref.GetKind()) {
+			times := 0
+			registerSuccess := false
+			for {
+				times++
+				if times >= 2 {
+					time.Sleep(time.Millisecond * 100 * (1 << (times - 2)))
+				}
+				if times > defaultRegisterTimes {
+					break
+				}
+				if !clusterProvider.setTxn(config.GetRemoteActorKind(ref), ref.GetAddress()) {
+					continue
+				}
+				//
+				registerSuccess = true
+				break
+			}
+			if !registerSuccess {
+				panic("failed register remote actor to clusterProvider")
+			}
+		}
+	}
+	defaultUnregisterFromRemote = func(clusterProvider Provider, config *Config, ref *ActorRef) {
+		//unRegister from remote
+		if slices.Contains(config.state.Kinds, ref.GetKind()) {
+			if clusterProvider.removeTxn(config.GetRemoteActorKind(ref), ref.GetAddress()) {
+			}
+		}
+	}
 )
 
 type OptFunc func(*Opts)
@@ -30,17 +63,22 @@ type Opts struct {
 	RestartDelay func(restartTimes int) time.Duration
 	Context      context.Context
 	Self         *ActorRef
+
+	RegisterToRemote     func(clusterProvider Provider, config *Config, ref *ActorRef)
+	UnRegisterFromRemote func(clusterProvider Provider, config *Config, ref *ActorRef)
 }
 
 // NewOpts ...
 func NewOpts(p Producer, opts ...OptFunc) Opts {
 	ret := Opts{
-		Producer:     p,
-		MailboxSize:  defaultMailboxSize,
-		Kind:         defaultLocalKind,
-		MaxRestarts:  defaultMaxRestarts,
-		RestartDelay: defaultRestartDelay,
-		Context:      context.Background(),
+		Producer:             p,
+		MailboxSize:          defaultMailboxSize,
+		Kind:                 defaultLocalKind,
+		MaxRestarts:          defaultMaxRestarts,
+		RestartDelay:         defaultRestartDelay,
+		Context:              context.Background(),
+		RegisterToRemote:     defaultRegisterToRemote,
+		UnRegisterFromRemote: defaultUnregisterFromRemote,
 	}
 	for _, opt := range opts {
 		opt(&ret)
@@ -66,6 +104,16 @@ func WithInboxSize(size int) OptFunc {
 func WithMaxRestarts(n int) OptFunc {
 	return func(opts *Opts) {
 		opts.MaxRestarts = int32(n)
+	}
+}
+func WithRegisterToRemote(fun func(clusterProvider Provider, config *Config, ref *ActorRef)) OptFunc {
+	return func(opts *Opts) {
+		opts.RegisterToRemote = fun
+	}
+}
+func WithUnRegisterFromRemote(fun func(clusterProvider Provider, config *Config, ref *ActorRef)) OptFunc {
+	return func(opts *Opts) {
+		opts.UnRegisterFromRemote = fun
 	}
 }
 func withKindName(kindName string) OptFunc {

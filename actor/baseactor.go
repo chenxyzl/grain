@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"google.golang.org/protobuf/proto"
 	"log/slog"
-	"slices"
 	"time"
 )
 
@@ -34,38 +33,6 @@ func (x *BaseActor) _init(system *System, self *ActorRef, this IActor) {
 func (x *BaseActor) _getRunningMsgId() uint64             { return x.runningMsgId }
 func (x *BaseActor) _setRunningMsgId(runningMsgId uint64) { x.runningMsgId = runningMsgId }
 func (x *BaseActor) _cleanRunningMsgId()                  { x.runningMsgId = 0 }
-func (x *BaseActor) _preStart() {
-	//register to remote
-	if slices.Contains(x.system.config.state.Kinds, x.Self().GetKind()) {
-		times := 0
-		registerSuccess := false
-		for {
-			times++
-			if times >= 2 {
-				time.Sleep(time.Millisecond * 100 * (1 << (times - 2)))
-			}
-			if times > defaultRegisterTimes {
-				break
-			}
-			if !x.system.registerRemoteActor(x.Self()) {
-				continue
-			}
-			//
-			registerSuccess = true
-			break
-		}
-		if !registerSuccess {
-			panic("failed register remote actor to clusterProvider")
-		}
-	}
-}
-func (x *BaseActor) _afterStop() {
-	//unRegister from remote
-	if slices.Contains(x.system.config.state.Kinds, x.Self().GetKind()) {
-		if x.system.unRegisterRemoteActor(x.Self()) {
-		}
-	}
-}
 
 func (x *BaseActor) Self() *ActorRef { return x.self }
 
