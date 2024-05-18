@@ -23,7 +23,7 @@ const (
 type processorMailBox struct {
 	Opts
 	system     *System
-	rb         *ringbuffer.RingBuffer[IContext]
+	rb         *ringbuffer.RingBuffer[Context]
 	procStatus int32
 	restarts   int32
 	receiver   IActor
@@ -35,7 +35,7 @@ func newProcessor(system *System, opts Opts) iProcess {
 	p := &processorMailBox{
 		Opts:       opts,
 		system:     system,
-		rb:         ringbuffer.New[IContext](int64(opts.MailboxSize)),
+		rb:         ringbuffer.New[Context](int64(opts.MailboxSize)),
 		procStatus: idle,
 		restarts:   0,
 	}
@@ -53,7 +53,7 @@ func (x *processorMailBox) init() {
 	x.send(newContext(x.self(), nil, messageDef.initialize, x.system.getNextSnId(), context.Background(), x.system))
 }
 
-func (x *processorMailBox) send(ctx IContext) {
+func (x *processorMailBox) send(ctx Context) {
 	//for re-entry
 	if runningMsgId := x.receiver._getRunningMsgId(); runningMsgId != 0 && runningMsgId == ctx.GetMsgSnId() {
 		x.invoke(ctx)
@@ -63,7 +63,7 @@ func (x *processorMailBox) send(ctx IContext) {
 	x.schedule()
 }
 
-func (x *processorMailBox) invoke(ctx IContext) {
+func (x *processorMailBox) invoke(ctx Context) {
 	defer func() {
 		if err := recover(); err != nil {
 			x.system.Logger().Error("actor receive panic",

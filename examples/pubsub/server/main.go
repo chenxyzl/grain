@@ -27,7 +27,7 @@ func (p *PlayerActor) PreStop() {
 	p.Logger().Info("PreStop")
 }
 
-func (p *PlayerActor) Receive(ctx actor.IContext) {
+func (p *PlayerActor) Receive(ctx actor.Context) {
 	switch msg := ctx.Message().(type) {
 	case *testpb.Hello:
 		p.times++

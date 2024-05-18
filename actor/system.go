@@ -5,10 +5,13 @@ import (
 	"github.com/chenxyzl/grain/actor/internal"
 	"github.com/chenxyzl/grain/actor/uuid"
 	"google.golang.org/protobuf/proto"
+	"hash"
+	"hash/fnv"
 	"log/slog"
 	"os"
 	"os/signal"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -22,18 +25,27 @@ type System struct {
 	clusterProvider Provider
 	forceCloseChan  chan bool
 	timerSchedule   *timerSchedule
-	requestId       uint64
-	eventStream     *ActorRef
+	//hash
+	hasher     hash.Hash32
+	hasherLock sync.Mutex
+	//
+	eventStream *ActorRef
+	//
+	requestId uint64
 }
 
 func NewSystem[P Provider](config *Config) *System {
 	system := &System{}
-	system.logger = slog.Default()
 	system.config = config
-	system.clusterProvider = newProvider[P]()
+	//
+	system.logger = slog.Default()
 	system.registry = newRegistry(system)
+	system.clusterProvider = newProvider[P]()
 	system.forceCloseChan = make(chan bool, 1)
 	system.timerSchedule = newTimerSchedule(system.sendWithoutSender)
+	//
+	system.hasher = fnv.New32a()
+	//
 	return system
 }
 
@@ -46,6 +58,10 @@ func (x *System) Start() error {
 	}
 	//overwrite logger
 	x.logger = slog.With("system", x.clusterProvider.addr(), "node", x.config.state.NodeId)
+	//init eventStream
+	x.eventStream = x.SpawnNamed(func() IActor {
+		return newEventStream(x.config.state.NodeId, x.clusterProvider.getEtcdClient(), x.clusterProvider.getEtcdLease(), x.config.GetEventStreamPrefix())
+	}, eventStreamName, withKindName(defaultSystemKind))
 	return nil
 }
 func (x *System) WaitStopSignal() {
@@ -63,7 +79,8 @@ func (x *System) WaitStopSignal() {
 	x.clusterProvider.stop()
 }
 
-func (x *System) ForceStop() {
+func (x *System) ForceStop(err error) {
+	x.logger.Error("system forceStop", "err", err)
 	x.forceCloseChan <- true
 }
 
@@ -97,8 +114,8 @@ func (x *System) ClusterErr() {
 	if x == nil {
 		return
 	}
-	x.Logger().Error("cluster provider error. will stop system")
-	x.ForceStop()
+	x.Logger().Error("")
+
 }
 
 func (x *System) InitGlobalUuid(nodeId uint64) {
@@ -135,10 +152,17 @@ func (x *System) SpawnNamed(p Producer, name string, opts ...OptFunc) *ActorRef 
 }
 
 func (x *System) GetRemoteActorRef(kind string, name string) *ActorRef {
-	addr := x.clusterProvider.getAddressByKind7Id(kind, name)
+	addr := ""
+	if kind == defaultLocalKind {
+		addr = x.clusterProvider.addr()
+	} else {
+		addr = x.getAddressByKind7Id(kind, name)
+	}
+	//
 	if addr == "" {
 		return nil
 	}
+	//
 	return newActorRefWithKind(addr, kind, name)
 }
 func (x *System) GetLocalActorRef(kind string, name string) *ActorRef {
@@ -177,7 +201,7 @@ func (x *System) sendWithSender(target *ActorRef, msg proto.Message, sender *Act
 				return
 			} else {
 				//ensure remote kind actor
-				x.clusterProvider.ensureRemoteKindActorExist(target)
+				x.ensureRemoteKindActorExist(target)
 				proc = x.registry.get(target)
 			}
 		}
@@ -188,13 +212,13 @@ func (x *System) sendWithSender(target *ActorRef, msg proto.Message, sender *Act
 		proc.send(newContext(proc.self(), sender, msg, msgSnId, context.Background(), x))
 		//x.sendToLocal(envelope)
 	} else {
-		address := target.GetAddress()
-		remoteActorRef := newActorRefWithKind(x.clusterProvider.addr(), writeStreamKind, address)
+		targetAddress := target.GetAddress()
+		remoteActorRef := newActorRefWithKind(x.clusterProvider.addr(), defaultSystemKind, writeStreamNamePrefix+targetAddress)
 		proc := x.registry.get(remoteActorRef)
 		if proc == nil {
 			x.SpawnNamed(func() IActor {
-				return newStreamWriterActor(remoteActorRef, address, x.GetConfig().dialOptions, x.GetConfig().callOptions)
-			}, address, WithKindName(writeStreamKind))
+				return newStreamWriterActor(remoteActorRef, targetAddress, x.GetConfig().dialOptions, x.GetConfig().callOptions)
+			}, remoteActorRef.GetName(), withKindName(remoteActorRef.GetKind()))
 		}
 		//to remote
 		proc = x.registry.get(remoteActorRef)

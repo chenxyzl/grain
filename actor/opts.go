@@ -68,7 +68,7 @@ func WithMaxRestarts(n int) OptFunc {
 		opts.MaxRestarts = int32(n)
 	}
 }
-func WithKindName(kindName string) OptFunc {
+func withKindName(kindName string) OptFunc {
 	return func(opts *Opts) {
 		opts.Kind = kindName
 	}

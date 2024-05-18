@@ -89,7 +89,7 @@ func (x *streamWriteActor) PreStop() {
 	x.Logger().Info("stop stream write actor end")
 }
 
-func (x *streamWriteActor) Receive(ctx IContext) {
+func (x *streamWriteActor) Receive(ctx Context) {
 	//
 	msg := ctx.Message()
 	msgName := string(msg.ProtoReflect().Descriptor().FullName())

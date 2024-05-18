@@ -35,7 +35,7 @@ func (x *HelloGoActor) Started() {
 func (x *HelloGoActor) PreStop() {
 	x.Logger().Info("PreStop")
 }
-func (x *HelloGoActor) Receive(context actor.IContext) {
+func (x *HelloGoActor) Receive(context actor.Context) {
 	switch msg := context.Message().(type) {
 	case *testpb.Hello:
 		{

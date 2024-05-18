@@ -13,9 +13,9 @@ const (
 	defaultRequestTimeout     = time.Second * 3
 	defaultStopWaitTimeSecond = 3
 	defaultLocalKind          = "local"
-	defaultReplyKind          = "reply"
-	writeStreamKind           = "write_stream"
 	defaultSystemKind         = "system"
+	defaultReplyKind          = "reply"
+	writeStreamNamePrefix     = "write_stream_"
 	eventStreamName           = "event_stream"
 )
 
@@ -98,8 +98,8 @@ func (x *Config) WithCallDialOptions(callOptions ...grpc.CallOption) *Config {
 func (x *Config) WithKind(kindName string, producer Producer) *Config {
 	x.mustNotRunning()
 	if kindName == defaultLocalKind ||
-		kindName == defaultReplyKind ||
-		kindName == writeStreamKind {
+		kindName == defaultSystemKind ||
+		kindName == defaultReplyKind {
 		panic("invalid kind name, please change")
 	}
 	if _, ok := x.kinds[kindName]; ok {
@@ -108,6 +108,7 @@ func (x *Config) WithKind(kindName string, producer Producer) *Config {
 	x.kinds[kindName] = producer
 	return x
 }
+
 func (x *Config) GetMemberPrefix() string {
 	return fmt.Sprintf("/%v/member/", x.name)
 }

@@ -9,12 +9,8 @@ import (
 	"github.com/chenxyzl/grain/utils/al/safemap"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"hash"
-	"hash/fnv"
 	"log/slog"
-	"slices"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -40,9 +36,15 @@ type ProviderEtcd struct {
 	rpcService *RPCService
 
 	//
-	nodeMap    *safemap.SafeMap[string, NodeState]
-	hasher     hash.Hash32
-	hasherLock sync.Mutex
+	nodeMap *safemap.SafeMap[string, NodeState]
+}
+
+func (x *ProviderEtcd) getEtcdClient() *clientv3.Client {
+	return x.client
+}
+
+func (x *ProviderEtcd) getEtcdLease() clientv3.LeaseID {
+	return x.leaseId
 }
 
 func (x *ProviderEtcd) Logger() *slog.Logger {
@@ -64,7 +66,6 @@ func (x *ProviderEtcd) start(system *System, config *Config) error {
 		return err
 	}
 	//
-	x.hasher = fnv.New32a()
 	x.nodeMap = safemap.NewM[string, NodeState]()
 	x.system = system
 	x.config = config
@@ -101,10 +102,6 @@ func (x *ProviderEtcd) start(system *System, config *Config) error {
 	if err != nil {
 		return err
 	}
-	//init eventStream
-	x.system.eventStream = x.system.SpawnNamed(func() IActor {
-		return newEventStream(x.config.state.NodeId, x.client, x.leaseId, x.config.GetEventStreamPrefix())
-	}, eventStreamName, WithKindName(defaultSystemKind))
 	//keep
 	x.keepAlive(keepAliveChan)
 	return nil
@@ -151,6 +148,7 @@ func (x *ProviderEtcd) register() error {
 	return errors.New("register node to etcd error")
 }
 
+// setTxn set Key=val if key not exist
 func (x *ProviderEtcd) setTxn(key string, val string) bool {
 	tx := x.client.Txn(context.Background())
 	tx.If(clientv3.Compare(clientv3.CreateRevision(key), "=", 0)).
@@ -162,6 +160,8 @@ func (x *ProviderEtcd) setTxn(key string, val string) bool {
 	}
 	return true
 }
+
+// removeTxn remove key if getValue(key) == val
 func (x *ProviderEtcd) removeTxn(key string, val string) bool {
 	tx := x.client.Txn(context.Background())
 	tx.If(clientv3.Compare(clientv3.Value(key), "=", val)).
@@ -184,7 +184,7 @@ func (x *ProviderEtcd) keepAlive(keepAliveChan <-chan *clientv3.LeaseKeepAliveRe
 				} else {
 					if x.system != nil {
 						x.Logger().Warn("lease expired or KeepAlive channel closed")
-						x.system.ClusterErr()
+						x.system.ForceStop(fmt.Errorf("cluster provider error. will stop system"))
 					}
 					return
 				}
@@ -210,6 +210,9 @@ func (x *ProviderEtcd) watch() error {
 		for v := range wch {
 			for _, kv := range v.Events {
 				_ = x.parseWatch(kv.Type, string(kv.Kv.Key), kv.Kv.Value)
+			}
+			if x.system != nil {
+				x.system.clusterMemberChanged()
 			}
 		}
 	}()
@@ -242,65 +245,4 @@ func (x *ProviderEtcd) getNodes() []NodeState {
 		nodes = append(nodes, state)
 	})
 	return nodes
-}
-
-func (x *ProviderEtcd) ensureRemoteKindActorExist(ref *ActorRef) {
-	if ref == nil {
-		x.Logger().Warn("ignore ensure, actor ref is nil")
-		return
-	}
-	refKind := ref.GetKind()
-	prod, ok := x.config.kinds[refKind]
-	if ok && ref.GetAddress() == x.Address() && x.system.registry.get(ref) == nil {
-		x.system.SpawnNamed(prod, ref.GetName(), WithKindName(ref.GetKind()))
-	}
-}
-
-func (x *ProviderEtcd) getAddressByKind7Id(kind string, name string) string {
-	var nodes []NodeState
-	x.nodeMap.Range(func(_ string, state NodeState) {
-		if slices.Contains(state.Kinds, kind) {
-			nodes = append(nodes, state)
-		}
-	})
-	l := len(nodes)
-	if l == 0 {
-		return ""
-	}
-	if l == 1 {
-		return nodes[0].Address
-	}
-	keyBytes := []byte(name)
-	var maxScore uint32
-	var maxMember *NodeState
-	var score uint32
-	for _, node := range nodes {
-		score = x.hash([]byte(node.Address), keyBytes)
-		if score > maxScore {
-			maxScore = score
-			maxMember = &node
-		}
-	}
-
-	if maxMember == nil {
-		return ""
-	}
-	return maxMember.Address
-}
-
-func (x *ProviderEtcd) hash(node, key []byte) uint32 {
-	x.hasherLock.Lock()
-	defer x.hasherLock.Unlock()
-
-	x.hasher.Reset()
-	_, _ = x.hasher.Write(key)
-	_, _ = x.hasher.Write(node)
-	return x.hasher.Sum32()
-}
-
-func (x *ProviderEtcd) registerRemoteActorKind(ref *ActorRef) bool {
-	return x.setTxn(x.system.config.GetRemoteActorKind(ref), ref.GetAddress())
-}
-func (x *ProviderEtcd) unRegisterRemoteActorKind(ref *ActorRef) bool {
-	return x.removeTxn(x.system.config.GetRemoteActorKind(ref), ref.GetAddress())
 }

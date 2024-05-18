@@ -34,9 +34,9 @@ func newProcessorReplay[T proto.Message](system *System, timeout time.Duration) 
 
 func (x *processorReply[T]) self() *ActorRef { return x._self }
 
-func (x *processorReply[T]) init()               {}
-func (x *processorReply[T]) send(ctx IContext)   { x.invoke(ctx) }
-func (x *processorReply[T]) invoke(ctx IContext) { x.result <- ctx.Message() }
+func (x *processorReply[T]) init()              {}
+func (x *processorReply[T]) send(ctx Context)   { x.invoke(ctx) }
+func (x *processorReply[T]) invoke(ctx Context) { x.result <- ctx.Message() }
 
 func (x *processorReply[T]) Result() (T, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), x.timeout)

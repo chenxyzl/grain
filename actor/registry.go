@@ -38,3 +38,6 @@ func (r *Registry) add(proc iProcess) iProcess {
 	proc.init()
 	return proc
 }
+func (r *Registry) rangeIt(fun func(key string, v iProcess)) {
+	r.lookup.IterCb(fun)
+}

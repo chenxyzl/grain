@@ -33,7 +33,7 @@ func (x *HelloGoActorA) Started() {
 func (x *HelloGoActorA) PreStop() {
 	x.Logger().Info("PreStop")
 }
-func (x *HelloGoActorA) Receive(context actor.IContext) {
+func (x *HelloGoActorA) Receive(context actor.Context) {
 	switch msg := context.Message().(type) {
 	case *testpb.Hello:
 		{
@@ -68,7 +68,7 @@ func (x *HelloGoActorB) Started() {
 func (x *HelloGoActorB) PreStop() {
 	x.Logger().Info("PreStop B")
 }
-func (x *HelloGoActorB) Receive(context actor.IContext) {
+func (x *HelloGoActorB) Receive(context actor.Context) {
 	switch msg := context.Message().(type) {
 	case *testpb.Hello:
 		{

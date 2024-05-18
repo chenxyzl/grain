@@ -21,10 +21,8 @@ type EventStream struct {
 	leaseId           clientv3.LeaseID
 	nodeId            uint64
 	eventStreamPrefix string
-	//eventName:eventStreamId:nodeId-actorId
-	eventStreamMaps *safemap.SafeMap[string, *safemap.SafeMap[uint64, *ActorRef]]
-	//eventName:localActorRef
-	sub map[string]map[string]bool // eventName:actorId:_
+	eventStreamMaps   *safemap.SafeMap[string, *safemap.SafeMap[uint64, *ActorRef]] //eventName:eventStreamId:nodeId-actorId
+	sub               map[string]map[string]bool                                    // eventName:actorId:_
 }
 
 func newEventStream(nodeId uint64, client *clientv3.Client, leaseId clientv3.LeaseID, eventStreamPrefix string) *EventStream {
@@ -51,7 +49,7 @@ func (x *EventStream) PreStop() {
 	x.Logger().Info("EventStream stopped ...")
 }
 
-func (x *EventStream) Receive(ctx IContext) {
+func (x *EventStream) Receive(ctx Context) {
 	switch msg := ctx.Message().(type) {
 	case *Subscribe:
 		x.subscribe(ctx, msg)
@@ -64,7 +62,7 @@ func (x *EventStream) Receive(ctx IContext) {
 	}
 }
 
-func (x *EventStream) subscribe(ctx IContext, msg *Subscribe) {
+func (x *EventStream) subscribe(ctx Context, msg *Subscribe) {
 	if _, ok := x.sub[msg.EventName]; !ok {
 		x.sub[msg.EventName] = make(map[string]bool)
 		x.registerEventStream(msg.EventName)
@@ -74,7 +72,7 @@ func (x *EventStream) subscribe(ctx IContext, msg *Subscribe) {
 	x.Logger().Debug("EventStream subscribed", "id", msg.GetSelf(), "eventName", msg.EventName)
 }
 
-func (x *EventStream) unsubscribe(ctx IContext, msg *Unsubscribe) {
+func (x *EventStream) unsubscribe(ctx Context, msg *Unsubscribe) {
 	if x.sub[msg.EventName] == nil {
 		return
 	}
@@ -93,14 +91,14 @@ func (x *EventStream) unsubscribe(ctx IContext, msg *Unsubscribe) {
 	}
 }
 
-func (x *EventStream) broadcastPublish(ctx IContext, msg proto.Message) {
+func (x *EventStream) broadcastPublish(ctx Context, msg proto.Message) {
 	actors := x.getActorsByEventFromEventStream(msg)
 	for _, actorRef := range actors {
 		x.system.sendWithoutSender(actorRef, msg)
 	}
 }
 
-func (x *EventStream) onPublish(ctx IContext, msg proto.Message) {
+func (x *EventStream) onPublish(ctx Context, msg proto.Message) {
 	eventName := string(proto.MessageName(msg))
 	for ref := range x.sub[eventName] {
 		actorRef := newActorRefFromId(ref)

@@ -1,5 +1,9 @@
 package actor
 
+// Producer actor producer
+type Producer func() IActor
+
+// IActor actor interface
 type IActor interface {
 	//inner api, for inherit auth
 	_init(system *System, self *ActorRef, this IActor) //for bind self
@@ -15,5 +19,5 @@ type IActor interface {
 	//PreStop when receive poison, before stop self
 	PreStop()
 	//Receive message
-	Receive(ctx IContext)
+	Receive(ctx Context)
 }

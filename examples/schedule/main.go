@@ -44,7 +44,7 @@ func (x *HelloGoActorA) PreStop() {
 	x.cancel3()
 	x.cancel4()
 }
-func (x *HelloGoActorA) Receive(context actor.IContext) {
+func (x *HelloGoActorA) Receive(context actor.Context) {
 	switch msg := context.Message().(type) {
 	case *testpb.Hello:
 		{

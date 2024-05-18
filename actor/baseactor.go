@@ -35,6 +35,7 @@ func (x *BaseActor) _getRunningMsgId() uint64             { return x.runningMsgI
 func (x *BaseActor) _setRunningMsgId(runningMsgId uint64) { x.runningMsgId = runningMsgId }
 func (x *BaseActor) _cleanRunningMsgId()                  { x.runningMsgId = 0 }
 func (x *BaseActor) _preStart() {
+	//register to remote
 	if slices.Contains(x.system.config.state.Kinds, x.Self().GetKind()) {
 		times := 0
 		registerSuccess := false
@@ -46,7 +47,7 @@ func (x *BaseActor) _preStart() {
 			if times > defaultRegisterTimes {
 				break
 			}
-			if !x.system.clusterProvider.registerRemoteActorKind(x.Self()) {
+			if !x.system.registerRemoteActor(x.Self()) {
 				continue
 			}
 			//
@@ -59,8 +60,9 @@ func (x *BaseActor) _preStart() {
 	}
 }
 func (x *BaseActor) _afterStop() {
+	//unRegister from remote
 	if slices.Contains(x.system.config.state.Kinds, x.Self().GetKind()) {
-		if x.system.clusterProvider.unRegisterRemoteActorKind(x.Self()) {
+		if x.system.unRegisterRemoteActor(x.Self()) {
 		}
 	}
 }
