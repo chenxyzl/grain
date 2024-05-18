@@ -6,10 +6,10 @@ import (
 )
 
 func (x *System) Subscribe(ref *ActorRef, message proto.Message) {
-	x.sendWithoutSender(x.eventStream, &Subscribe{Self: ref, EventName: string(proto.MessageName(message))})
+	x.sendWithoutSender(x.eventStream, &internal.Subscribe{ActorId: ref.GetId(), EventName: string(proto.MessageName(message))})
 }
 func (x *System) Unsubscribe(ref *ActorRef, message proto.Message) {
-	x.sendWithoutSender(x.eventStream, &Unsubscribe{Self: ref, EventName: string(proto.MessageName(message))})
+	x.sendWithoutSender(x.eventStream, &internal.Unsubscribe{ActorId: ref.GetId(), EventName: string(proto.MessageName(message))})
 }
 func (x *System) PublishGlobal(message proto.Message) {
 	x.sendWithoutSender(x.eventStream, &internal.BroadcastPublishProtoWrapper{Message: message})

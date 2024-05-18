@@ -7,7 +7,8 @@ func (x *System) clusterMemberChanged() {
 	addr := x.clusterProvider.addr()
 	x.registry.rangeIt(func(key string, v iProcess) {
 		self := v.self()
-		if x.calcAddressByKind7Id(clusterNodes, self.GetKind(), self.GetName()) != addr {
+		newAddr := x.calcAddressByKind7Id(clusterNodes, self.GetKind(), self.GetName())
+		if newAddr != "" && newAddr != addr {
 			x.Poison(self)
 		}
 	})
@@ -25,10 +26,6 @@ func (x *System) ensureRemoteKindActorExist(ref *ActorRef) {
 	}
 }
 
-func (x *System) getAddressByKind7Id(kind string, name string) string {
-	return x.calcAddressByKind7Id(x.clusterProvider.getNodes(), kind, name)
-}
-
 func (x *System) calcAddressByKind7Id(clusterNodes []NodeState, kind string, name string) string {
 	var nodes []NodeState
 	for _, state := range clusterNodes {
@@ -39,7 +36,6 @@ func (x *System) calcAddressByKind7Id(clusterNodes []NodeState, kind string, nam
 	l := len(nodes)
 	if l == 0 {
 		return ""
-		//return x.clusterProvider.addr() //warning mean‘s local kind
 	}
 	if l == 1 {
 		return nodes[0].Address

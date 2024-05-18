@@ -2,11 +2,14 @@ syntax = "proto3";
 package internal;
 option go_package = "github.com/chenxyzl/grain/actor/internal";
 
-//Initialized -- call after actor new
-//Initialized
+//Initialized  -- call after actor new
 message Initialize{}
-//Poison -- call Actor.Poison
-//Poison target actor
-message Poison {/*bool ignoreRegistry = 1;*/}
+//Poison -- will stop a actor
+message Poison {}
 //Error --
 message Error{int32 code = 1; string des = 2;}
+
+//Subscribe -- for event_stream
+message Subscribe{string actorId = 1;string eventName = 2; }
+//Unsubscribe -- form event_stream
+message Unsubscribe{string actorId = 1;string eventName = 2; }

@@ -63,7 +63,7 @@ func main() {
 	times := 0
 	for {
 		time.Sleep(time.Second)
-		system.PublishLocal(&testpb.Hello{Name: "zzzzzz:times:" + strconv.Itoa(times)}) //actor can recv
+		system.PublishLocal(&testpb.Hello{Name: "local:zzzzzz:times:" + strconv.Itoa(times)}) //actor can recv
 		system.Logger().Info("publish local", "times", times)
 		if times++; times == shared.PublishTimes {
 			break

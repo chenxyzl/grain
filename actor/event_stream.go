@@ -51,9 +51,9 @@ func (x *eventStream) PreStop() {
 
 func (x *eventStream) Receive(ctx Context) {
 	switch msg := ctx.Message().(type) {
-	case *Subscribe:
+	case *internal.Subscribe:
 		x.subscribe(ctx, msg)
-	case *Unsubscribe:
+	case *internal.Unsubscribe:
 		x.unsubscribe(ctx, msg)
 	case *internal.BroadcastPublishProtoWrapper:
 		x.broadcastPublish(ctx, msg.Message)
@@ -62,27 +62,27 @@ func (x *eventStream) Receive(ctx Context) {
 	}
 }
 
-func (x *eventStream) subscribe(ctx Context, msg *Subscribe) {
+func (x *eventStream) subscribe(_ Context, msg *internal.Subscribe) {
 	if _, ok := x.sub[msg.EventName]; !ok {
 		x.sub[msg.EventName] = make(map[string]bool)
 		x.registerEventStream(msg.EventName)
 		x.Logger().Debug("EventStream subscribe from etcd: ", "eventName", msg.EventName)
 	}
-	x.sub[msg.EventName][msg.GetSelf().GetId()] = true
-	x.Logger().Debug("EventStream subscribed", "id", msg.GetSelf(), "eventName", msg.EventName)
+	x.sub[msg.EventName][msg.GetActorId()] = true
+	x.Logger().Debug("EventStream subscribed", "id", msg.GetActorId(), "eventName", msg.EventName)
 }
 
-func (x *eventStream) unsubscribe(ctx Context, msg *Unsubscribe) {
+func (x *eventStream) unsubscribe(_ Context, msg *internal.Unsubscribe) {
 	if x.sub[msg.EventName] == nil {
 		return
 	}
-	if _, ok := x.sub[msg.EventName][msg.GetSelf().GetId()]; !ok {
+	if _, ok := x.sub[msg.EventName][msg.GetActorId()]; !ok {
 		return
 	}
 	//
-	delete(x.sub[msg.EventName], msg.GetSelf().GetId())
+	delete(x.sub[msg.EventName], msg.GetActorId())
 	//
-	x.Logger().Debug("EventStream unsubscribe", "id", msg.GetSelf(), "eventName", msg.EventName)
+	x.Logger().Debug("EventStream unsubscribe", "id", msg.GetActorId(), "eventName", msg.EventName)
 	//
 	if len(x.sub[msg.EventName]) == 0 {
 		delete(x.sub, msg.EventName)
@@ -91,14 +91,14 @@ func (x *eventStream) unsubscribe(ctx Context, msg *Unsubscribe) {
 	}
 }
 
-func (x *eventStream) broadcastPublish(ctx Context, msg proto.Message) {
+func (x *eventStream) broadcastPublish(_ Context, msg proto.Message) {
 	actors := x.getActorsByEventFromEventStream(msg)
 	for _, actorRef := range actors {
 		x.system.sendWithoutSender(actorRef, msg)
 	}
 }
 
-func (x *eventStream) onPublish(ctx Context, msg proto.Message) {
+func (x *eventStream) onPublish(_ Context, msg proto.Message) {
 	eventName := string(proto.MessageName(msg))
 	for ref := range x.sub[eventName] {
 		actorRef := newActorRefFromId(ref)

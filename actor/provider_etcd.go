@@ -165,7 +165,7 @@ func (x *ProviderEtcd) setTxn(key string, val string) bool {
 func (x *ProviderEtcd) removeTxn(key string, val string) bool {
 	tx := x.client.Txn(context.Background())
 	tx.If(clientv3.Compare(clientv3.Value(key), "=", val)).
-		Then(clientv3.OpDelete(key, clientv3.WithLease(x.leaseId))).
+		Then(clientv3.OpDelete(key)).
 		Else()
 	txnRes, err := tx.Commit()
 	if err != nil || !txnRes.Succeeded { //抢锁失败

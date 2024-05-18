@@ -62,11 +62,15 @@ func (x *System) stopActors() {
 		var left []*ActorRef
 		times := 0
 		x.registry.lookup.IterCb(func(key string, v iProcess) {
-			if v.self().GetAddress() == x.clusterProvider.addr() &&
-				v.self().GetKind() != defaultReplyKind {
-				x.sendWithoutSender(v.self(), messageDef.poison)
-				left = append(left, v.self())
+			//ignore poison
+			if v.self().GetAddress() != x.clusterProvider.addr() ||
+				v.self().GetKind() == defaultReplyKind ||
+				v.self().GetKind() == defaultSystemKind {
+				return
 			}
+			//
+			x.sendWithoutSender(v.self(), messageDef.poison)
+			left = append(left, v.self())
 		})
 		time.Sleep(time.Second)
 		times++

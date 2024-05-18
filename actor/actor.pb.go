@@ -75,118 +75,6 @@ func (x *ActorRef) GetXPath() string {
 	return ""
 }
 
-// Subscribe
-type Subscribe struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	Self      *ActorRef `protobuf:"bytes,1,opt,name=self,proto3" json:"self,omitempty"`
-	EventName string    `protobuf:"bytes,2,opt,name=eventName,proto3" json:"eventName,omitempty"` //
-}
-
-func (x *Subscribe) Reset() {
-	*x = Subscribe{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_actor_proto_msgTypes[1]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
-}
-
-func (x *Subscribe) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Subscribe) ProtoMessage() {}
-
-func (x *Subscribe) ProtoReflect() protoreflect.Message {
-	mi := &file_actor_proto_msgTypes[1]
-	if protoimpl.UnsafeEnabled && x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Subscribe.ProtoReflect.Descriptor instead.
-func (*Subscribe) Descriptor() ([]byte, []int) {
-	return file_actor_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *Subscribe) GetSelf() *ActorRef {
-	if x != nil {
-		return x.Self
-	}
-	return nil
-}
-
-func (x *Subscribe) GetEventName() string {
-	if x != nil {
-		return x.EventName
-	}
-	return ""
-}
-
-// Unsubscribe
-type Unsubscribe struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	Self      *ActorRef `protobuf:"bytes,1,opt,name=self,proto3" json:"self,omitempty"`
-	EventName string    `protobuf:"bytes,2,opt,name=eventName,proto3" json:"eventName,omitempty"` //
-}
-
-func (x *Unsubscribe) Reset() {
-	*x = Unsubscribe{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_actor_proto_msgTypes[2]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
-}
-
-func (x *Unsubscribe) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Unsubscribe) ProtoMessage() {}
-
-func (x *Unsubscribe) ProtoReflect() protoreflect.Message {
-	mi := &file_actor_proto_msgTypes[2]
-	if protoimpl.UnsafeEnabled && x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Unsubscribe.ProtoReflect.Descriptor instead.
-func (*Unsubscribe) Descriptor() ([]byte, []int) {
-	return file_actor_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *Unsubscribe) GetSelf() *ActorRef {
-	if x != nil {
-		return x.Self
-	}
-	return nil
-}
-
-func (x *Unsubscribe) GetEventName() string {
-	if x != nil {
-		return x.EventName
-	}
-	return ""
-}
-
 var File_actor_proto protoreflect.FileDescriptor
 
 var file_actor_proto_rawDesc = []byte{
@@ -194,20 +82,10 @@ var file_actor_proto_rawDesc = []byte{
 	0x63, 0x74, 0x6f, 0x72, 0x22, 0x39, 0x0a, 0x08, 0x41, 0x63, 0x74, 0x6f, 0x72, 0x52, 0x65, 0x66,
 	0x12, 0x18, 0x0a, 0x07, 0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28,
 	0x09, 0x52, 0x07, 0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x12, 0x13, 0x0a, 0x05, 0x5f, 0x70,
-	0x61, 0x74, 0x68, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x50, 0x61, 0x74, 0x68, 0x22,
-	0x4e, 0x0a, 0x09, 0x53, 0x75, 0x62, 0x73, 0x63, 0x72, 0x69, 0x62, 0x65, 0x12, 0x23, 0x0a, 0x04,
-	0x73, 0x65, 0x6c, 0x66, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x0f, 0x2e, 0x61, 0x63, 0x74,
-	0x6f, 0x72, 0x2e, 0x41, 0x63, 0x74, 0x6f, 0x72, 0x52, 0x65, 0x66, 0x52, 0x04, 0x73, 0x65, 0x6c,
-	0x66, 0x12, 0x1c, 0x0a, 0x09, 0x65, 0x76, 0x65, 0x6e, 0x74, 0x4e, 0x61, 0x6d, 0x65, 0x18, 0x02,
-	0x20, 0x01, 0x28, 0x09, 0x52, 0x09, 0x65, 0x76, 0x65, 0x6e, 0x74, 0x4e, 0x61, 0x6d, 0x65, 0x22,
-	0x50, 0x0a, 0x0b, 0x55, 0x6e, 0x73, 0x75, 0x62, 0x73, 0x63, 0x72, 0x69, 0x62, 0x65, 0x12, 0x23,
-	0x0a, 0x04, 0x73, 0x65, 0x6c, 0x66, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x0f, 0x2e, 0x61,
-	0x63, 0x74, 0x6f, 0x72, 0x2e, 0x41, 0x63, 0x74, 0x6f, 0x72, 0x52, 0x65, 0x66, 0x52, 0x04, 0x73,
-	0x65, 0x6c, 0x66, 0x12, 0x1c, 0x0a, 0x09, 0x65, 0x76, 0x65, 0x6e, 0x74, 0x4e, 0x61, 0x6d, 0x65,
-	0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x09, 0x65, 0x76, 0x65, 0x6e, 0x74, 0x4e, 0x61, 0x6d,
-	0x65, 0x42, 0x21, 0x5a, 0x1f, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f,
-	0x63, 0x68, 0x65, 0x6e, 0x78, 0x79, 0x7a, 0x6c, 0x2f, 0x67, 0x72, 0x61, 0x69, 0x6e, 0x2f, 0x61,
-	0x63, 0x74, 0x6f, 0x72, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x61, 0x74, 0x68, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x50, 0x61, 0x74, 0x68, 0x42,
+	0x21, 0x5a, 0x1f, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x63, 0x68,
+	0x65, 0x6e, 0x78, 0x79, 0x7a, 0x6c, 0x2f, 0x67, 0x72, 0x61, 0x69, 0x6e, 0x2f, 0x61, 0x63, 0x74,
+	0x6f, 0x72, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -222,20 +100,16 @@ func file_actor_proto_rawDescGZIP() []byte {
 	return file_actor_proto_rawDescData
 }
 
-var file_actor_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_actor_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_actor_proto_goTypes = []interface{}{
-	(*ActorRef)(nil),    // 0: actor.ActorRef
-	(*Subscribe)(nil),   // 1: actor.Subscribe
-	(*Unsubscribe)(nil), // 2: actor.Unsubscribe
+	(*ActorRef)(nil), // 0: actor.ActorRef
 }
 var file_actor_proto_depIdxs = []int32{
-	0, // 0: actor.Subscribe.self:type_name -> actor.ActorRef
-	0, // 1: actor.Unsubscribe.self:type_name -> actor.ActorRef
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	0, // [0:0] is the sub-list for method output_type
+	0, // [0:0] is the sub-list for method input_type
+	0, // [0:0] is the sub-list for extension type_name
+	0, // [0:0] is the sub-list for extension extendee
+	0, // [0:0] is the sub-list for field type_name
 }
 
 func init() { file_actor_proto_init() }
@@ -256,30 +130,6 @@ func file_actor_proto_init() {
 				return nil
 			}
 		}
-		file_actor_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Subscribe); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_actor_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Unsubscribe); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -287,7 +137,7 @@ func file_actor_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_actor_proto_rawDesc,
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   1,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
