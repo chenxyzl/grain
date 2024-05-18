@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+type ConfigOptFunc func(*Config)
+
 const (
 	defaultRequestTimeout     = time.Second * 3
 	defaultStopWaitTimeSecond = 3
@@ -41,7 +43,7 @@ type Config struct {
 	state              NodeState
 }
 
-func NewConfig(clusterName string, version string, remoteUrls []string) *Config {
+func NewConfig(clusterName string, version string, remoteUrls []string, opts ...ConfigOptFunc) *Config {
 	config := &Config{
 		name:               clusterName,
 		version:            version,
@@ -50,6 +52,9 @@ func NewConfig(clusterName string, version string, remoteUrls []string) *Config 
 		stopWaitTimeSecond: defaultStopWaitTimeSecond,
 		kinds:              make(map[string]Kind),
 		dialOptions:        []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())},
+	}
+	for _, f := range opts {
+		f(config)
 	}
 	return config
 }
@@ -68,45 +73,43 @@ func (x *Config) mustNotRunning() {
 	}
 }
 
-// WithRequestTimeout set request timeout
-func (x *Config) WithRequestTimeout(d time.Duration) *Config {
-	x.requestTimeout = d
-	return x
-}
-
-// WithStopWaitTimeSecond stop wait time second
-func (x *Config) WithStopWaitTimeSecond(t int) *Config {
-	x.stopWaitTimeSecond = t
-	return x
-}
-
-// WithGrpcDialOptions set grpc dialOptions
-func (x *Config) WithGrpcDialOptions(dialOptions ...grpc.DialOption) *Config {
-	x.mustNotRunning()
-	x.dialOptions = dialOptions
-	return x
-}
-
-// WithCallDialOptions set grpc dialOptions
-func (x *Config) WithCallDialOptions(callOptions ...grpc.CallOption) *Config {
-	x.mustNotRunning()
-	x.callOptions = callOptions
-	return x
-}
-
-// WithKind set kind
-func (x *Config) WithKind(kindName string, producer Producer, opts ...OptFunc) *Config {
-	x.mustNotRunning()
-	if kindName == defaultLocalKind ||
-		kindName == defaultSystemKind ||
-		kindName == defaultReplyKind {
-		panic("invalid kind name, please change")
+func WithRequestTimeout(d time.Duration) ConfigOptFunc {
+	return func(config *Config) {
+		config.requestTimeout = d
 	}
-	if _, ok := x.kinds[kindName]; ok {
-		panic("duplicate kind name " + kindName)
+}
+
+func WithStopWaitTimeSecond(t int) ConfigOptFunc {
+	return func(config *Config) {
+		config.stopWaitTimeSecond = t
 	}
-	x.kinds[kindName] = Kind{producer, opts}
-	return x
+}
+
+func WithGrpcDialOptions(dialOptions ...grpc.DialOption) ConfigOptFunc {
+	return func(config *Config) {
+		config.dialOptions = dialOptions
+	}
+}
+
+func WithCallDialOptions(callOptions ...grpc.CallOption) ConfigOptFunc {
+	return func(config *Config) {
+		config.callOptions = callOptions
+	}
+}
+
+func WithKind(kindName string, producer Producer, opts ...KindOptFunc) ConfigOptFunc {
+	return func(config *Config) {
+		config.mustNotRunning()
+		if kindName == defaultLocalKind ||
+			kindName == defaultSystemKind ||
+			kindName == defaultReplyKind {
+			panic("invalid kind name, please change")
+		}
+		if _, ok := config.kinds[kindName]; ok {
+			panic("duplicate kind name " + kindName)
+		}
+		config.kinds[kindName] = Kind{producer: producer, opts: opts}
+	}
 }
 
 func (x *Config) GetMemberPrefix() string {
@@ -136,8 +139,8 @@ func (x *Config) GetKinds() []string {
 	return kinds
 }
 
-// InitState after register
-func (x *Config) InitState(addr string, nodeId uint64) NodeState {
+// init after register
+func (x *Config) init(addr string, nodeId uint64) NodeState {
 	x.state = NodeState{NodeId: nodeId, Address: addr, Time: time.Now().Format(time.DateTime), Version: x.version, Kinds: x.GetKinds()}
 	return x.state
 }

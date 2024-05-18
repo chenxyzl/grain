@@ -133,7 +133,7 @@ func (x *ProviderEtcd) stop() {
 func (x *ProviderEtcd) register() error {
 	for id := uint64(1); id <= uuid.MaxNodeMax(); id++ {
 		key := x.config.GetMemberPath(id)
-		s, _ := json.Marshal(x.config.InitState(x.addr(), id))
+		s, _ := json.Marshal(x.config.init(x.addr(), id))
 		state := string(s)
 		//
 		if !x.setTxn(key, state) {

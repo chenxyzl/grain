@@ -4,7 +4,7 @@ package actor
 type Producer func() IActor
 type Kind struct {
 	producer Producer
-	opts     []OptFunc
+	opts     []KindOptFunc
 }
 
 // IActor actor interface

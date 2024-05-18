@@ -53,7 +53,7 @@ var (
 	}
 )
 
-type OptFunc func(*Opts)
+type KindOptFunc func(*Opts)
 
 type Opts struct {
 	Producer     Producer
@@ -69,7 +69,7 @@ type Opts struct {
 }
 
 // NewOpts ...
-func NewOpts(p Producer, opts ...OptFunc) Opts {
+func NewOpts(p Producer, opts ...KindOptFunc) Opts {
 	ret := Opts{
 		Producer:             p,
 		MailboxSize:          defaultMailboxSize,
@@ -86,42 +86,42 @@ func NewOpts(p Producer, opts ...OptFunc) Opts {
 	return ret
 }
 
-func WithContext(ctx context.Context) OptFunc {
+func WithContext(ctx context.Context) KindOptFunc {
 	return func(opts *Opts) {
 		opts.Context = ctx
 	}
 }
-func WithRestartDelay(d func(restartTimes int) time.Duration) OptFunc {
+func WithRestartDelay(d func(restartTimes int) time.Duration) KindOptFunc {
 	return func(opts *Opts) {
 		opts.RestartDelay = d
 	}
 }
-func WithInboxSize(size int) OptFunc {
+func WithInboxSize(size int) KindOptFunc {
 	return func(opts *Opts) {
 		opts.MailboxSize = size
 	}
 }
-func WithMaxRestarts(n int) OptFunc {
+func WithMaxRestarts(n int) KindOptFunc {
 	return func(opts *Opts) {
 		opts.MaxRestarts = int32(n)
 	}
 }
-func WithRegisterToRemote(fun func(clusterProvider Provider, config *Config, ref *ActorRef)) OptFunc {
+func WithRegisterToRemote(fun func(clusterProvider Provider, config *Config, ref *ActorRef)) KindOptFunc {
 	return func(opts *Opts) {
 		opts.RegisterToRemote = fun
 	}
 }
-func WithUnRegisterFromRemote(fun func(clusterProvider Provider, config *Config, ref *ActorRef)) OptFunc {
+func WithUnRegisterFromRemote(fun func(clusterProvider Provider, config *Config, ref *ActorRef)) KindOptFunc {
 	return func(opts *Opts) {
 		opts.UnRegisterFromRemote = fun
 	}
 }
-func withKindName(kindName string) OptFunc {
+func withKindName(kindName string) KindOptFunc {
 	return func(opts *Opts) {
 		opts.Kind = kindName
 	}
 }
-func withSelf(address string, name string) OptFunc {
+func withSelf(address string, name string) KindOptFunc {
 	return func(opts *Opts) {
 		opts.Self = newActorRefWithKind(address, opts.Kind, name)
 	}

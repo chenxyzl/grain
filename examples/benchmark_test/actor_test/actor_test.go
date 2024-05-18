@@ -60,7 +60,7 @@ func init() {
 	//helper.InitLog("./test.log")
 	slog.SetLogLoggerLevel(slog.LevelWarn)
 	//config
-	config := actor.NewConfig("hello", "0.0.1", []string{"127.0.0.1:2379"}).WithRequestTimeout(requestTimeout)
+	config := actor.NewConfig("hello", "0.0.1", []string{"127.0.0.1:2379"}, actor.WithRequestTimeout(requestTimeout))
 	//new
 	testSystem.system = actor.NewSystem[*actor.ProviderEtcd](config)
 	//start

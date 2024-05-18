@@ -57,11 +57,11 @@ func (x *System) Logger() *slog.Logger {
 	return x.logger
 }
 
-func (x *System) Spawn(p Producer, opts ...OptFunc) *ActorRef {
+func (x *System) Spawn(p Producer, opts ...KindOptFunc) *ActorRef {
 	return x.SpawnNamed(p, strconv.Itoa(int(uuid.Generate())), opts...)
 }
 
-func (x *System) SpawnNamed(p Producer, name string, opts ...OptFunc) *ActorRef {
+func (x *System) SpawnNamed(p Producer, name string, opts ...KindOptFunc) *ActorRef {
 	//
 	opts = append(opts, withSelf(x.clusterProvider.addr(), name))
 	options := NewOpts(p, opts...)
