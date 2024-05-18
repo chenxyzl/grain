@@ -140,7 +140,7 @@ func (x *ProviderEtcd) register() error {
 			continue
 		}
 		x.logger = x.logger.With("node", id)
-		x.system.InitGlobalUuid(id)
+		x.system.running(id)
 		//
 		x.Logger().Info("register node to etcd success", "key", key, "val", state)
 		return nil

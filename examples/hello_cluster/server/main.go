@@ -40,9 +40,9 @@ func main() {
 	system := actor.NewSystem[*actor.ProviderEtcd](config.WithRequestTimeout(time.Second * 100))
 	//start
 	system.Logger().Warn("system starting")
-	if err := system.Start(); err != nil {
-		panic(err)
-	}
+	//
+	system.Start()
+	//
 	system.Logger().Warn("system started successfully")
 	//run wait
 	system.WaitStopSignal()

@@ -13,9 +13,9 @@ import (
 	"strings"
 )
 
-var _ IActor = (*EventStream)(nil)
+var _ IActor = (*eventStream)(nil)
 
-type EventStream struct {
+type eventStream struct {
 	BaseActor
 	client            *clientv3.Client
 	leaseId           clientv3.LeaseID
@@ -25,8 +25,8 @@ type EventStream struct {
 	sub               map[string]map[string]bool                                    // eventName:actorId:_
 }
 
-func newEventStream(nodeId uint64, client *clientv3.Client, leaseId clientv3.LeaseID, eventStreamPrefix string) *EventStream {
-	return &EventStream{
+func newEventStream(nodeId uint64, client *clientv3.Client, leaseId clientv3.LeaseID, eventStreamPrefix string) IActor {
+	return &eventStream{
 		nodeId:            nodeId,
 		client:            client,
 		leaseId:           leaseId,
@@ -35,7 +35,7 @@ func newEventStream(nodeId uint64, client *clientv3.Client, leaseId clientv3.Lea
 		sub:               make(map[string]map[string]bool)}
 }
 
-func (x *EventStream) Started() {
+func (x *eventStream) Started() {
 	x.Logger().Info("EventStream started ...")
 	//watcher eventStream
 	err := x.watchEventStream()
@@ -45,11 +45,11 @@ func (x *EventStream) Started() {
 	}
 }
 
-func (x *EventStream) PreStop() {
+func (x *eventStream) PreStop() {
 	x.Logger().Info("EventStream stopped ...")
 }
 
-func (x *EventStream) Receive(ctx Context) {
+func (x *eventStream) Receive(ctx Context) {
 	switch msg := ctx.Message().(type) {
 	case *Subscribe:
 		x.subscribe(ctx, msg)
@@ -62,7 +62,7 @@ func (x *EventStream) Receive(ctx Context) {
 	}
 }
 
-func (x *EventStream) subscribe(ctx Context, msg *Subscribe) {
+func (x *eventStream) subscribe(ctx Context, msg *Subscribe) {
 	if _, ok := x.sub[msg.EventName]; !ok {
 		x.sub[msg.EventName] = make(map[string]bool)
 		x.registerEventStream(msg.EventName)
@@ -72,7 +72,7 @@ func (x *EventStream) subscribe(ctx Context, msg *Subscribe) {
 	x.Logger().Debug("EventStream subscribed", "id", msg.GetSelf(), "eventName", msg.EventName)
 }
 
-func (x *EventStream) unsubscribe(ctx Context, msg *Unsubscribe) {
+func (x *eventStream) unsubscribe(ctx Context, msg *Unsubscribe) {
 	if x.sub[msg.EventName] == nil {
 		return
 	}
@@ -91,14 +91,14 @@ func (x *EventStream) unsubscribe(ctx Context, msg *Unsubscribe) {
 	}
 }
 
-func (x *EventStream) broadcastPublish(ctx Context, msg proto.Message) {
+func (x *eventStream) broadcastPublish(ctx Context, msg proto.Message) {
 	actors := x.getActorsByEventFromEventStream(msg)
 	for _, actorRef := range actors {
 		x.system.sendWithoutSender(actorRef, msg)
 	}
 }
 
-func (x *EventStream) onPublish(ctx Context, msg proto.Message) {
+func (x *eventStream) onPublish(ctx Context, msg proto.Message) {
 	eventName := string(proto.MessageName(msg))
 	for ref := range x.sub[eventName] {
 		actorRef := newActorRefFromId(ref)
@@ -106,7 +106,7 @@ func (x *EventStream) onPublish(ctx Context, msg proto.Message) {
 	}
 }
 
-func (x *EventStream) watchEventStream() error {
+func (x *eventStream) watchEventStream() error {
 	//first
 	rsp, err := x.client.Get(context.Background(), x.eventStreamPrefix, clientv3.WithPrefix())
 	if err != nil {
@@ -130,7 +130,7 @@ func (x *EventStream) watchEventStream() error {
 	return nil
 }
 
-func (x *EventStream) parseWatchEventStream(op mvccpb.Event_EventType, key string, value []byte) (err error) {
+func (x *eventStream) parseWatchEventStream(op mvccpb.Event_EventType, key string, value []byte) (err error) {
 	//"/$clusterName/event_stream/$eventName/$actor_id"
 	key = strings.TrimPrefix(key, "/")
 	arr := strings.SplitN(key, "/", 4)
@@ -165,12 +165,12 @@ func (x *EventStream) parseWatchEventStream(op mvccpb.Event_EventType, key strin
 	return nil
 }
 
-func (x *EventStream) getEventNamePath(eventName string) string {
+func (x *eventStream) getEventNamePath(eventName string) string {
 	str := strings.ReplaceAll(x.eventStreamPrefix+"/"+eventName+"/"+strconv.Itoa(int(x.nodeId)), "//", "/")
 	return str
 }
 
-func (x *EventStream) registerEventStream(eventName string) {
+func (x *eventStream) registerEventStream(eventName string) {
 	path := x.getEventNamePath(eventName)
 	_, err := x.client.Put(context.Background(), path, x.Self().GetId(), clientv3.WithLease(x.leaseId))
 	if err != nil {
@@ -185,7 +185,7 @@ func (x *EventStream) registerEventStream(eventName string) {
 	}
 	actors.Set(x.nodeId, x.Self())
 }
-func (x *EventStream) unregisterEventStream(eventName string) {
+func (x *eventStream) unregisterEventStream(eventName string) {
 	path := x.getEventNamePath(eventName)
 	_, err := x.client.Delete(context.Background(), path)
 	if err != nil {
@@ -196,7 +196,7 @@ func (x *EventStream) unregisterEventStream(eventName string) {
 	actors, _ := x.eventStreamMaps.Get(eventName)
 	actors.Delete(x.nodeId)
 }
-func (x *EventStream) getActorsByEventFromEventStream(event proto.Message) []*ActorRef {
+func (x *eventStream) getActorsByEventFromEventStream(event proto.Message) []*ActorRef {
 	eventName := string(proto.MessageName(event))
 	actors, b := x.eventStreamMaps.Get(eventName)
 	if !b {

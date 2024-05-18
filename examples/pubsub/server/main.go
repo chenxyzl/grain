@@ -48,9 +48,9 @@ func main() {
 	system := actor.NewSystem[*actor.ProviderEtcd](config.WithRequestTimeout(time.Second * 100))
 	//start
 	system.Logger().Warn("system starting")
-	if err := system.Start(); err != nil {
-		panic(err)
-	}
+	//
+	system.Start()
+	//
 	system.Logger().Warn("system started successfully")
 	// create a remote actor
 	_, err := actor.NoEntryRequestE[*testpb.HelloReply](system, system.GetRemoteActorRef("player", "12345"), &testpb.HelloRequest{Name: "xxx"})

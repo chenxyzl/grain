@@ -65,9 +65,9 @@ func init() {
 	testSystem.system = actor.NewSystem[*actor.ProviderEtcd](config)
 	//start
 	testSystem.system.Logger().Warn("system starting")
-	if err := testSystem.system.Start(); err != nil {
-		panic(err)
-	}
+	//
+	testSystem.system.Start()
+	//
 	testSystem.system.Logger().Warn("system started successfully")
 
 	for i := int64(0); i < maxIdx; i++ {

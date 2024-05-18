@@ -4,28 +4,28 @@ import (
 	"github.com/chenxyzl/grain/utils/al/safemap"
 )
 
-type Registry struct {
+type registry struct {
 	lookup safemap.ConcurrentMap[string, iProcess]
 	system *System
 }
 
-func newRegistry(s *System) *Registry {
-	return &Registry{
+func newRegistry(s *System) *registry {
+	return &registry{
 		lookup: safemap.NewStringC[iProcess](),
 		system: s,
 	}
 }
 
-func (r *Registry) remove(actRef *ActorRef) {
+func (r *registry) remove(actRef *ActorRef) {
 	r.lookup.Remove(actRef.GetId())
 }
 
-func (r *Registry) get(actRef *ActorRef) iProcess {
+func (r *registry) get(actRef *ActorRef) iProcess {
 	proc, _ := r.lookup.Get(actRef.GetId())
 	return proc
 }
 
-func (r *Registry) add(proc iProcess) iProcess {
+func (r *registry) add(proc iProcess) iProcess {
 	id := proc.self().GetId()
 	old, ok := r.lookup.SetIfNotExist(id, proc)
 	if ok {
@@ -38,6 +38,6 @@ func (r *Registry) add(proc iProcess) iProcess {
 	proc.init()
 	return proc
 }
-func (r *Registry) rangeIt(fun func(key string, v iProcess)) {
+func (r *registry) rangeIt(fun func(key string, v iProcess)) {
 	r.lookup.IterCb(fun)
 }

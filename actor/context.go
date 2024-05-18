@@ -14,9 +14,9 @@ type Context interface {
 	Forward(target *ActorRef)
 }
 
-var _ Context = (*ContextImpl)(nil)
+var _ Context = (*contextImpl)(nil)
 
-type ContextImpl struct {
+type contextImpl struct {
 	system  *System
 	target  *ActorRef
 	sender  *ActorRef
@@ -25,12 +25,12 @@ type ContextImpl struct {
 	context.Context
 }
 
-func (x *ContextImpl) Reply(message proto.Message) {
+func (x *contextImpl) Reply(message proto.Message) {
 	x.system.sendWithoutSender(x.Sender(), message, x.msgSnId)
 }
 
 func newContext(target *ActorRef, sender *ActorRef, message proto.Message, msgSnId uint64, ctx context.Context, system *System) Context {
-	return &ContextImpl{
+	return &contextImpl{
 		system:  system,
 		target:  target,
 		sender:  sender,
@@ -40,22 +40,22 @@ func newContext(target *ActorRef, sender *ActorRef, message proto.Message, msgSn
 	}
 }
 
-func (x *ContextImpl) Target() *ActorRef {
+func (x *contextImpl) Target() *ActorRef {
 	return x.target
 }
 
-func (x *ContextImpl) Sender() *ActorRef {
+func (x *contextImpl) Sender() *ActorRef {
 	return x.sender
 }
 
-func (x *ContextImpl) Message() proto.Message {
+func (x *contextImpl) Message() proto.Message {
 	return x.message
 }
 
-func (x *ContextImpl) GetMsgSnId() uint64 {
+func (x *contextImpl) GetMsgSnId() uint64 {
 	return x.msgSnId
 }
 
-func (x *ContextImpl) Forward(target *ActorRef) {
+func (x *contextImpl) Forward(target *ActorRef) {
 	x.system.sendWithSender(target, x.message, x.sender, x.msgSnId)
 }
