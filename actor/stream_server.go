@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-type RPCService struct {
+type rpcService struct {
 	system *System
 	//
 	logger *slog.Logger
@@ -22,11 +22,11 @@ type RPCService struct {
 	gs     *grpc.Server
 }
 
-func NewRpcServer(system *System) *RPCService {
-	return &RPCService{system: system}
+func newRpcServer(system *System) *rpcService {
+	return &rpcService{system: system}
 }
 
-func (x *RPCService) Listen(server Remoting_ListenServer) error {
+func (x *rpcService) Listen(server Remoting_ListenServer) error {
 	defer helper.Recover()
 	//save to
 	for {
@@ -55,11 +55,11 @@ func (x *RPCService) Listen(server Remoting_ListenServer) error {
 	}
 }
 
-func (x *RPCService) mustEmbedUnimplementedRemotingServer() {
+func (x *rpcService) mustEmbedUnimplementedRemotingServer() {
 	x.Logger().Info("mustEmbedUnimplementedRemotingServer")
 }
 
-func (x *RPCService) Start() error {
+func (x *rpcService) Start() error {
 	lis, err := net.Listen("tcp", ":0")
 	if err != nil {
 		return err
@@ -76,7 +76,7 @@ func (x *RPCService) Start() error {
 	return nil
 }
 
-func (x *RPCService) Stop() error {
+func (x *rpcService) Stop() error {
 	if x.gs != nil {
 		c := make(chan bool, 1)
 		go func() {
@@ -95,15 +95,15 @@ func (x *RPCService) Stop() error {
 	return nil
 }
 
-func (x *RPCService) Addr() string {
+func (x *rpcService) Addr() string {
 	return x.addr
 }
 
-func (x *RPCService) Logger() *slog.Logger {
+func (x *rpcService) Logger() *slog.Logger {
 	return x.logger
 }
 
-func (x *RPCService) sendToLocal(envelope *Envelope) {
+func (x *rpcService) sendToLocal(envelope *Envelope) {
 	typ, err := protoregistry.GlobalTypes.FindMessageByName(protoreflect.FullName(envelope.MsgName))
 	if err != nil {
 		x.Logger().Error("sendToLocal, unregister msg type", "actor", envelope.GetTarget(), "msgName", envelope.GetMsgName(), "err", err)

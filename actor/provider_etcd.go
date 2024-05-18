@@ -33,7 +33,7 @@ type ProviderEtcd struct {
 
 	//self rpc
 	selfAddr   string
-	rpcService *RPCService
+	rpcService *rpcService
 
 	//
 	nodeMap *safemap.SafeMap[string, NodeState]
@@ -60,7 +60,7 @@ func (x *ProviderEtcd) Address() string {
 }
 
 func (x *ProviderEtcd) start(system *System, config *Config) error {
-	rpcService := NewRpcServer(system)
+	rpcService := newRpcServer(system)
 	//start grpc
 	if err := rpcService.Start(); err != nil {
 		return err
