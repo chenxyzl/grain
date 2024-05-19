@@ -2,7 +2,7 @@ package actor
 
 import (
 	"errors"
-	"github.com/chenxyzl/grain/actor/uuid"
+	"github.com/chenxyzl/grain/uuid"
 	"log/slog"
 	"os"
 	"os/signal"

@@ -1,8 +1,8 @@
 package safemap_test
 
 import (
-	"github.com/chenxyzl/grain/actor/uuid"
 	"github.com/chenxyzl/grain/utils/al/safemap"
+	"github.com/chenxyzl/grain/uuid"
 	"strconv"
 	"sync/atomic"
 	"testing"

@@ -2,7 +2,7 @@ package actor
 
 import (
 	"github.com/chenxyzl/grain/actor/internal"
-	"github.com/chenxyzl/grain/actor/uuid"
+	"github.com/chenxyzl/grain/uuid"
 	"google.golang.org/protobuf/proto"
 	"hash"
 	"hash/fnv"

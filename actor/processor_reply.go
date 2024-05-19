@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/chenxyzl/grain/actor/internal"
-	"github.com/chenxyzl/grain/actor/uuid"
+	"github.com/chenxyzl/grain/uuid"
 	"google.golang.org/protobuf/proto"
 	"strconv"
 	"time"
