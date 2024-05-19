@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path"
 )
 
 func InitLog(name string) {
@@ -18,14 +19,16 @@ func InitLog(name string) {
 		Compress:   false,
 	}
 	ar := io.MultiWriter(r, os.Stdout)
-	_ = ar
-	logger := slog.New(slog.NewJSONHandler(ar, &slog.HandlerOptions{AddSource: true, Level: slog.LevelInfo, ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-		if a.Key == slog.SourceKey {
-			s := a.Value.Any().(*slog.Source)
-			//s.File = path.Base(s.File)
-			s.Function = ""
-		}
-		return a
-	}}))
+	logger := slog.New(slog.NewTextHandler(ar, &slog.HandlerOptions{
+		AddSource: true,
+		Level:     slog.LevelInfo,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if a.Key == slog.SourceKey {
+				s := a.Value.Any().(*slog.Source)
+				s.File = path.Base(s.File)
+				s.Function = ""
+			}
+			return a
+		}}))
 	slog.SetDefault(logger)
 }
