@@ -1,52 +1,23 @@
 package main
 
 import (
-	"examples/testpb"
-	"fmt"
+	"examples/share_actor"
 	"github.com/chenxyzl/grain/actor"
 	"github.com/chenxyzl/grain/utils/helper"
-	"time"
 )
-
-var _ actor.IActor = (*PlayerActor)(nil)
-
-type PlayerActor struct {
-	actor.BaseActor
-}
-
-func (p *PlayerActor) Started() {
-	p.Logger().Info("Started")
-}
-
-func (p *PlayerActor) PreStop() {
-	p.Logger().Info("PreStop")
-}
-
-func (p *PlayerActor) Receive(ctx actor.Context) {
-	switch msg := ctx.Message().(type) {
-	case *testpb.HelloRequest:
-		ctx.Reply(&testpb.HelloReply{Name: msg.GetName()})
-		p.Logger().Info("recv request hello, reply", "name", msg.Name)
-	default:
-		panic(fmt.Sprintf("not register msg type, msgType:%v, msg:%v", msg.ProtoReflect().Descriptor().FullName(), msg))
-	}
-}
 
 func main() {
 	helper.InitLog("./test.log")
 	//config
 	config := actor.NewConfig("hello_cluster", "0.0.1", []string{"127.0.0.1:2379"},
-		actor.WithRequestTimeout(time.Second*100),
-		actor.WithKind("player", func() actor.IActor { return &PlayerActor{} }))
-	//new
+		actor.WithKind("player", func() actor.IActor { return &share_actor.HelloActor{} }))
+	//system
 	system := actor.NewSystem[*actor.ProviderEtcd](config)
 	//start
 	system.Logger().Warn("system starting")
-	//
 	system.Start()
-	//
 	system.Logger().Warn("system started successfully")
-	//run wait
+	//wait ctrl+c
 	system.WaitStopSignal()
 	//
 	system.Logger().Warn("system stopped successfully")

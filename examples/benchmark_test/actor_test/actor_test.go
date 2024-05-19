@@ -16,7 +16,9 @@ var (
 	idx            int64 = 0
 	parallelism          = 100
 	body                 = "123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_"
+	helloSend            = &testpb.Hello{Name: body}
 	helloRequest         = &testpb.HelloRequest{Name: body}
+	helloReply           = &testpb.HelloReply{Name: "hell go reply"}
 	requestTimeout       = time.Second * 1
 )
 
@@ -25,37 +27,28 @@ type TestSystem struct {
 	actors []*actor.ActorRef
 }
 
-type HelloGoActor struct {
+type HelloActor struct {
 	actor.BaseActor
 }
 
-func (x *HelloGoActor) Started() {
+func (x *HelloActor) Started() {
 	x.Logger().Info("Started")
 }
-func (x *HelloGoActor) PreStop() {
+func (x *HelloActor) PreStop() {
 	x.Logger().Info("PreStop")
 }
-func (x *HelloGoActor) Receive(context actor.Context) {
-	switch msg := context.Message().(type) {
+func (x *HelloActor) Receive(context actor.Context) {
+	switch context.Message().(type) {
 	case *testpb.Hello:
-		{
-			_ = msg
-			//x.Logger().Info(fmt.Sprintf("tell: %v", msg.GetName()))
-		}
 	case *testpb.HelloRequest:
-		{
-			_ = msg
-			//x.Logger().Info(fmt.Sprintf("request: %v", msg.GetName()))
-			if context.Sender() != nil {
-				x.Send(context.Sender(), &testpb.HelloReply{Name: "hell go reply"})
-			}
-		}
+		context.Reply(helloReply)
 	default:
-		x.Logger().Error("xxx")
+		x.Logger().Error("unregister msg")
 	}
 }
 
 func init() {
+	runtime.GOMAXPROCS(runtime.NumCPU() * 2)
 	//log
 	//helper.InitLog("./test.log")
 	slog.SetLogLoggerLevel(slog.LevelWarn)
@@ -71,18 +64,15 @@ func init() {
 	testSystem.system.Logger().Warn("system started successfully")
 
 	for i := int64(0); i < maxIdx; i++ {
-		actorRef := testSystem.system.Spawn(func() actor.IActor { return &HelloGoActor{} })
+		actorRef := testSystem.system.Spawn(func() actor.IActor { return &HelloActor{} })
 		testSystem.actors = append(testSystem.actors, actorRef)
 	}
-
-	n := runtime.NumCPU()
-	runtime.GOMAXPROCS(n * 2)
 }
 func BenchmarkSendOne(b *testing.B) {
-	actorRef := testSystem.system.Spawn(func() actor.IActor { return &HelloGoActor{} })
+	actorRef := testSystem.system.Spawn(func() actor.IActor { return &HelloActor{} })
 	b.ResetTimer()
 	for range b.N {
-		actor.NoEntrySend(testSystem.system, actorRef, &testpb.Hello{Name: "helle grain"})
+		actor.NoEntrySend(testSystem.system, actorRef, helloSend)
 	}
 }
 func BenchmarkSendMore(b *testing.B) {
@@ -94,12 +84,12 @@ func BenchmarkSendMore(b *testing.B) {
 			v := atomic.AddInt64(&idx, 1) % maxIdx
 			_ = v
 			actorRef := testSystem.actors[v]
-			actor.NoEntrySend(testSystem.system, actorRef, helloRequest)
+			actor.NoEntrySend(testSystem.system, actorRef, helloSend)
 		}
 	})
 }
 func BenchmarkRequestOne(b *testing.B) {
-	actorRef := testSystem.system.Spawn(func() actor.IActor { return &HelloGoActor{} })
+	actorRef := testSystem.system.Spawn(func() actor.IActor { return &HelloActor{} })
 	b.ResetTimer()
 	for range b.N {
 		reply, err := actor.NoEntryRequestE[*testpb.HelloReply](testSystem.system, actorRef, helloRequest)

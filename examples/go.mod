@@ -3,7 +3,7 @@ module examples
 go 1.22
 
 require (
-	github.com/chenxyzl/grain v0.0.0-20240426060912-085edc5c0f39
+	github.com/chenxyzl/grain v0.0.0-20240519074324-607537bb44a8
 	github.com/timandy/routine v1.1.3
 	go.etcd.io/etcd/api/v3 v3.5.13
 	go.etcd.io/etcd/client/v3 v3.5.13

@@ -11,25 +11,26 @@ func main() {
 	helper.InitLog("./test.log")
 	//config
 	config := actor.NewConfig("hello_cluster", "0.0.1", []string{"127.0.0.1:2379"},
-		actor.WithRequestTimeout(time.Second*100))
-	//new
+		actor.WithRequestTimeout(time.Second*1))
+	//new system
 	system := actor.NewSystem[*actor.ProviderEtcd](config)
 	//start
 	system.Logger().Warn("system starting")
-	//
 	system.Start()
-	//
 	system.Logger().Warn("system started successfully")
-	//
-	remote := system.GetRemoteActorRef("player", "123456")
-	system.Logger().Info("request target", "remote", remote)
-	reply, err := actor.NoEntryRequestE[*testpb.HelloReply](system, remote, &testpb.HelloRequest{Name: "xxx"})
+	//get a remote actorRef
+	actorRef := system.GetRemoteActorRef("player", "123456")
+	//tell
+	actor.NoEntrySend(system, actorRef, &testpb.Hello{Name: "hello tell"})
+	//request
+	system.Logger().Info("request: ", "target", actorRef)
+	reply, err := actor.NoEntryRequestE[*testpb.HelloReply](system, actorRef, &testpb.HelloRequest{Name: "xxx"})
 	if err != nil {
 		panic(err)
 	}
-	system.Logger().Info("reply success", "name", reply.Name)
+	system.Logger().Info("reply:", "message", reply)
 
-	//run wait
+	//wait ctrl+c
 	system.WaitStopSignal()
 	//
 	system.Logger().Warn("system stopped successfully")
