@@ -7,7 +7,7 @@ import (
 var _ Context = (*contextImpl)(nil)
 
 type contextImpl struct {
-	senderFunc Sender
+	senderFunc SenderWith
 	target     *ActorRef
 	sender     *ActorRef
 	msgSnId    uint64
@@ -18,7 +18,7 @@ func (x *contextImpl) Reply(message proto.Message) {
 	x.senderFunc(x.Sender(), message, nil, x.msgSnId)
 }
 
-func newContext(target *ActorRef, sender *ActorRef, message proto.Message, msgSnId uint64, senderFunc Sender) Context {
+func newContext(target *ActorRef, sender *ActorRef, message proto.Message, msgSnId uint64, senderFunc SenderWith) Context {
 	return &contextImpl{
 		senderFunc: senderFunc,
 		target:     target,

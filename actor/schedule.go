@@ -9,8 +9,6 @@ import (
 
 type CancelScheduleFunc func()
 
-type SenderFunc func(*ActorRef, proto.Message, ...uint64)
-
 type Stopper interface {
 	Stop()
 }
@@ -47,10 +45,10 @@ func startTimer(delay, interval time.Duration, fn func()) CancelScheduleFunc {
 }
 
 type timerSchedule struct {
-	sender SenderFunc
+	sender SenderWithOut
 }
 
-func newTimerSchedule(sender SenderFunc) *timerSchedule {
+func newTimerSchedule(sender SenderWithOut) *timerSchedule {
 	s := &timerSchedule{sender: sender}
 	return s
 }

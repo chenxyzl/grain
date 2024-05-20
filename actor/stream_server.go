@@ -15,14 +15,14 @@ import (
 )
 
 type rpcService struct {
-	senderFunc Sender
+	senderFunc SenderWith
 	//
 	logger *slog.Logger
 	addr   string
 	gs     *grpc.Server
 }
 
-func newRpcServer(senderFunc Sender) *rpcService {
+func newRpcServer(senderFunc SenderWith) *rpcService {
 	return &rpcService{senderFunc: senderFunc}
 }
 
