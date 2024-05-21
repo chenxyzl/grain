@@ -44,8 +44,8 @@ func main() {
 	helper.InitLog("./test.log")
 	//config
 	config := actor.NewConfig("pubsub_cluster", "0.0.1", []string{"127.0.0.1:2379"},
-		actor.WithRequestTimeout(time.Second*100),
-		actor.WithKind("player", func() actor.IActor { return &PlayerActor{} }))
+		actor.WithConfigRequestTimeout(time.Second*100),
+		actor.WithConfigKind("player", func() actor.IActor { return &PlayerActor{} }))
 	//new
 	system := actor.NewSystem[*actor.ProviderEtcd](config)
 	//start

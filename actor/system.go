@@ -62,7 +62,7 @@ func (x *System) Spawn(p Producer, opts ...KindOptFunc) *ActorRef {
 
 func (x *System) SpawnNamed(p Producer, name string, opts ...KindOptFunc) *ActorRef {
 	//
-	opts = append(opts, withSelf(x.clusterProvider.addr(), name))
+	opts = append(opts, withOptsSelf(x.clusterProvider.addr(), name))
 	options := NewOpts(p, opts...)
 	//
 	return newProcessor(x, options).self()
@@ -135,7 +135,7 @@ func (x *System) sendWithSender(target *ActorRef, msg proto.Message, sender *Act
 		if proc == nil {
 			x.SpawnNamed(func() IActor {
 				return newStreamWriterActor(remoteActorRef, targetAddress, x.GetConfig().dialOptions, x.GetConfig().callOptions)
-			}, remoteActorRef.GetName(), withKindName(remoteActorRef.GetKind()))
+			}, remoteActorRef.GetName(), withOptsKindName(remoteActorRef.GetKind()))
 		}
 		//to remote
 		proc = x.registry.get(remoteActorRef)

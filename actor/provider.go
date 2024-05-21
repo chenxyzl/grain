@@ -18,7 +18,7 @@ type Provider interface {
 	stop()
 
 	//nodes
-	getNodes() []NodeState
+	getNodes() []tNodeState
 
 	//set remove key val
 	setTxn(key string, val string) bool

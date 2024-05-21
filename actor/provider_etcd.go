@@ -36,7 +36,7 @@ type ProviderEtcd struct {
 	rpcService *rpcService
 
 	//
-	nodeMap *safemap.SafeMap[string, NodeState]
+	nodeMap *safemap.SafeMap[string, tNodeState]
 }
 
 func (x *ProviderEtcd) getEtcdClient() *clientv3.Client {
@@ -66,7 +66,7 @@ func (x *ProviderEtcd) start(system *System, config *Config) error {
 		return err
 	}
 	//
-	x.nodeMap = safemap.NewM[string, NodeState]()
+	x.nodeMap = safemap.NewM[string, tNodeState]()
 	x.system = system
 	x.config = config
 	x.rpcService = gs
@@ -228,7 +228,7 @@ func (x *ProviderEtcd) parseWatch(op mvccpb.Event_EventType, key string, value [
 		x.nodeMap.Delete(key)
 		return nil
 	}
-	a := NodeState{}
+	a := tNodeState{}
 	if err = json.Unmarshal(value, &a); err != nil {
 		x.nodeMap.Delete(key)
 		x.Logger().Error("watcher key changed, bug parse err, remove node", "node", key, "v", string(value), "err", err)
@@ -239,9 +239,9 @@ func (x *ProviderEtcd) parseWatch(op mvccpb.Event_EventType, key string, value [
 	return err
 }
 
-func (x *ProviderEtcd) getNodes() []NodeState {
-	var nodes []NodeState
-	x.nodeMap.Range(func(s string, state NodeState) {
+func (x *ProviderEtcd) getNodes() []tNodeState {
+	var nodes []tNodeState
+	x.nodeMap.Range(func(s string, state tNodeState) {
 		nodes = append(nodes, state)
 	})
 	return nodes

@@ -22,12 +22,12 @@ func (x *System) ensureRemoteKindActorExist(ref *ActorRef) {
 	refKind := ref.GetKind()
 	kind, ok := x.config.kinds[refKind]
 	if ok && ref.GetAddress() == x.clusterProvider.addr() && x.registry.get(ref) == nil {
-		x.SpawnNamed(kind.producer, ref.GetName(), append(kind.opts, withKindName(ref.GetKind()))...)
+		x.SpawnNamed(kind.producer, ref.GetName(), append(kind.opts, withOptsKindName(ref.GetKind()))...)
 	}
 }
 
-func (x *System) calcAddressByKind7Id(clusterNodes []NodeState, kind string, name string) string {
-	var nodes []NodeState
+func (x *System) calcAddressByKind7Id(clusterNodes []tNodeState, kind string, name string) string {
+	var nodes []tNodeState
 	for _, state := range clusterNodes {
 		if slices.Contains(state.Kinds, kind) {
 			nodes = append(nodes, state)
@@ -42,7 +42,7 @@ func (x *System) calcAddressByKind7Id(clusterNodes []NodeState, kind string, nam
 	}
 	keyBytes := []byte(name)
 	var maxScore uint32
-	var maxMember *NodeState
+	var maxMember *tNodeState
 	var score uint32
 	for _, node := range nodes {
 		score = x.hash([]byte(node.Address), keyBytes)

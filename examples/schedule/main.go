@@ -79,8 +79,8 @@ func init() {
 	helper.InitLog("./test.log")
 	//config
 	config := actor.NewConfig("schedule", "0.0.1", []string{"127.0.0.1:2379"},
-		actor.WithRequestTimeout(requestTimeout),
-		actor.WithKind("hello", func() actor.IActor { return &HelloGoActorA{} }))
+		actor.WithConfigRequestTimeout(requestTimeout),
+		actor.WithConfigKind("hello", func() actor.IActor { return &HelloGoActorA{} }))
 	//new
 	testSystem.system = actor.NewSystem[*actor.ProviderEtcd](config)
 	//start

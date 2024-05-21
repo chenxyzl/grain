@@ -21,7 +21,7 @@ const (
 	eventStreamName           = "event_stream"
 )
 
-type NodeState struct {
+type tNodeState struct {
 	NodeId  uint64
 	Address string
 	Version string
@@ -40,7 +40,7 @@ type Config struct {
 	callOptions        []grpc.CallOption
 	kinds              map[string]Kind
 	addr               net.Addr
-	state              NodeState
+	state              tNodeState
 }
 
 func NewConfig(clusterName string, version string, remoteUrls []string, opts ...ConfigOptFunc) *Config {
@@ -73,45 +73,6 @@ func (x *Config) mustNotRunning() {
 	}
 }
 
-func WithRequestTimeout(d time.Duration) ConfigOptFunc {
-	return func(config *Config) {
-		config.requestTimeout = d
-	}
-}
-
-func WithStopWaitTimeSecond(t int) ConfigOptFunc {
-	return func(config *Config) {
-		config.stopWaitTimeSecond = t
-	}
-}
-
-func WithGrpcDialOptions(dialOptions ...grpc.DialOption) ConfigOptFunc {
-	return func(config *Config) {
-		config.dialOptions = dialOptions
-	}
-}
-
-func WithCallDialOptions(callOptions ...grpc.CallOption) ConfigOptFunc {
-	return func(config *Config) {
-		config.callOptions = callOptions
-	}
-}
-
-func WithKind(kindName string, producer Producer, opts ...KindOptFunc) ConfigOptFunc {
-	return func(config *Config) {
-		config.mustNotRunning()
-		if kindName == defaultLocalKind ||
-			kindName == defaultSystemKind ||
-			kindName == defaultReplyKind {
-			panic("invalid kind name, please change")
-		}
-		if _, ok := config.kinds[kindName]; ok {
-			panic("duplicate kind name " + kindName)
-		}
-		config.kinds[kindName] = Kind{producer: producer, opts: opts}
-	}
-}
-
 func (x *Config) GetMemberPrefix() string {
 	return fmt.Sprintf("/%v/member/", x.name)
 }
@@ -140,7 +101,7 @@ func (x *Config) GetKinds() []string {
 }
 
 // init after register
-func (x *Config) init(addr string, nodeId uint64) NodeState {
-	x.state = NodeState{NodeId: nodeId, Address: addr, Time: time.Now().Format(time.DateTime), Version: x.version, Kinds: x.GetKinds()}
+func (x *Config) init(addr string, nodeId uint64) tNodeState {
+	x.state = tNodeState{NodeId: nodeId, Address: addr, Time: time.Now().Format(time.DateTime), Version: x.version, Kinds: x.GetKinds()}
 	return x.state
 }

@@ -11,7 +11,7 @@ func main() {
 	helper.InitLog("./test.log")
 	//config
 	config := actor.NewConfig("hello_cluster", "0.0.1", []string{"127.0.0.1:2379"},
-		actor.WithRequestTimeout(time.Second*1))
+		actor.WithConfigRequestTimeout(time.Second*1))
 	//new system
 	system := actor.NewSystem[*actor.ProviderEtcd](config)
 	//start
