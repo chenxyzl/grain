@@ -14,11 +14,13 @@ type ConfigOptFunc func(*Config)
 const (
 	defaultRequestTimeout     = time.Second * 3
 	defaultStopWaitTimeSecond = 3
-	defaultLocalKind          = "local"
-	defaultSystemKind         = "system"
-	defaultReplyKind          = "reply"
-	writeStreamNamePrefix     = "write_stream_"
-	eventStreamName           = "event_stream"
+	//actor kind
+	defaultLocalKind       = "local"
+	defaultSystemKind      = "system"
+	defaultReplyKind       = "reply"
+	defaultWriteStreamKind = "write_stream"
+	//actor name
+	eventStreamName = "event_stream"
 )
 
 type tNodeState struct {
@@ -59,6 +61,12 @@ func NewConfig(clusterName string, version string, remoteUrls []string, opts ...
 	return config
 }
 
+// init after register
+func (x *Config) init(addr string, nodeId uint64) tNodeState {
+	x.state = tNodeState{NodeId: nodeId, Address: addr, Time: time.Now().Format(time.DateTime), Version: x.version, Kinds: x.GetKinds()}
+	return x.state
+}
+
 // markRunning ...
 func (x *Config) markRunning() {
 	if !atomic.CompareAndSwapInt32(&x.running, 0, 1) {
@@ -73,6 +81,15 @@ func (x *Config) mustNotRunning() {
 	}
 }
 
+// GetKinds get all kinds
+func (x *Config) GetKinds() []string {
+	kinds := make([]string, 0, len(x.kinds))
+	for kind := range x.kinds {
+		kinds = append(kinds, kind)
+	}
+	return kinds
+}
+
 func (x *Config) GetMemberPrefix() string {
 	return fmt.Sprintf("/%v/member/", x.name)
 }
@@ -85,23 +102,6 @@ func (x *Config) GetEventStreamPrefix() string {
 func (x *Config) GetRemoteActorKind(ref *ActorRef) string {
 	return fmt.Sprintf("/%v/remote/%v", x.name, ref.GetXPath())
 }
-
-// GetRemoteUrls ...
 func (x *Config) GetRemoteUrls() []string {
 	return x.remoteUrls
-}
-
-// GetKinds get all kinds
-func (x *Config) GetKinds() []string {
-	kinds := make([]string, 0, len(x.kinds))
-	for kind := range x.kinds {
-		kinds = append(kinds, kind)
-	}
-	return kinds
-}
-
-// init after register
-func (x *Config) init(addr string, nodeId uint64) tNodeState {
-	x.state = tNodeState{NodeId: nodeId, Address: addr, Time: time.Now().Format(time.DateTime), Version: x.version, Kinds: x.GetKinds()}
-	return x.state
 }

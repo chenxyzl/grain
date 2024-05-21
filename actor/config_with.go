@@ -34,7 +34,8 @@ func WithConfigKind(kindName string, producer Producer, opts ...KindOptFunc) Con
 		config.mustNotRunning()
 		if kindName == defaultLocalKind ||
 			kindName == defaultSystemKind ||
-			kindName == defaultReplyKind {
+			kindName == defaultReplyKind ||
+			kindName == defaultWriteStreamKind {
 			panic("invalid kind name, please change")
 		}
 		if _, ok := config.kinds[kindName]; ok {

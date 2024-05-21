@@ -130,17 +130,17 @@ func (x *System) sendWithSender(target *ActorRef, msg proto.Message, sender *Act
 		//x.sendToLocal(envelope)
 	} else {
 		targetAddress := target.GetAddress()
-		remoteActorRef := newActorRefWithKind(x.clusterProvider.addr(), defaultSystemKind, writeStreamNamePrefix+targetAddress)
-		proc := x.registry.get(remoteActorRef)
+		writeStreamActorRef := newActorRefWithKind(x.clusterProvider.addr(), defaultWriteStreamKind, targetAddress)
+		proc := x.registry.get(writeStreamActorRef)
 		if proc == nil {
 			x.SpawnNamed(func() IActor {
-				return newStreamWriterActor(remoteActorRef, targetAddress, x.GetConfig().dialOptions, x.GetConfig().callOptions)
-			}, remoteActorRef.GetName(), WithOptsKindName(remoteActorRef.GetKind()))
+				return newStreamWriterActor(writeStreamActorRef, targetAddress, x.GetConfig().dialOptions, x.GetConfig().callOptions)
+			}, writeStreamActorRef.GetName(), withOptsKindName(writeStreamActorRef.GetKind()))
 		}
 		//to remote
-		proc = x.registry.get(remoteActorRef)
+		proc = x.registry.get(writeStreamActorRef)
 		if proc == nil {
-			x.Logger().Error("get remote failed", "remote", remoteActorRef, "msgName", msg.ProtoReflect().Descriptor().FullName())
+			x.Logger().Error("get remote failed", "remote", writeStreamActorRef, "msgName", msg.ProtoReflect().Descriptor().FullName())
 			return
 		}
 		proc.send(newContext(target, sender, msg, msgSnId, x.sendWithSender))
