@@ -22,7 +22,7 @@ func (x *System) ensureRemoteKindActorExist(ref *ActorRef) {
 	refKind := ref.GetKind()
 	kind, ok := x.config.kinds[refKind]
 	if ok && ref.GetAddress() == x.clusterProvider.addr() && x.registry.get(ref) == nil {
-		x.SpawnNamed(kind.producer, ref.GetName(), append(kind.opts, withOptsKindName(ref.GetKind()))...)
+		x.SpawnNamed(kind.producer, ref.GetName(), append(kind.opts, WithOptsKindName(ref.GetKind()))...)
 	}
 }
 
