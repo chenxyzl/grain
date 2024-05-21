@@ -135,7 +135,7 @@ func (x *System) sendWithSender(target *ActorRef, msg proto.Message, sender *Act
 		if proc == nil {
 			x.SpawnNamed(func() IActor {
 				return newStreamWriterActor(remoteActorRef, targetAddress, x.GetConfig().dialOptions, x.GetConfig().callOptions)
-			}, remoteActorRef.GetName(), withOptsKindName(remoteActorRef.GetKind()))
+			}, remoteActorRef.GetName(), WithOptsKindName(remoteActorRef.GetKind()))
 		}
 		//to remote
 		proc = x.registry.get(remoteActorRef)
