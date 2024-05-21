@@ -35,7 +35,7 @@ func WithOptsUnRegisterFromRemote(fun func(clusterProvider Provider, config *Con
 		opts.UnRegisterFromRemote = fun
 	}
 }
-func withOptsKindName(kindName string) KindOptFunc {
+func WithOptsKindName(kindName string) KindOptFunc {
 	return func(opts *Opts) {
 		opts.Kind = kindName
 	}

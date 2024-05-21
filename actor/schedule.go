@@ -9,10 +9,6 @@ import (
 
 type CancelScheduleFunc func()
 
-type Stopper interface {
-	Stop()
-}
-
 const (
 	stateInit = iota
 	stateReady

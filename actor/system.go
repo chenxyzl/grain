@@ -127,7 +127,6 @@ func (x *System) sendWithSender(target *ActorRef, msg proto.Message, sender *Act
 			return
 		}
 		proc.send(newContext(proc.self(), sender, msg, msgSnId, x.sendWithSender))
-		//x.sendToLocal(envelope)
 	} else {
 		targetAddress := target.GetAddress()
 		writeStreamActorRef := newActorRefWithKind(x.clusterProvider.addr(), defaultWriteStreamKind, targetAddress)
@@ -135,7 +134,7 @@ func (x *System) sendWithSender(target *ActorRef, msg proto.Message, sender *Act
 		if proc == nil {
 			x.SpawnNamed(func() IActor {
 				return newStreamWriterActor(writeStreamActorRef, targetAddress, x.GetConfig().dialOptions, x.GetConfig().callOptions)
-			}, writeStreamActorRef.GetName(), withOptsKindName(writeStreamActorRef.GetKind()))
+			}, writeStreamActorRef.GetName(), WithOptsKindName(writeStreamActorRef.GetKind()))
 		}
 		//to remote
 		proc = x.registry.get(writeStreamActorRef)

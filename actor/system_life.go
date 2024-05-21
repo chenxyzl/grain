@@ -33,7 +33,7 @@ func (x *System) running(nodeId uint64) {
 	//init eventStream
 	x.eventStream = x.SpawnNamed(func() IActor {
 		return newEventStream(x.config.state.NodeId, x.clusterProvider.getEtcdClient(), x.clusterProvider.getEtcdLease(), x.config.GetEventStreamPrefix())
-	}, eventStreamName, withOptsKindName(defaultSystemKind))
+	}, eventStreamName, WithOptsKindName(defaultSystemKind))
 }
 
 func (x *System) WaitStopSignal() {
