@@ -69,12 +69,7 @@ func (x *System) SpawnNamed(p Producer, name string, opts ...KindOptFunc) *Actor
 }
 
 func (x *System) GetRemoteActorRef(kind string, name string) *ActorRef {
-	addr := ""
-	if kind == defaultLocalKind {
-		addr = x.clusterProvider.addr()
-	} else {
-		addr = x.calcAddressByKind7Id(x.clusterProvider.getNodes(), kind, name)
-	}
+	addr := x.calcAddressByKind7Id(x.clusterProvider.getNodes(), kind, name)
 	//
 	if addr == "" {
 		return nil
