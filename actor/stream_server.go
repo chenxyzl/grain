@@ -27,7 +27,7 @@ func newRpcServer(senderFunc SenderWith) *rpcService {
 }
 
 func (x *rpcService) Listen(server Remoting_ListenServer) error {
-	defer helper.Recover()
+	defer helper.Recover(func(e any, trace string) { x.Logger().Error("panic recover", "err", e, "stackTrace", trace) })
 	//save to
 	for {
 		msg, err := server.Recv()
