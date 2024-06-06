@@ -7,6 +7,4 @@ type iProcess interface {
 	init()
 	// to self process
 	send(ctx Context)
-	// for mailbox to
-	invoke(ctx Context)
 }
