@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/chenxyzl/grain/utils/al/safemap"
+	"github.com/chenxyzl/grain/al/safemap"
 	"github.com/chenxyzl/grain/uuid"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"

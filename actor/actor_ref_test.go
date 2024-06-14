@@ -2,7 +2,7 @@ package actor
 
 import (
 	"fmt"
-	"github.com/chenxyzl/grain/utils/al/safemap"
+	"github.com/chenxyzl/grain/al/safemap"
 	"github.com/chenxyzl/grain/uuid"
 	"strconv"
 	"testing"

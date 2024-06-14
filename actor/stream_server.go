@@ -1,7 +1,6 @@
 package actor
 
 import (
-	"github.com/chenxyzl/grain/utils/helper"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -27,7 +26,11 @@ func newRpcServer(senderFunc SenderWith) *rpcService {
 }
 
 func (x *rpcService) Listen(server Remoting_ListenServer) error {
-	defer helper.Recover(func(e any, trace string) { x.Logger().Error("panic recover", "err", e, "stackTrace", trace) })
+	defer func() {
+		if err := recover(); err != nil {
+			x.Logger().Error("panic recover", "err", err, "stack", StackTrace())
+		}
+	}()
 	//save to
 	for {
 		msg, err := server.Recv()

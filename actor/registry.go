@@ -1,7 +1,7 @@
 package actor
 
 import (
-	"github.com/chenxyzl/grain/utils/al/safemap"
+	"github.com/chenxyzl/grain/al/safemap"
 	"log/slog"
 )
 

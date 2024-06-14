@@ -50,7 +50,7 @@ func (x *HelloActor) Receive(context actor.Context) {
 func init() {
 	runtime.GOMAXPROCS(runtime.NumCPU() * 2)
 	//log
-	//helper.InitLog("./test.log")
+	//actor.InitLog("./test.log")
 	slog.SetLogLoggerLevel(slog.LevelWarn)
 	//config
 	config := actor.NewConfig("hello", "0.0.1", []string{"127.0.0.1:2379"}, actor.WithConfigRequestTimeout(requestTimeout))

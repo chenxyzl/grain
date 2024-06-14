@@ -3,11 +3,10 @@ package main
 import (
 	"examples/share_actor"
 	"github.com/chenxyzl/grain/actor"
-	"github.com/chenxyzl/grain/utils/helper"
 )
 
 func main() {
-	helper.InitLog("./test.log")
+	actor.InitLog("./test.log")
 	//config
 	config := actor.NewConfig("hello_cluster", "0.0.1", []string{"127.0.0.1:2379"},
 		actor.WithConfigKind("player", func() actor.IActor { return &share_actor.HelloActor{} }))

@@ -2,8 +2,7 @@ package actor
 
 import (
 	"github.com/chenxyzl/grain/actor/internal"
-	"github.com/chenxyzl/grain/utils/al/ringbuffer"
-	"github.com/chenxyzl/grain/utils/helper"
+	"github.com/chenxyzl/grain/al/ringbuffer"
 	"google.golang.org/protobuf/proto"
 	"runtime"
 	"sync/atomic"
@@ -70,7 +69,7 @@ func (x *processorMailBox) invoke(ctx Context) {
 				"msgName", proto.MessageName(ctx.Message()),
 				"msg", ctx.Message(),
 				"err", err,
-				"stack", helper.StackTrace())
+				"stack", StackTrace())
 		}
 	}()
 	switch ctx.Message().(type) {
@@ -114,7 +113,7 @@ func (x *processorMailBox) start() {
 			x.system.Logger().Error("spawn recover a panic on start. force to stop self",
 				"id", x.self(),
 				"err", err,
-				"stack", helper.StackTrace())
+				"stack", StackTrace())
 			//force to stop self
 			x.stop()
 			//x.send(newContext(x.self(), nil, messageDef.poison, x.system.getNextSnId(), context.Background()))
@@ -131,7 +130,7 @@ func (x *processorMailBox) stop() {
 			x.system.Logger().Error("recover a panic on stop",
 				"id", x.self(),
 				"err", err,
-				"stack", helper.StackTrace())
+				"stack", StackTrace())
 		}
 	}()
 	//send stop to actor

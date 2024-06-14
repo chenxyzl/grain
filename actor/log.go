@@ -1,4 +1,4 @@
-package helper
+package actor
 
 import (
 	"gopkg.in/natefinch/lumberjack.v2"

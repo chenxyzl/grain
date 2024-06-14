@@ -83,11 +83,11 @@ package main
 import (
 	"examples/share_actor"
 	"github.com/chenxyzl/grain/actor"
-	"github.com/chenxyzl/grain/utils/helper"
+	"github.com/chenxyzl/grain/utils/utils"
 )
 
 func main() {
-	helper.InitLog("./test.log")
+	utils.InitLog("./test.log")
 	//config
 	config := actor.NewConfig("hello_cluster", "0.0.1", []string{"127.0.0.1:2379"},
 		actor.WithKind("player", func() actor.IActor { return &share_actor.HelloActor{} }))
@@ -111,12 +111,12 @@ package main
 import (
 	"examples/testpb"
 	"github.com/chenxyzl/grain/actor"
-	"github.com/chenxyzl/grain/utils/helper"
+	"github.com/chenxyzl/grain/utils/utils"
 	"time"
 )
 
 func main() {
-	helper.InitLog("./test.log")
+	utils.InitLog("./test.log")
 	//config
 	config := actor.NewConfig("hello_cluster", "0.0.1", []string{"127.0.0.1:2379"},
 		actor.WithRequestTimeout(time.Second*1))

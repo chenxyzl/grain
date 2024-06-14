@@ -4,7 +4,6 @@ import (
 	"examples/testpb"
 	"fmt"
 	"github.com/chenxyzl/grain/actor"
-	"github.com/chenxyzl/grain/utils/helper"
 	"runtime"
 	"time"
 )
@@ -76,7 +75,7 @@ func (x *HelloGoActorA) Receive(context actor.Context) {
 
 func init() {
 	//log
-	helper.InitLog("./test.log")
+	actor.InitLog("./test.log")
 	//config
 	config := actor.NewConfig("schedule", "0.0.1", []string{"127.0.0.1:2379"},
 		actor.WithConfigRequestTimeout(requestTimeout),

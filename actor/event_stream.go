@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/chenxyzl/grain/actor/internal"
-	"github.com/chenxyzl/grain/utils/al/safemap"
+	"github.com/chenxyzl/grain/al/safemap"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/protobuf/proto"
