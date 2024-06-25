@@ -47,7 +47,9 @@ func NewSystem[P Provider](config *Config) *System {
 func (x *System) GetConfig() *Config {
 	return x.config
 }
-
+func (x *System) GetProvider() Provider {
+	return x.clusterProvider
+}
 func (x *System) getRegistry() *registry {
 	return x.registry
 }
