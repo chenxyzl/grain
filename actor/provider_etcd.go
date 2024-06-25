@@ -174,6 +174,20 @@ func (x *ProviderEtcd) removeTxn(key string, val string) bool {
 	return true
 }
 
+// SetNodeExtData set node ext data, keep life with node
+func (x *ProviderEtcd) SetNodeExtData(subKey string, val string) error {
+	key := x.config.GetMemberExtDataPath(x.config.state.NodeId) + "/" + subKey
+	_, err := x.client.Put(context.Background(), key, val, clientv3.WithLease(x.leaseId))
+	return err
+}
+
+// RemoveNodeExtData remove node ext date
+func (x *ProviderEtcd) RemoveNodeExtData(subKey string) error {
+	key := x.config.GetMemberExtDataPath(x.config.state.NodeId) + "/" + subKey
+	_, err := x.client.Delete(context.Background(), key)
+	return err
+}
+
 func (x *ProviderEtcd) keepAlive(keepAliveChan <-chan *clientv3.LeaseKeepAliveResponse) {
 	go func() {
 		for {
