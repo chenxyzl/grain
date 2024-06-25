@@ -96,6 +96,9 @@ func (x *Config) GetMemberPrefix() string {
 func (x *Config) GetMemberPath(memberId uint64) string {
 	return fmt.Sprintf("/%v/member/%d", x.name, memberId)
 }
+func (x *Config) GetMemberExtDataPath(memberId uint64) string {
+	return fmt.Sprintf("/%v/member_ext/%d", x.name, memberId)
+}
 func (x *Config) GetEventStreamPrefix() string {
 	return fmt.Sprintf("/%v/%v/", x.name, eventStreamName)
 }

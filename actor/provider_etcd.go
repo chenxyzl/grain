@@ -246,3 +246,53 @@ func (x *ProviderEtcd) getNodes() []tNodeState {
 	})
 	return nodes
 }
+
+// GetNodeExtData set node ext data, keep life with node
+func (x *ProviderEtcd) GetNodeExtData(subKey string) (string, error) {
+	key := x.config.GetMemberExtDataPath(x.config.state.NodeId) + "/" + subKey
+	rsp, err := x.client.Get(context.Background(), key)
+	if err != nil {
+		return "", err
+	}
+	for _, kv := range rsp.Kvs {
+		return string(kv.Value), nil
+	}
+	return "", err
+}
+
+// SetNodeExtData set node ext data, keep life with node
+func (x *ProviderEtcd) SetNodeExtData(subKey string, val string) error {
+	key := x.config.GetMemberExtDataPath(x.config.state.NodeId) + "/" + subKey
+	_, err := x.client.Put(context.Background(), key, val, clientv3.WithLease(x.leaseId))
+	return err
+}
+
+// RemoveNodeExtData remove node ext date
+func (x *ProviderEtcd) RemoveNodeExtData(subKey string) error {
+	key := x.config.GetMemberExtDataPath(x.config.state.NodeId) + "/" + subKey
+	_, err := x.client.Delete(context.Background(), key)
+	return err
+}
+
+// WatchNodeExtData remove node ext date
+func (x *ProviderEtcd) WatchNodeExtData(subKey string, f func(key, val string)) error {
+	key := x.config.GetMemberExtDataPath(x.config.state.NodeId) + "/" + subKey
+	//first
+	rsp, err := x.client.Get(context.Background(), key, clientv3.WithPrefix())
+	if err != nil {
+		return errors.Join(err, errors.New("first load node ext data err"))
+	}
+	for _, kv := range rsp.Kvs {
+		f(string(kv.Key), string(kv.Value))
+	}
+	//real watch
+	wch := x.client.Watch(context.Background(), key, clientv3.WithPrefix(), clientv3.WithPrevKV())
+	go func() {
+		for v := range wch {
+			for _, kv := range v.Events {
+				f(string(kv.Kv.Key), string(kv.Kv.Value))
+			}
+		}
+	}()
+	return nil
+}
