@@ -5,6 +5,7 @@ import (
 	"examples/testpb"
 	"fmt"
 	"github.com/chenxyzl/grain/actor"
+	"log/slog"
 	"strconv"
 	"time"
 )
@@ -40,7 +41,7 @@ func (p *PlayerActor) Receive(ctx actor.Context) {
 }
 
 func main() {
-	actor.InitLog("./test.log")
+	actor.InitLog("./test.log", slog.LevelInfo)
 	//config
 	config := actor.NewConfig("pubsub_cluster", "0.0.1", []string{"127.0.0.1:2379"},
 		actor.WithConfigRequestTimeout(time.Second*100),

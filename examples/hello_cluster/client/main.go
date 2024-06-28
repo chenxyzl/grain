@@ -3,11 +3,12 @@ package main
 import (
 	"examples/testpb"
 	"github.com/chenxyzl/grain/actor"
+	"log/slog"
 	"time"
 )
 
 func main() {
-	actor.InitLog("./test.log")
+	actor.InitLog("./test.log", slog.LevelInfo)
 	//config
 	config := actor.NewConfig("hello_cluster", "0.0.1", []string{"127.0.0.1:2379"},
 		actor.WithConfigRequestTimeout(time.Second*1))

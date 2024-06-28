@@ -8,7 +8,7 @@ import (
 	"path"
 )
 
-func InitLog(name string) {
+func InitLog(name string, level slog.Level) {
 	const maxSize = 100
 	r := &lumberjack.Logger{
 		Filename:   name,
@@ -21,7 +21,7 @@ func InitLog(name string) {
 	ar := io.MultiWriter(r, os.Stdout)
 	logger := slog.New(slog.NewTextHandler(ar, &slog.HandlerOptions{
 		AddSource: true,
-		Level:     slog.LevelInfo,
+		Level:     level,
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 			if a.Key == slog.SourceKey {
 				s := a.Value.Any().(*slog.Source)

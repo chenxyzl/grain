@@ -4,6 +4,7 @@ import (
 	"examples/testpb"
 	"fmt"
 	"github.com/chenxyzl/grain/actor"
+	"log/slog"
 	"runtime"
 	"time"
 )
@@ -75,7 +76,7 @@ func (x *HelloGoActorA) Receive(context actor.Context) {
 
 func init() {
 	//log
-	actor.InitLog("./test.log")
+	actor.InitLog("./test.log", slog.LevelInfo)
 	//config
 	config := actor.NewConfig("schedule", "0.0.1", []string{"127.0.0.1:2379"},
 		actor.WithConfigRequestTimeout(requestTimeout),
