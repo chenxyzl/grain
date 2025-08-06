@@ -21,10 +21,10 @@ func main() {
 	//get a remote actorRef
 	actorRef := system.GetRemoteActorRef("player", "123456")
 	//tell
-	actor.NoEntrySend(system, actorRef, &testpb.Hello{Name: "hello tell"})
+	actor.NoReentrySend(system, actorRef, &testpb.Hello{Name: "hello tell"})
 	//request
 	system.Logger().Info("request: ", "target", actorRef)
-	reply, err := actor.NoEntryRequestE[*testpb.HelloReply](system, actorRef, &testpb.HelloRequest{Name: "xxx"})
+	reply, err := actor.NoReentryRequest[*testpb.HelloReply](system, actorRef, &testpb.HelloRequest{Name: "xxx"})
 	if err != nil {
 		panic(err)
 	}

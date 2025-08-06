@@ -72,7 +72,7 @@ func BenchmarkSendOne(b *testing.B) {
 	actorRef := testSystem.system.Spawn(func() actor.IActor { return &HelloActor{} })
 	b.ResetTimer()
 	for range b.N {
-		actor.NoEntrySend(testSystem.system, actorRef, helloSend)
+		actor.NoReentrySend(testSystem.system, actorRef, helloSend)
 	}
 }
 func BenchmarkSendMore(b *testing.B) {
@@ -84,7 +84,7 @@ func BenchmarkSendMore(b *testing.B) {
 			v := atomic.AddInt64(&idx, 1) % maxIdx
 			_ = v
 			actorRef := testSystem.actors[v]
-			actor.NoEntrySend(testSystem.system, actorRef, helloSend)
+			actor.NoReentrySend(testSystem.system, actorRef, helloSend)
 		}
 	})
 }
@@ -92,7 +92,7 @@ func BenchmarkRequestOne(b *testing.B) {
 	actorRef := testSystem.system.Spawn(func() actor.IActor { return &HelloActor{} })
 	b.ResetTimer()
 	for range b.N {
-		reply, err := actor.NoEntryRequestE[*testpb.HelloReply](testSystem.system, actorRef, helloRequest)
+		reply, err := actor.NoReentryRequest[*testpb.HelloReply](testSystem.system, actorRef, helloRequest)
 		if reply == nil {
 			b.Error(err)
 		}
@@ -107,7 +107,7 @@ func BenchmarkRequestMore(b *testing.B) {
 			v := atomic.AddInt64(&idx, 1) % maxIdx
 			_ = v
 			actorRef := testSystem.actors[v]
-			reply, err := actor.NoEntryRequestE[*testpb.HelloReply](testSystem.system, actorRef, helloRequest)
+			reply, err := actor.NoReentryRequest[*testpb.HelloReply](testSystem.system, actorRef, helloRequest)
 			if reply == nil {
 				b.Error(err)
 			}

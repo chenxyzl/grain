@@ -17,9 +17,9 @@ func main() {
 	//create a actor and return a actorRef
 	actorRef := system.Spawn(func() actor.IActor { return &share_actor.HelloActor{} })
 	//tell
-	actor.NoEntrySend(system, actorRef, &testpb.Hello{Name: "hello tell"})
+	actor.NoReentrySend(system, actorRef, &testpb.Hello{Name: "hello tell"})
 	//request
-	reply, err := actor.NoEntryRequestE[*testpb.HelloReply](system, actorRef, &testpb.HelloRequest{Name: "hello request"})
+	reply, err := actor.NoReentryRequest[*testpb.HelloReply](system, actorRef, &testpb.HelloRequest{Name: "hello request"})
 	if err != nil {
 		panic(err)
 	}
