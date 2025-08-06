@@ -55,7 +55,7 @@ func main() {
 	//
 	system.Logger().Warn("system started successfully")
 	// create a remote actor
-	_, err := actor.NoEntryRequestE[*testpb.HelloReply](system, system.GetRemoteActorRef("player", "12345"), &testpb.HelloRequest{Name: "xxx"})
+	_, err := actor.NoReentryRequest[*testpb.HelloReply](system, system.GetRemoteActorRef("player", "12345"), &testpb.HelloRequest{Name: "xxx"})
 	if err != nil {
 		panic(err)
 	}

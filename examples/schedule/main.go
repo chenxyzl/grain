@@ -96,7 +96,7 @@ func init() {
 	aRef = testSystem.system.Spawn(func() actor.IActor { return &HelloGoActorA{} })
 }
 func main() {
-	r1, err := actor.NoEntryRequestE[*testpb.HelloReply](testSystem.system, aRef, &testpb.HelloRequest{Name: body})
+	r1, err := actor.NoReentryRequest[*testpb.HelloReply](testSystem.system, aRef, &testpb.HelloRequest{Name: body})
 	if r1 == nil || err != nil {
 		panic("x")
 	}
