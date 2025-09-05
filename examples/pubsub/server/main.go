@@ -4,30 +4,31 @@ import (
 	"examples/pubsub/shared"
 	"examples/testpb"
 	"fmt"
-	"github.com/chenxyzl/grain/actor"
 	"log/slog"
 	"strconv"
 	"time"
+
+	"github.com/chenxyzl/grain"
 )
 
-var _ actor.IActor = (*PlayerActor)(nil)
+var _ grain.IActor = (*PlayerActor)(nil)
 
 type PlayerActor struct {
-	actor.BaseActor
+	grain.BaseActor
 	times int
 }
 
 func (p *PlayerActor) Started() {
-	p.System().Subscribe(p.Self(), &testpb.Hello{})
+	p.GetSystem().Subscribe(p.Self(), &testpb.Hello{})
 	p.Logger().Info("Started")
 }
 
 func (p *PlayerActor) PreStop() {
-	p.System().Unsubscribe(p.Self(), &testpb.Hello{})
+	p.GetSystem().Unsubscribe(p.Self(), &testpb.Hello{})
 	p.Logger().Info("PreStop")
 }
 
-func (p *PlayerActor) Receive(ctx actor.Context) {
+func (p *PlayerActor) Receive(ctx grain.Context) {
 	switch msg := ctx.Message().(type) {
 	case *testpb.Hello:
 		p.times++
@@ -41,26 +42,24 @@ func (p *PlayerActor) Receive(ctx actor.Context) {
 }
 
 func main() {
-	actor.InitLog("./test.log", slog.LevelInfo)
-	//config
-	config := actor.NewConfig("pubsub_cluster", "0.0.1", []string{"127.0.0.1:2379"},
-		actor.WithConfigRequestTimeout(time.Second*100),
-		actor.WithConfigKind("player", func() actor.IActor { return &PlayerActor{} }))
+	grain.InitLog("./test.log", slog.LevelInfo)
 	//new
-	system := actor.NewSystem[*actor.ProviderEtcd](config)
+	system := grain.NewSystem("pubsub_cluster", "0.0.1", []string{"127.0.0.1:2379"},
+		grain.WithConfigRequestTimeout(time.Second*100),
+		grain.WithConfigKind("player", func() grain.IActor { return &PlayerActor{} }))
 	//start
 	system.Logger().Warn("system starting")
 	//
 	system.Start()
 	//
 	system.Logger().Warn("system started successfully")
-	// create a remote actor
-	_, err := actor.NoReentryRequest[*testpb.HelloReply](system, system.GetRemoteActorRef("player", "12345"), &testpb.HelloRequest{Name: "xxx"})
+	// create a cluster actor
+	_, err := grain.NoReentryRequest[*testpb.HelloReply](system.GetClusterActorRef("player", "cluster_player"), &testpb.HelloRequest{Name: "xxx"})
 	if err != nil {
 		panic(err)
 	}
 	//create a local actor
-	system.SpawnNamed(func() actor.IActor { return &PlayerActor{} }, "local_yyy")
+	system.SpawnNamed(func() grain.IActor { return &PlayerActor{} }, "local_player")
 
 	times := 0
 	for {

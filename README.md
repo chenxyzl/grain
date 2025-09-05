@@ -12,32 +12,33 @@
 # Example:
 
 ## tell & request
-- warning: running etcd first
-- then: define actor first:
+warning: running etcd first
+- define actor:
 ``` go file:hello_actor.go
 package share_actor
 
 import (
-    "examples/testpb"
-    "fmt"
-    "github.com/chenxyzl/grain/actor"
-    "google.golang.org/protobuf/proto"
+"examples/testpb"
+"fmt"
+
+"github.com/chenxyzl/grain"
+"google.golang.org/protobuf/proto"
 )
 
-type HelloActor struct{ actor.BaseActor } //warning: inherit actor.BaseActor
+type HelloActor struct{ grain.BaseActor }
 
 func (x *HelloActor) Started() { x.Logger().Info("Started") }
 func (x *HelloActor) PreStop() { x.Logger().Info("PreStop") }
-func (x *HelloActor) Receive(context actor.Context) {
-    switch msg := context.Message().(type) {
-    case *testpb.HelloRequest: //request-reply
-        x.Logger().Info("recv request", "message", context.Message())
-        context.Reply(&testpb.HelloReply{Name: "reply " + msg.Name})
-    case *testpb.Hello: //tell
-        x.Logger().Info("recv tell", "message", context.Message())
-    default:
-        panic(fmt.Sprintf("not register msg type, msgType:%v, msg:%v", proto.MessageName(msg), msg))
-    }
+func (x *HelloActor) Receive(context grain.Context) {
+switch msg := context.Message().(type) {
+case *testpb.HelloRequest: //request-reply
+x.Logger().Info("recv request", "message", context.Message())
+context.Reply(&testpb.HelloReply{Name: "reply hello to " + context.Sender().GetName()})
+case *testpb.Hello: //tell
+x.Logger().Info("recv tell", "message", context.Message())
+default:
+panic(fmt.Sprintf("not register msg type, msgType:%v, msg:%v", proto.MessageName(msg), msg))
+}
 }
 ```
 
@@ -46,102 +47,112 @@ func (x *HelloActor) Receive(context actor.Context) {
 package main
 
 import (
-    "examples/share_actor"
-    "examples/testpb"
-    "github.com/chenxyzl/grain/actor"
+"examples/share_actor"
+"examples/testpb"
+
+"github.com/chenxyzl/grain"
 )
 
 func main() {
-    //warning: etcd url
-    //config
-    config := actor.NewConfig("hello_first", "0.0.1", []string{"127.0.0.1:2379"})
-    //create system
-    system := actor.NewSystem[*actor.ProviderEtcd](config)
-    //start
-    system.Start()
-    //create a actor and return a actorRef
-    actorRef := system.Spawn(func() actor.IActor { return &share_actor.HelloActor{} })
-    //tell
-    actor.NoEntrySend(system, actorRef, &testpb.Hello{Name: "hello tell"})
-    //request
-    reply, err := actor.NoEntryRequestE[*testpb.HelloReply](system, actorRef, &testpb.HelloRequest{Name: "hello request"})
-    if err != nil {
-    panic(err)
-    }
-    system.Logger().Info("reply:", "message", reply)
-    //waiting ctrl+c
-    system.WaitStopSignal()
+//warning: etcd url
+//create system
+system := grain.NewSystem("hello_first", "0.0.1", []string{"127.0.0.1:2379"})
+//start
+system.Start()
+//create a actor and return a actorRef
+actorRef := system.Spawn(func() grain.IActor { return &share_actor.HelloActor{} })
+//tell
+actorRef.Send(&testpb.Hello{Name: "hello tell"})
+//request
+reply, err := grain.NoReentryRequest[*testpb.HelloReply](actorRef, &testpb.HelloRequest{Name: "hello request"})
+if err != nil {
+panic(err)
+}
+system.Logger().Info("reply:", "message", reply)
+//waiting ctrl+c
+system.WaitStopSignal()
 }
 ```
-## cluster
-- warning: running etcd first
-- then: define actor first(same as above, ignore)
-### cluster server
+## cluster mode
+warning: running etcd first
+warning: define actor(same as above, ignore)
+
+- cluster server
 ``` go
 package main
 
 import (
-	"examples/share_actor"
-	"github.com/chenxyzl/grain/actor"
-	"github.com/chenxyzl/grain/utils/utils"
+"examples/share_actor"
+"log/slog"
+
+"github.com/chenxyzl/grain"
 )
 
 func main() {
-	utils.InitLog("./test.log")
-	//config
-	config := actor.NewConfig("hello_cluster", "0.0.1", []string{"127.0.0.1:2379"},
-		actor.WithKind("player", func() actor.IActor { return &share_actor.HelloActor{} }))
-	//system
-	system := actor.NewSystem[*actor.ProviderEtcd](config)
-	//start
-	system.Start()
-	system.Logger().Warn("system starting")
-	system.Logger().Warn("system started successfully")
-	//wait ctrl+c
-	system.WaitStopSignal()
-	//
-	system.Logger().Warn("system stopped successfully")
+grain.InitLog("./test.log", slog.LevelInfo)
+//system
+system := grain.NewSystem("hello_cluster", "0.0.1", []string{"127.0.0.1:2379"},
+grain.WithConfigKind("player", func() grain.IActor { return &share_actor.HelloActor{} }))
+//start
+system.Logger().Warn("system starting")
+system.Start()
+system.Logger().Warn("system started successfully")
+//wait ctrl+c
+system.WaitStopSignal()
+//
+system.Logger().Warn("system stopped successfully")
 }
 
 ```
-### cluster client
+- cluster client
 ``` go
 package main
 
 import (
-	"examples/testpb"
-	"github.com/chenxyzl/grain/actor"
-	"github.com/chenxyzl/grain/utils/utils"
-	"time"
+"examples/testpb"
+"log/slog"
+"strconv"
+"time"
+
+"github.com/chenxyzl/grain"
 )
 
 func main() {
-	utils.InitLog("./test.log")
-	//config
-	config := actor.NewConfig("hello_cluster", "0.0.1", []string{"127.0.0.1:2379"},
-		actor.WithRequestTimeout(time.Second*1))
-	//new system
-	system := actor.NewSystem[*actor.ProviderEtcd](config)
-	//start
-	system.Logger().Warn("system starting")
-	system.Start()
-	system.Logger().Warn("system started successfully")
-	//get a remote actorRef
-	actorRef := system.GetRemoteActorRef("player", "123456")
-	//tell
-	actor.NoEntrySend(system, actorRef, &testpb.Hello{Name: "hello tell"})
-	//request
-	system.Logger().Info("request: ", "target", actorRef)
-	reply, err := actor.NoEntryRequestE[*testpb.HelloReply](system, actorRef, &testpb.HelloRequest{Name: "xxx"})
-	if err != nil {
-		panic(err)
-	}
-	system.Logger().Info("reply:", "message", reply)
+grain.InitLog("./test.log", slog.LevelInfo)
+//new system
+system := grain.NewSystem("hello_cluster", "0.0.1", []string{"127.0.0.1:2379"},
+grain.WithConfigRequestTimeout(time.Second*1))
+//start
+system.Logger().Warn("system starting")
+system.Start()
+system.Logger().Warn("system started successfully")
+//get a cluster actorRef
+actorRef := system.GetClusterActorRef("player", "123456")
+if actorRef == nil {
+panic("GetClusterActorRef failed")
+}
+//
+go func() {
+c := time.NewTicker(3 * time.Second)
+times := 0
+for range c.C {
+times++
+//tell
+actorRef.Send(&testpb.Hello{Name: "hello tell, times:" + strconv.Itoa(times)})
+//request
+system.Logger().Info("request: ", "target", actorRef)
+reply, err := grain.NoReentryRequest[*testpb.HelloReply](actorRef, &testpb.HelloRequest{Name: "xxx, times:" + strconv.Itoa(times)})
+if err != nil {
+system.Logger().Error(err.Error())
+}
+system.Logger().Info("reply:", "message", reply)
+}
+}()
 
-	//wait ctrl+c
-	system.WaitStopSignal()
-	//
-	system.Logger().Warn("system stopped successfully")
+//wait ctrl+c
+system.WaitStopSignal()
+//
+system.Logger().Warn("system stopped successfully")
 }
 
 ```
@@ -150,17 +161,24 @@ func main() {
 for more examples, please read grain/examples
 
 ## Benchmark
-``` benchmark
+build benchmark exec
+``` bash
+  cd examples/benchmark_test/actor_test
+  GOOS=windows GOARCH=amd64 go test -c -o bench-windows-amd64.exe ./...
+```
+run
+``` cmd
+  bench-windows-amd64.exe -test.bench=.
+```
+result
+``` benchmark result
 goos: windows
 goarch: amd64
 pkg: examples/benchmark_test/actor_test
 cpu: Intel(R) Core(TM) i7-9700K CPU @ 3.60GHz
-BenchmarkSendOne
-BenchmarkSendOne-16        	 1941168	       580.2 ns/op
-BenchmarkSendMore
-BenchmarkSendMore-16       	11428495	       201.0 ns/op
-BenchmarkRequestOne
-BenchmarkRequestOne-16     	  250057	      4390 ns/op
-BenchmarkRequestMore
-BenchmarkRequestMore-16    	 1517421	       856.9 ns/op
+BenchmarkSendOne-16              4021477               280.6 ns/op
+BenchmarkSendMore-16            11262148               133.4 ns/op
+BenchmarkRequestOne-16            373494              2959 ns/op
+BenchmarkRequestMore-16          1926564               645.1 ns/op
+PASS
 ```

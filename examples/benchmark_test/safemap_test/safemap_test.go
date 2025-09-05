@@ -1,11 +1,12 @@
 package safemap_test
 
 import (
-	"github.com/chenxyzl/grain/al/safemap"
-	"github.com/chenxyzl/grain/uuid"
 	"strconv"
 	"sync/atomic"
 	"testing"
+
+	"github.com/chenxyzl/grain/al/safemap"
+	"github.com/chenxyzl/grain/uuid"
 )
 
 const parallelism = 100
@@ -13,7 +14,7 @@ const parallelism = 100
 var (
 	maxIdx        int64 = 10000
 	idx           int64 = 0
-	testMap             = safemap.NewM[string, string]()
+	testMap             = safemap.NewRWMap[string, string]()
 	testStringMap       = safemap.NewStringC[string]()
 	testIntMap          = safemap.NewIntC[int, string]()
 )

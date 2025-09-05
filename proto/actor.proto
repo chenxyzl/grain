@@ -1,8 +1,0 @@
-syntax = "proto3";
-package actor;
-option go_package = "github.com/chenxyzl/grain/actor";
-
-message ActorRef {
-    string address = 1; //server address
-    string _path = 2; // /kinds/kind/name
-}

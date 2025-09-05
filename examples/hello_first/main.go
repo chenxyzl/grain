@@ -3,23 +3,22 @@ package main
 import (
 	"examples/share_actor"
 	"examples/testpb"
-	"github.com/chenxyzl/grain/actor"
+
+	"github.com/chenxyzl/grain"
 )
 
 func main() {
 	//warning: etcd url
-	//config
-	config := actor.NewConfig("hello_first", "0.0.1", []string{"127.0.0.1:2379"})
 	//create system
-	system := actor.NewSystem[*actor.ProviderEtcd](config)
+	system := grain.NewSystem("hello_first", "0.0.1", []string{"127.0.0.1:2379"})
 	//start
 	system.Start()
 	//create a actor and return a actorRef
-	actorRef := system.Spawn(func() actor.IActor { return &share_actor.HelloActor{} })
+	actorRef := system.Spawn(func() grain.IActor { return &share_actor.HelloActor{} })
 	//tell
-	actor.NoReentrySend(system, actorRef, &testpb.Hello{Name: "hello tell"})
+	actorRef.Send(&testpb.Hello{Name: "hello tell"})
 	//request
-	reply, err := actor.NoReentryRequest[*testpb.HelloReply](system, actorRef, &testpb.HelloRequest{Name: "hello request"})
+	reply, err := grain.NoReentryRequest[*testpb.HelloReply](actorRef, &testpb.HelloRequest{Name: "hello request"})
 	if err != nil {
 		panic(err)
 	}
