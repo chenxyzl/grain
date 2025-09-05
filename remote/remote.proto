@@ -1,0 +1,21 @@
+syntax = "proto3";
+package remote;
+option go_package = "github.com/chenxyzl/grain/remote";
+
+message Envelope {
+    enum MsgType {
+        Tell = 0;
+        Request = 1;
+        Reply = 2;
+    }
+    map<string, string> header = 1; //for context k.v
+    string sender = 2;
+    string target = 3;
+    uint64 msgSnId = 4;
+    string msgName = 5;
+    bytes content = 6;
+    string error = 7; //for reply error immediately? else waiting timeout too slow
+}
+service Remoting {
+    rpc Listen (stream Envelope) returns (stream Envelope) {}
+}
