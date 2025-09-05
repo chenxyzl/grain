@@ -2,20 +2,22 @@ package main
 
 import (
 	"examples/testpb"
-	"github.com/chenxyzl/grain/actor"
 	"log/slog"
 	"runtime"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/chenxyzl/grain"
 )
 
 var (
-	maxIdx         int64 = 10000
+	actorCount     int64 = 10000
 	testSystem           = TestSystem{}
 	idx            int64 = 0
-	parallelism          = 100
-	body                 = "123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_"
+	parallelism          = 32
+	body                 = "hello world"
 	helloSend            = &testpb.Hello{Name: body}
 	helloRequest         = &testpb.HelloRequest{Name: body}
 	helloReply           = &testpb.HelloReply{Name: "hell go reply"}
@@ -23,12 +25,12 @@ var (
 )
 
 type TestSystem struct {
-	system *actor.System
-	actors []*actor.ActorRef
+	system grain.ISystem
+	actors []grain.ActorRef
 }
 
 type HelloActor struct {
-	actor.BaseActor
+	grain.BaseActor
 }
 
 func (x *HelloActor) Started() {
@@ -37,7 +39,7 @@ func (x *HelloActor) Started() {
 func (x *HelloActor) PreStop() {
 	x.Logger().Info("PreStop")
 }
-func (x *HelloActor) Receive(context actor.Context) {
+func (x *HelloActor) Receive(context grain.Context) {
 	switch context.Message().(type) {
 	case *testpb.Hello:
 	case *testpb.HelloRequest:
@@ -52,10 +54,8 @@ func init() {
 	//log
 	//actor.InitLog("./test.log")
 	slog.SetLogLoggerLevel(slog.LevelWarn)
-	//config
-	config := actor.NewConfig("hello", "0.0.1", []string{"127.0.0.1:2379"}, actor.WithConfigRequestTimeout(requestTimeout))
 	//new
-	testSystem.system = actor.NewSystem[*actor.ProviderEtcd](config)
+	testSystem.system = grain.NewSystem("hello", "0.0.1", []string{"127.0.0.1:2379"}, grain.WithConfigRequestTimeout(requestTimeout))
 	//start
 	testSystem.system.Logger().Warn("system starting")
 	//
@@ -63,16 +63,16 @@ func init() {
 	//
 	testSystem.system.Logger().Warn("system started successfully")
 
-	for i := int64(0); i < maxIdx; i++ {
-		actorRef := testSystem.system.Spawn(func() actor.IActor { return &HelloActor{} })
+	for i := int64(0); i < actorCount; i++ {
+		actorRef := testSystem.system.Spawn(func() grain.IActor { return &HelloActor{} })
 		testSystem.actors = append(testSystem.actors, actorRef)
 	}
 }
 func BenchmarkSendOne(b *testing.B) {
-	actorRef := testSystem.system.Spawn(func() actor.IActor { return &HelloActor{} })
+	actorRef := testSystem.system.Spawn(func() grain.IActor { return &HelloActor{} })
 	b.ResetTimer()
 	for range b.N {
-		actor.NoReentrySend(testSystem.system, actorRef, helloSend)
+		actorRef.Send(helloSend)
 	}
 }
 func BenchmarkSendMore(b *testing.B) {
@@ -81,18 +81,18 @@ func BenchmarkSendMore(b *testing.B) {
 	b.SetParallelism(parallelism)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			v := atomic.AddInt64(&idx, 1) % maxIdx
+			v := atomic.AddInt64(&idx, 1) % actorCount
 			_ = v
 			actorRef := testSystem.actors[v]
-			actor.NoReentrySend(testSystem.system, actorRef, helloSend)
+			actorRef.Send(helloSend)
 		}
 	})
 }
 func BenchmarkRequestOne(b *testing.B) {
-	actorRef := testSystem.system.Spawn(func() actor.IActor { return &HelloActor{} })
+	actorRef := testSystem.system.Spawn(func() grain.IActor { return &HelloActor{} })
 	b.ResetTimer()
 	for range b.N {
-		reply, err := actor.NoReentryRequest[*testpb.HelloReply](testSystem.system, actorRef, helloRequest)
+		reply, err := grain.NoReentryRequest[*testpb.HelloReply](actorRef, helloRequest)
 		if reply == nil {
 			b.Error(err)
 		}
@@ -104,13 +104,25 @@ func BenchmarkRequestMore(b *testing.B) {
 	b.SetParallelism(parallelism)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			v := atomic.AddInt64(&idx, 1) % maxIdx
+			v := atomic.AddInt64(&idx, 1) % actorCount
 			_ = v
 			actorRef := testSystem.actors[v]
-			reply, err := actor.NoReentryRequest[*testpb.HelloReply](testSystem.system, actorRef, helloRequest)
+			reply, err := grain.NoReentryRequest[*testpb.HelloReply](actorRef, helloRequest)
 			if reply == nil {
 				b.Error(err)
 			}
 		}
 	})
+}
+
+// TestMain main enter
+func TestMain(m *testing.M) {
+	// init
+	testSystem.system.Logger().Info("test init")
+	// run
+	exitCode := m.Run()
+	testSystem.system.Logger().Info("test end with code:" + strconv.Itoa(exitCode))
+	// end with clean
+	testSystem.system.ForceStop(nil)
+	testSystem.system.Logger().Info("test exit")
 }

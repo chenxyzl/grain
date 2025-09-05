@@ -1,9 +1,10 @@
 package routine_test
 
 import (
-	"github.com/timandy/routine"
 	"runtime"
 	"testing"
+
+	"github.com/timandy/routine"
 )
 
 func BenchmarkRoutineGet(b *testing.B) {

@@ -18,8 +18,8 @@ const (
 	stepBits  uint8  = 12                    // 序列号的位数
 	nodeMax   uint64 = -1 ^ (-1 << nodeBits) // 节点 ID 的最大值，用于检测溢出
 	stepMax   uint64 = -1 ^ (-1 << stepBits) // 序列号的最大值，用于检测溢出
-	timeShift uint8  = nodeBits + stepBits   // 时间戳向左的偏移量
-	nodeShift uint8  = stepBits              // 节点 ID 向左的偏移量
+	timeShift        = nodeBits + stepBits   // 时间戳向左的偏移量
+	nodeShift        = stepBits              // 节点 ID 向左的偏移量
 	epoch     uint64 = 1672502400000         // timestamp 2023-01-01:00:00:00 GMT
 )
 

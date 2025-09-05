@@ -6,7 +6,7 @@ import (
 )
 
 func TestGenerate(t *testing.T) {
-	Init(1000)
+	_ = Init(1000)
 	v := Generate()
 	v1 := ParseSortVal(v)
 	v2 := ParseNode(v)

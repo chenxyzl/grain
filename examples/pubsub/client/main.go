@@ -3,19 +3,18 @@ package main
 import (
 	"examples/pubsub/shared"
 	"examples/testpb"
-	"github.com/chenxyzl/grain/actor"
 	"log/slog"
 	"strconv"
 	"time"
+
+	"github.com/chenxyzl/grain"
 )
 
 func main() {
-	actor.InitLog("./test.log", slog.LevelInfo)
-	//config
-	config := actor.NewConfig("pubsub_cluster", "0.0.1", []string{"127.0.0.1:2379"},
-		actor.WithConfigRequestTimeout(time.Second*100))
+	grain.InitLog("./test.log", slog.LevelInfo)
 	//new
-	system := actor.NewSystem[*actor.ProviderEtcd](config)
+	system := grain.NewSystem("pubsub_cluster", "0.0.1", []string{"127.0.0.1:2379"},
+		grain.WithConfigRequestTimeout(time.Second*100))
 	//start
 	system.Logger().Warn("system starting")
 	//

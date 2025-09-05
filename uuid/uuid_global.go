@@ -2,7 +2,7 @@ package uuid
 
 import "time"
 
-var guuid *UUID
+var _uuid *UUID
 
 func Init(nodeId uint64) error {
 	//全局的uuid生成器
@@ -10,24 +10,24 @@ func Init(nodeId uint64) error {
 	if err != nil {
 		return err
 	}
-	guuid = uuid
+	_uuid = uuid
 	return nil
 }
 
 // Generate gen global uuid
 func Generate() uint64 {
-	if guuid == nil { //严重错误直接退出
+	if _uuid == nil { //严重错误直接退出
 		panic("uuid not init")
 	}
-	return guuid.Generate()
+	return _uuid.Generate()
 }
 
 // GetBeginRequestId return request begin id
 func GetBeginRequestId() uint64 {
-	if guuid == nil { //严重错误直接退出
+	if _uuid == nil { //严重错误直接退出
 		panic("uuid not init")
 	}
-	return guuid.node << (totalBits - nodeBits) & uint64(time.Now().UnixNano())
+	return _uuid.node << (totalBits - nodeBits) & uint64(time.Now().UnixNano())
 }
 
 // ParseSortVal

@@ -18,7 +18,6 @@ func f() (v *testCase) {
 		}
 	}()
 	panic("err1111")
-	fmt.Println("1")
 	return v
 }
 

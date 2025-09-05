@@ -3,30 +3,31 @@ package main
 import (
 	"examples/testpb"
 	"fmt"
-	"github.com/chenxyzl/grain/actor"
 	"log/slog"
 	"runtime"
 	"time"
+
+	"github.com/chenxyzl/grain"
 )
 
 var (
 	testSystem     = TestSystem{}
 	body           = "123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_"
 	requestTimeout = time.Second * 100
-	aRef           *actor.ActorRef
+	aRef           grain.ActorRef
 )
 
 type TestSystem struct {
-	system *actor.System
+	system grain.ISystem
 }
 
 type HelloGoActorA struct {
-	actor.BaseActor
+	grain.BaseActor
 	times   int
-	cancel1 actor.CancelScheduleFunc
-	cancel2 actor.CancelScheduleFunc
-	cancel3 actor.CancelScheduleFunc
-	cancel4 actor.CancelScheduleFunc
+	cancel1 grain.CancelScheduleFunc
+	cancel2 grain.CancelScheduleFunc
+	cancel3 grain.CancelScheduleFunc
+	cancel4 grain.CancelScheduleFunc
 }
 
 func (x *HelloGoActorA) Started() {
@@ -44,7 +45,7 @@ func (x *HelloGoActorA) PreStop() {
 	x.cancel3()
 	x.cancel4()
 }
-func (x *HelloGoActorA) Receive(context actor.Context) {
+func (x *HelloGoActorA) Receive(context grain.Context) {
 	switch msg := context.Message().(type) {
 	case *testpb.Hello:
 		{
@@ -76,13 +77,11 @@ func (x *HelloGoActorA) Receive(context actor.Context) {
 
 func init() {
 	//log
-	actor.InitLog("./test.log", slog.LevelInfo)
-	//config
-	config := actor.NewConfig("schedule", "0.0.1", []string{"127.0.0.1:2379"},
-		actor.WithConfigRequestTimeout(requestTimeout),
-		actor.WithConfigKind("hello", func() actor.IActor { return &HelloGoActorA{} }))
+	grain.InitLog("./test.log", slog.LevelInfo)
 	//new
-	testSystem.system = actor.NewSystem[*actor.ProviderEtcd](config)
+	testSystem.system = grain.NewSystem("schedule", "0.0.1", []string{"127.0.0.1:2379"},
+		grain.WithConfigRequestTimeout(requestTimeout),
+		grain.WithConfigKind("hello", func() grain.IActor { return &HelloGoActorA{} }))
 	//start
 	testSystem.system.Logger().Warn("system starting")
 	//
@@ -93,14 +92,14 @@ func init() {
 	n := runtime.NumCPU()
 	runtime.GOMAXPROCS(n * 2)
 
-	aRef = testSystem.system.Spawn(func() actor.IActor { return &HelloGoActorA{} })
+	aRef = testSystem.system.Spawn(func() grain.IActor { return &HelloGoActorA{} })
 }
 func main() {
-	r1, err := actor.NoReentryRequest[*testpb.HelloReply](testSystem.system, aRef, &testpb.HelloRequest{Name: body})
+	r1, err := grain.NoReentryRequest[*testpb.HelloReply](aRef, &testpb.HelloRequest{Name: body})
 	if r1 == nil || err != nil {
 		panic("x")
 	}
-	systemScheduleFunc := testSystem.system.ScheduleRepeated(aRef, 0, time.Second, &testpb.Hello{Name: "repeated system delay"})
+	systemScheduleFunc := testSystem.system.GetScheduler().ScheduleRepeated(aRef, 0, time.Second, &testpb.Hello{Name: "repeated system delay"})
 	time.Sleep(time.Second * 5)
 	systemScheduleFunc()
 	testSystem.system.WaitStopSignal()

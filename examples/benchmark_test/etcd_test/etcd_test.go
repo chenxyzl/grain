@@ -3,12 +3,13 @@ package etcd_test
 import (
 	"context"
 	"fmt"
-	"go.etcd.io/etcd/api/v3/etcdserverpb"
-	clientv3 "go.etcd.io/etcd/client/v3"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"go.etcd.io/etcd/api/v3/etcdserverpb"
+	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
 var incKey int64 = 100000
@@ -21,7 +22,9 @@ func TestEtcdIfCreate(t *testing.T) {
 	if err != nil {
 		t.Error()
 	}
-
+	if etcdClient == nil {
+		panic("nil etcd client")
+	}
 	for i := 1; i <= 1000; i++ {
 		// 在这里执行你的etcd操作
 		key := "/test/batch/" + strconv.Itoa(i)
@@ -34,7 +37,7 @@ func TestEtcdIfCreate(t *testing.T) {
 			t.Error()
 		}
 	}
-	etcdClient.Close()
+	_ = etcdClient.Close()
 }
 
 func BenchmarkEtcdIfCreate(b *testing.B) {
@@ -108,7 +111,7 @@ func BenchmarkEtcdIfQuery(b *testing.B) {
 			go func() {
 				defer func() { <-sem }() // 释放信号量
 
-				ops := []clientv3.Op{}
+				var ops []clientv3.Op
 
 				// 构造多个查询key是否存在的操作
 				for i := 1; i <= 100; i++ {
