@@ -122,7 +122,7 @@ func (x *processorMailBox) start() {
 		}
 	}()
 	if x.tOpts.registerToCluster != nil {
-		x.tOpts.registerToCluster(x.system.getProvider(), x.system.getConfig(), x.self())
+		x.tOpts.registerToCluster(x.system.GetProvider(), x.system.getConfig(), x.self())
 	}
 	x.receiver.Started()
 }
@@ -144,6 +144,6 @@ func (x *processorMailBox) stop() {
 	}()
 	x.receiver.PreStop()
 	if x.tOpts.unRegisterFromCluster != nil {
-		x.tOpts.unRegisterFromCluster(x.system.getProvider(), x.system.getConfig(), x.self())
+		x.tOpts.unRegisterFromCluster(x.system.GetProvider(), x.system.getConfig(), x.self())
 	}
 }

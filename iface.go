@@ -17,7 +17,7 @@ type ISystem interface {
 	getGenRequestId() iGenRequestId
 	getConfig() *config
 	getRegistry() iRegistry
-	getProvider() iProvider
+	GetProvider() iProvider
 	GetScheduler() iScheduler
 	Logger() *slog.Logger
 

@@ -52,7 +52,7 @@ func (x *system) getAddr() string { return x.rpcService.Addr() }
 func (x *system) getConfig() *config {
 	return x.config
 }
-func (x *system) getProvider() iProvider {
+func (x *system) GetProvider() iProvider {
 	return x.clusterProvider
 }
 func (x *system) getRegistry() iRegistry {

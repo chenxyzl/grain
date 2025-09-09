@@ -246,7 +246,7 @@ func (x *providerEtcd) getNodes() ([]tNodeState, int64) {
 }
 
 // GetNodeExtData set node ext data, keep life with node
-func (x *providerEtcd) getNodeExtData(subKey string) (string, error) {
+func (x *providerEtcd) GetNodeExtData(subKey string) (string, error) {
 	key := x.config.getMemberExtDataPath(x.config.state.NodeId) + "/" + subKey
 	rsp, err := x.client.Get(context.Background(), key)
 	if err != nil {
@@ -259,21 +259,21 @@ func (x *providerEtcd) getNodeExtData(subKey string) (string, error) {
 }
 
 // SetNodeExtData set node ext data, keep life with node
-func (x *providerEtcd) setNodeExtData(subKey string, val string) error {
+func (x *providerEtcd) SetNodeExtData(subKey string, val string) error {
 	key := x.config.getMemberExtDataPath(x.config.state.NodeId) + "/" + subKey
 	_, err := x.client.Put(context.Background(), key, val, clientv3.WithLease(x.leaseId))
 	return err
 }
 
 // RemoveNodeExtData remove node ext date
-func (x *providerEtcd) removeNodeExtData(subKey string) error {
+func (x *providerEtcd) RemoveNodeExtData(subKey string) error {
 	key := x.config.getMemberExtDataPath(x.config.state.NodeId) + "/" + subKey
 	_, err := x.client.Delete(context.Background(), key)
 	return err
 }
 
 // WatchNodeExtData remove node ext date
-func (x *providerEtcd) watchNodeExtData(subKey string, f func(key, val string)) error {
+func (x *providerEtcd) WatchNodeExtData(subKey string, f func(key, val string)) error {
 	key := x.config.getMemberExtDataPath(x.config.state.NodeId) + "/" + subKey
 	//first
 	rsp, err := x.client.Get(context.Background(), key, clientv3.WithPrefix())

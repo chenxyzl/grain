@@ -23,14 +23,14 @@ type iProvider interface {
 	setTxn(key string, val string) bool
 	removeTxn(key string, val string) bool
 
-	//getNodeExtData get node ext data
-	getNodeExtData(subKey string) (string, error)
-	//setNodeExtData set node ext data, keep life with node
-	setNodeExtData(subKey string, val string) error
-	//removeNodeExtData remove node ext date
-	removeNodeExtData(subKey string) error
-	//watchNodeExtData watch node ext data, if val == "", mean`s delete
-	watchNodeExtData(subKey string, f func(key, val string)) error
+	//GetNodeExtData get node ext data
+	GetNodeExtData(subKey string) (string, error)
+	//SetNodeExtData set node ext data, keep life with node
+	SetNodeExtData(subKey string, val string) error
+	//RemoveNodeExtData remove node ext date
+	RemoveNodeExtData(subKey string) error
+	//WatchNodeExtData watch node ext data, if val == "", mean`s delete
+	WatchNodeExtData(subKey string, f func(key, val string)) error
 }
 
 func newProvider[T iProvider]() T {
