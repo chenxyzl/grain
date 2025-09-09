@@ -13,15 +13,15 @@ import (
 )
 
 var (
-	actorCount     int64 = 10000
-	testSystem           = TestSystem{}
-	idx            int64 = 0
-	parallelism          = 32
-	body                 = "hello world"
-	helloSend            = &testpb.Hello{Name: body}
-	helloRequest         = &testpb.HelloRequest{Name: body}
-	helloReply           = &testpb.HelloReply{Name: "hell go reply"}
-	requestTimeout       = time.Second * 1
+	actorCount  int64 = 10000
+	testSystem        = TestSystem{}
+	idx         int64 = 0
+	parallelism       = 32
+	body              = "hello world"
+	helloSend         = &testpb.Hello{Name: body}
+	helloAsk          = &testpb.HelloAsk{Name: body}
+	helloReply        = &testpb.HelloReply{Name: "hell go reply"}
+	askTimeout        = time.Second * 1
 )
 
 type TestSystem struct {
@@ -42,7 +42,7 @@ func (x *HelloActor) PreStop() {
 func (x *HelloActor) Receive(context grain.Context) {
 	switch context.Message().(type) {
 	case *testpb.Hello:
-	case *testpb.HelloRequest:
+	case *testpb.HelloAsk:
 		context.Reply(helloReply)
 	default:
 		x.Logger().Error("unregister msg")
@@ -55,7 +55,7 @@ func init() {
 	//actor.InitLog("./test.log")
 	slog.SetLogLoggerLevel(slog.LevelWarn)
 	//new
-	testSystem.system = grain.NewSystem("hello", "0.0.1", []string{"127.0.0.1:2379"}, grain.WithConfigRequestTimeout(requestTimeout))
+	testSystem.system = grain.NewSystem("hello", "0.0.1", []string{"127.0.0.1:2379"}, grain.WithConfigAskTimeout(askTimeout))
 	//start
 	testSystem.system.Logger().Warn("system starting")
 	//
@@ -88,17 +88,17 @@ func BenchmarkSendMore(b *testing.B) {
 		}
 	})
 }
-func BenchmarkRequestOne(b *testing.B) {
+func BenchmarkAskOne(b *testing.B) {
 	actorRef := testSystem.system.Spawn(func() grain.IActor { return &HelloActor{} })
 	b.ResetTimer()
 	for range b.N {
-		reply, err := grain.NoReentryRequest[*testpb.HelloReply](actorRef, helloRequest)
+		reply, err := grain.NoReentryAsk[*testpb.HelloReply](actorRef, helloAsk)
 		if reply == nil {
 			b.Error(err)
 		}
 	}
 }
-func BenchmarkRequestMore(b *testing.B) {
+func BenchmarkAskMore(b *testing.B) {
 	b.ResetTimer()
 	// 限制并发数
 	b.SetParallelism(parallelism)
@@ -107,7 +107,7 @@ func BenchmarkRequestMore(b *testing.B) {
 			v := atomic.AddInt64(&idx, 1) % actorCount
 			_ = v
 			actorRef := testSystem.actors[v]
-			reply, err := grain.NoReentryRequest[*testpb.HelloReply](actorRef, helloRequest)
+			reply, err := grain.NoReentryAsk[*testpb.HelloReply](actorRef, helloAsk)
 			if reply == nil {
 				b.Error(err)
 			}

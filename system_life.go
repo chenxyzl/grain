@@ -34,7 +34,7 @@ func (x *system) init(nodeId uint64) {
 	if err := uuid.Init(nodeId); err != nil {
 		panic(errors.Join(err, errors.New("uuid init failed")))
 	}
-	x.requestId = uuid.GetBeginRequestId()
+	x.askId = uuid.GetAskStartId()
 	x.Logger().Warn("uuid init success", "nodeId", nodeId)
 
 	//overwrite logger

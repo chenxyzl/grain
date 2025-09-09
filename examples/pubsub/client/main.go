@@ -14,7 +14,7 @@ func main() {
 	grain.InitLog("./test.log", slog.LevelInfo)
 	//new
 	system := grain.NewSystem("pubsub_cluster", "0.0.1", []string{"127.0.0.1:2379"},
-		grain.WithConfigRequestTimeout(time.Second*100))
+		grain.WithConfigAskTimeout(time.Second*100))
 	//start
 	system.Logger().Warn("system starting")
 	//

@@ -1,20 +1,20 @@
-# Grain[[中文文档]](https://github.com/chenxyzl/grain/tree/main//README_ZH.md)
-- default distributed actor framework.
-- easy to use. (only etcd needs to be provided)
-- highly scalable.
-- fast. (run examples/benchmark_test/actor_test)
-- support reentrant ask.
-- support publish/subscribe(local and cluster)
-- support schedule
+# Grain[[英文文档]](https://https://github.com/chenxyzl/grain/tree/main//README.md)
+- 默认分布式actor模型.
+- 使用简单. (只依赖etcd)
+- 高度可扩展.
+- 高性能. (测试运行 examples/benchmark_test/actor_test)
+- actor支持请求重入.
+- 支持发布订阅(本地和全局)
+- 支持schedule
 
-# Install
+# 安装
 - go get github.com/chenxyzl/grain/...
 
-# Example:
+# 例子:
 
-## examples/first(tell & ask/reply)
-warning: running etcd first
-- define actor:
+## examples/first(通知&请求应答)
+注意: 先运行一个etcd
+- 申明actor:
 ``` go file:hello_actor.go
 package share_actor
 
@@ -43,7 +43,7 @@ panic(fmt.Sprintf("not register msg type, msgType:%v, msg:%v", proto.MessageName
 }
 ```
 
-- use:
+- 启动system:
 ``` go
 package main
 
@@ -74,11 +74,11 @@ system.Logger().Info("reply:", "message", reply)
 system.WaitStopSignal()
 }
 ```
-## examples/cluster
-warning: running etcd first
-warning: define actor(same as above, ignore)
+## examples/cluster(集群模式)
+注意: 先运行一个etcd  
+注意: 定义一个actor(和上面例子一样--略过)
 
-- cluster server
+- 集群服务器
 ``` go
 package main
 
@@ -105,7 +105,7 @@ system.Logger().Warn("system stopped successfully")
 }
 
 ```
-- cluster client
+- 集群客户端
 ``` go
 package main
 
@@ -158,31 +158,31 @@ system.Logger().Warn("system stopped successfully")
 
 ```
 
-## examples/pubsub
-- subscribe event  
+## examples/pubsub（发布订阅）
+- 订阅事件  
 $system.Subscribe(ref ActorRef, message proto.Message)
-- publish local event  
+- 发布本地事件  
 $system.PublishLocal(message proto.Message)
-- publish cluster event  
+- 发布集群全局事件  
 $system.PublishGlobal(message proto.Message)
-- unsubscribe event  
+- 取消订阅  
 $system.Unsubscribe(ref ActorRef, message proto.Message)
 
-## examples/schedule
-- actor schedule once  
+## examples/schedule（延时调度）
+- actor 延时调用一次  
 $actor.ScheduleSelfOnce(delay time.Duration, msg proto.Message)
-- system schedule once  
+- system 延时调用一次  
 $system.GetScheduler().ScheduleOnce($actorRef, `/*more params like above*/`)
-- actor schedule repeat  
+- actor 延时重复调用  
 $actor.ScheduleSelfRepeated(delay time.Duration, interval time.Duration, msg proto.Message)  
-- system schedule repeat  
+- system 延时重复调用
 $system.GetScheduler().ScheduleRepeated($actorRef, `/*more params like above*/`)
-- cancel schedule  
+- 取消延时调用
 CancelScheduleFunc()
 
 
-## More examples
-for more examples, please read grain/examples
+## 更多例子
+更多例子参考： /examples
 
 ## Benchmark
 build benchmark exec

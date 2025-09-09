@@ -42,17 +42,17 @@ func (x *BaseActor) Send(target ActorRef, msg proto.Message) {
 	x.GetSystem().getSender().tell(target, msg)
 }
 
-// Request allowed re-entry
-// wanted BaseActor.Request[T proto.Message](target ActorRef, req proto.Message) T
+// Ask allowed re-entry
+// wanted BaseActor.Ask[T proto.Message](target ActorRef, req proto.Message) T
 // but golang not support
-func (x *BaseActor) Request(target ActorRef, msg proto.Message) proto.Message {
+func (x *BaseActor) Ask(target ActorRef, msg proto.Message) proto.Message {
 	if target == nil {
-		x.Logger().Error("request target is nil", "id", x.Self(), "msgName", proto.MessageName(msg), "msg", msg)
+		x.Logger().Error("ask target is nil", "id", x.Self(), "msgName", proto.MessageName(msg), "msg", msg)
 		return nil
 	}
 	//
 	system := target.GetSystem()
-	reqTimeout := system.getConfig().requestTimeout
+	reqTimeout := system.getConfig().askTimeout
 	//
 	reply := newProcessorReplay[proto.Message](system, reqTimeout)
 	//
@@ -60,7 +60,7 @@ func (x *BaseActor) Request(target ActorRef, msg proto.Message) proto.Message {
 	//
 	v, err := reply.Result()
 	if err != nil {
-		panic(errors.Join(err, fmt.Errorf("requset err, sender:%v,target:%v,request:%v", x.Self(), target, err)))
+		panic(errors.Join(err, fmt.Errorf("ask err, sender:%v,target:%v,err:%v", x.Self(), target, err)))
 	}
 	return v
 }

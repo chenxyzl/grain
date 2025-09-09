@@ -11,10 +11,10 @@ import (
 )
 
 var (
-	testSystem     = TestSystem{}
-	body           = "123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_"
-	requestTimeout = time.Second * 100
-	aRef           grain.ActorRef
+	testSystem = TestSystem{}
+	body       = "123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_123456789_"
+	askTimeout = time.Second * 100
+	aRef       grain.ActorRef
 )
 
 type TestSystem struct {
@@ -65,10 +65,10 @@ func (x *HelloGoActorA) Receive(context grain.Context) {
 				x.Logger().Info(fmt.Sprintf("stop cancel3"))
 			}
 		}
-	case *testpb.HelloRequest:
+	case *testpb.HelloAsk:
 		{
-			x.Logger().Info("recv HelloRequest")
-			context.Reply(&testpb.HelloReply{Name: "reply HelloRequest"})
+			x.Logger().Info("recv HelloAsk")
+			context.Reply(&testpb.HelloReply{Name: "reply HelloAsk"})
 		}
 	default:
 		x.Logger().Error("unknown msg")
@@ -80,7 +80,7 @@ func init() {
 	grain.InitLog("./test.log", slog.LevelInfo)
 	//new
 	testSystem.system = grain.NewSystem("schedule", "0.0.1", []string{"127.0.0.1:2379"},
-		grain.WithConfigRequestTimeout(requestTimeout),
+		grain.WithConfigAskTimeout(askTimeout),
 		grain.WithConfigKind("hello", func() grain.IActor { return &HelloGoActorA{} }))
 	//start
 	testSystem.system.Logger().Warn("system starting")
@@ -95,7 +95,7 @@ func init() {
 	aRef = testSystem.system.Spawn(func() grain.IActor { return &HelloGoActorA{} })
 }
 func main() {
-	r1, err := grain.NoReentryRequest[*testpb.HelloReply](aRef, &testpb.HelloRequest{Name: body})
+	r1, err := grain.NoReentryAsk[*testpb.HelloReply](aRef, &testpb.HelloAsk{Name: body})
 	if r1 == nil || err != nil {
 		panic("x")
 	}

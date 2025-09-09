@@ -50,7 +50,7 @@ func (x *processorMailBox) self() ActorRef {
 func (x *processorMailBox) init() {
 	x.receiver = x.producer()  //create actor
 	x.receiver._init(x.self()) //bind
-	x.send(newContext(x.self(), x.self(), initialize, x.system.getGenRequestId().genRequestId(), x.system.getSender()))
+	x.send(newContext(x.self(), x.self(), initialize, x.system.GetNextAskId(), x.system.getSender()))
 }
 
 func (x *processorMailBox) send(ctx Context) {

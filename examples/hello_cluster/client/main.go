@@ -13,7 +13,7 @@ func main() {
 	grain.InitLog("./test.log", slog.LevelInfo)
 	//new system
 	system := grain.NewSystem("hello_cluster", "0.0.1", []string{"127.0.0.1:2379"},
-		grain.WithConfigRequestTimeout(time.Second*1))
+		grain.WithConfigAskTimeout(time.Second*1))
 	//start
 	system.Logger().Warn("system starting")
 	system.Start()
@@ -31,9 +31,9 @@ func main() {
 			times++
 			//tell
 			actorRef.Send(&testpb.Hello{Name: "hello tell, times:" + strconv.Itoa(times)})
-			//request
-			system.Logger().Info("request: ", "target", actorRef)
-			reply, err := grain.NoReentryRequest[*testpb.HelloReply](actorRef, &testpb.HelloRequest{Name: "xxx, times:" + strconv.Itoa(times)})
+			//ask
+			system.Logger().Info("ask: ", "target", actorRef)
+			reply, err := grain.NoReentryAsk[*testpb.HelloReply](actorRef, &testpb.HelloAsk{Name: "xxx, times:" + strconv.Itoa(times)})
 			if err != nil {
 				system.Logger().Error(err.Error())
 			}

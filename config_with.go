@@ -6,9 +6,9 @@ import (
 	"google.golang.org/grpc"
 )
 
-func WithConfigRequestTimeout(d time.Duration) ConfigOptFunc {
+func WithConfigAskTimeout(d time.Duration) ConfigOptFunc {
 	return func(config *config) {
-		config.requestTimeout = d
+		config.askTimeout = d
 	}
 }
 

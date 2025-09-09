@@ -14,12 +14,12 @@ type ISystem interface {
 	*/
 	getAddr() string
 	getSender() iSender
-	getGenRequestId() iGenRequestId
 	getConfig() *config
 	getRegistry() iRegistry
 	GetProvider() iProvider
 	GetScheduler() iScheduler
 	Logger() *slog.Logger
+	GetNextAskId() uint64
 
 	/*
 		system life
@@ -42,8 +42,8 @@ type ISystem interface {
 	*/
 	Subscribe(ref ActorRef, message proto.Message)
 	Unsubscribe(ref ActorRef, message proto.Message)
-	PublishGlobal(message proto.Message)
 	PublishLocal(message proto.Message)
+	PublishGlobal(message proto.Message)
 }
 
 // iSender ...
@@ -63,11 +63,6 @@ type iRegistry interface {
 	get(actRef ActorRef) iProcess
 	add(proc iProcess) iProcess
 	remove(actRef ActorRef)
-}
-
-// iGenRequestId ...
-type iGenRequestId interface {
-	genRequestId() uint64
 }
 
 // CancelScheduleFunc ...

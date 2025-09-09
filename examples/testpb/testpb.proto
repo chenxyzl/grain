@@ -5,20 +5,20 @@ option go_package = "github.com/chenxyzl/grain/examples/testpb";
 message Hello{
     string name = 1;
 }
-message HelloRequest{
+message HelloAsk{
     string name = 1;
 }
 message HelloReply{
     string name = 1;
 }
 
-message HelloRequestA2B{
+message HelloAskA2B{
     string name = 1;
 }
 message HelloReplyA2B{
     string name = 1;
 }
-message HelloRequestB2A{
+message HelloAskB2A{
     string name = 1;
 }
 message HelloReplyB2A{
