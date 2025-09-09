@@ -18,6 +18,6 @@ type ActorRef interface {
 	setRemoteAddrCache(string, int64)
 
 	Send(msg proto.Message)
-	NoReentryRequest(target ActorRef, req proto.Message) proto.Message
-	NoReentryRequestE(target ActorRef, req proto.Message) (proto.Message, error)
+	NoReentryAsk(target ActorRef, req proto.Message) proto.Message
+	NoReentryAskE(target ActorRef, req proto.Message) (proto.Message, error)
 }

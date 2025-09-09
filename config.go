@@ -13,7 +13,7 @@ import (
 type ConfigOptFunc func(*config)
 
 const (
-	defaultRequestTimeout     = time.Second * 3
+	defaultAskTimeout         = time.Second * 3
 	defaultStopWaitTimeSecond = 3
 	//actor type
 	defaultActDirect  = "direct"
@@ -41,7 +41,7 @@ type config struct {
 	clusterName          string
 	version              string
 	clusterUrls          []string
-	requestTimeout       time.Duration
+	askTimeout           time.Duration
 	stopWaitTimeSecond   int
 	dialOptions          []grpc.DialOption
 	callOptions          []grpc.CallOption
@@ -56,7 +56,7 @@ func newConfig(clusterName string, version string, clusterUrls []string, opts ..
 		clusterName:        clusterName,
 		version:            version,
 		clusterUrls:        clusterUrls,
-		requestTimeout:     defaultRequestTimeout,
+		askTimeout:         defaultAskTimeout,
 		stopWaitTimeSecond: defaultStopWaitTimeSecond,
 		kinds:              make(map[string]tKind),
 		dialOptions:        []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())},

@@ -2,13 +2,13 @@ package grain
 
 import "google.golang.org/protobuf/proto"
 
-// NoReentryRequest mean's not allowed re-entry
-// wanted system.NoReentryRequest[T proto.Message](target ActorRef, req proto.Message) T
+// NoReentryAsk mean's not allowed re-entry
+// wanted system.NoReentryAsk[T proto.Message](target ActorRef, req proto.Message) T
 // but golang not support
-func NoReentryRequest[T proto.Message](target ActorRef, req proto.Message) (T, error) {
+func NoReentryAsk[T proto.Message](target ActorRef, req proto.Message) (T, error) {
 	sys := target.GetSystem()
-	msgSnId := target.GetSystem().getGenRequestId().genRequestId()
-	reqTimeout := sys.getConfig().requestTimeout
+	msgSnId := target.GetSystem().GetNextAskId()
+	reqTimeout := sys.getConfig().askTimeout
 	//
 	reply := newProcessorReplay[T](sys, reqTimeout)
 	//

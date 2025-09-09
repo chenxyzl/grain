@@ -14,8 +14,8 @@ func (x *HelloActor) Started() { x.Logger().Info("Started") }
 func (x *HelloActor) PreStop() { x.Logger().Info("PreStop") }
 func (x *HelloActor) Receive(context grain.Context) {
 	switch msg := context.Message().(type) {
-	case *testpb.HelloRequest: //request-reply
-		x.Logger().Info("recv request", "message", context.Message())
+	case *testpb.HelloAsk: //ask-reply
+		x.Logger().Info("recv ask", "message", context.Message())
 		context.Reply(&testpb.HelloReply{Name: "reply hello to " + context.Sender().GetName()})
 	case *testpb.Hello: //tell
 		x.Logger().Info("recv tell", "message", context.Message())

@@ -27,7 +27,7 @@ type system struct {
 	forceCloseChan chan bool
 	logger         *slog.Logger
 	eventStream    ActorRef
-	requestId      uint64
+	askId          uint64
 }
 
 // NewSystem ...
@@ -48,19 +48,13 @@ func NewSystem(clusterName string, version string, clusterUrls []string, opts ..
 	return sys
 }
 
-func (x *system) getAddr() string { return x.rpcService.Addr() }
-func (x *system) getConfig() *config {
-	return x.config
-}
-func (x *system) GetProvider() iProvider {
-	return x.clusterProvider
-}
+func (x *system) getAddr() string        { return x.rpcService.Addr() }
+func (x *system) getConfig() *config     { return x.config }
+func (x *system) GetProvider() iProvider { return x.clusterProvider }
 func (x *system) getRegistry() iRegistry {
 	return x.registry
 }
-func (x *system) getGenRequestId() iGenRequestId {
-	return x
-}
+func (x *system) GetNextAskId() uint64     { return atomic.AddUint64(&x.askId, 1) }
 func (x *system) GetScheduler() iScheduler { return x }
 
 func (x *system) Logger() *slog.Logger {
@@ -100,13 +94,6 @@ func (x *system) GetClusterActorRef(kind string, name string) ActorRef {
 
 func (x *system) getSender() iSender {
 	return x
-}
-
-func (x *system) getNextSnId() uint64 {
-	return atomic.AddUint64(&x.requestId, 1)
-}
-func (x *system) genRequestId() uint64 {
-	return x.getNextSnId()
 }
 
 func (x *system) tellWithSender(target ActorRef, msg proto.Message, sender ActorRef, msgSnId uint64) {
@@ -157,7 +144,7 @@ func (x *system) tellWithSender(target ActorRef, msg proto.Message, sender Actor
 }
 
 func (x *system) tell(target ActorRef, msg proto.Message) {
-	x.tellWithSender(target, msg, nil, x.getNextSnId())
+	x.tellWithSender(target, msg, nil, x.GetNextAskId())
 }
 
 func (x *system) sendToLocal(target ActorRef, msg proto.Message, sender ActorRef, msgSnId uint64) {

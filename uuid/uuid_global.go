@@ -22,8 +22,8 @@ func Generate() uint64 {
 	return _uuid.Generate()
 }
 
-// GetBeginRequestId return request begin id
-func GetBeginRequestId() uint64 {
+// GetAskStartId return ask start id
+func GetAskStartId() uint64 {
 	if _uuid == nil { //严重错误直接退出
 		panic("uuid not init")
 	}

@@ -33,7 +33,7 @@ func (p *PlayerActor) Receive(ctx grain.Context) {
 	case *testpb.Hello:
 		p.times++
 		p.Logger().Info("reev publish msg", "name", msg.Name, "times", p.times)
-	case *testpb.HelloRequest:
+	case *testpb.HelloAsk:
 		ctx.Reply(&testpb.HelloReply{})
 		p.Logger().Info("hello replay")
 	default:
@@ -45,7 +45,7 @@ func main() {
 	grain.InitLog("./test.log", slog.LevelInfo)
 	//new
 	system := grain.NewSystem("pubsub_cluster", "0.0.1", []string{"127.0.0.1:2379"},
-		grain.WithConfigRequestTimeout(time.Second*100),
+		grain.WithConfigAskTimeout(time.Second*100),
 		grain.WithConfigKind("player", func() grain.IActor { return &PlayerActor{} }))
 	//start
 	system.Logger().Warn("system starting")
@@ -54,7 +54,7 @@ func main() {
 	//
 	system.Logger().Warn("system started successfully")
 	// create a cluster actor
-	_, err := grain.NoReentryRequest[*testpb.HelloReply](system.GetClusterActorRef("player", "cluster_player"), &testpb.HelloRequest{Name: "xxx"})
+	_, err := grain.NoReentryAsk[*testpb.HelloReply](system.GetClusterActorRef("player", "cluster_player"), &testpb.HelloAsk{Name: "xxx"})
 	if err != nil {
 		panic(err)
 	}
