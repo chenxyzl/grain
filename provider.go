@@ -17,7 +17,8 @@ type iProvider interface {
 	stop()
 
 	//nodes
-	getNodes() ([]tNodeState, int64)
+	GetNodeId() uint64
+	GetNodes() ([]tNodeState, int64)
 
 	//set remove key val
 	setTxn(key string, val string) bool

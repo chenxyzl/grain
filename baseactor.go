@@ -51,12 +51,12 @@ func (x *BaseActor) Ask(target ActorRef, msg proto.Message) proto.Message {
 		return nil
 	}
 	//
-	system := target.GetSystem()
-	reqTimeout := system.getConfig().askTimeout
+	sys := target.GetSystem()
+	reqTimeout := sys.getConfig().askTimeout
 	//
-	reply := newProcessorReplay[proto.Message](system, reqTimeout)
+	reply := newProcessorReplay[proto.Message](sys, reqTimeout)
 	//
-	system.getSender().tellWithSender(target, msg, reply.self(), x._getRunningMsgId())
+	sys.getSender().tellWithSender(target, msg, reply.self(), x._getRunningMsgId())
 	//
 	v, err := reply.Result()
 	if err != nil {

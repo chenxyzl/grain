@@ -37,6 +37,7 @@ type ISystem interface {
 		get cluster actorRef
 	*/
 	GetClusterActorRef(kind string, name string) ActorRef
+	getAddrHash() *AddrHash
 	/*
 		sub pub
 	*/

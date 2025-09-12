@@ -1,10 +1,13 @@
 package grain
 
+import "sync"
+
 type actorIdWrapper struct {
 	cacheParse
 	fullPath    string
 	system      ISystem
 	cacheRemote *cacheRemote
+	sync.RWMutex
 }
 
 func newDirectActorRef(kind string, name string, addr string, system ISystem) ActorRef {
@@ -68,27 +71,35 @@ func (x *actorIdWrapper) needReply() bool {
 	return x.GetKind() == defaultReplyKind
 }
 
-// SetRemoteAddrCache ...
-func (x *actorIdWrapper) setRemoteAddrCache(addr string, version int64) {
-	if !x.isCluster() {
-		return
-	}
-	if addr == "" {
-		return
-	}
-	x.cacheRemote = &cacheRemote{version, addr}
-}
-
 // GetRemoteAddrCache ...
-// return remote addr
-// return cluster provider version
-func (x *actorIdWrapper) getRemoteAddrCache() (string, int64) {
+// @return remote addr
+// @return remote changed
+func (x *actorIdWrapper) GetRemoteAddrCache() (string, bool) {
 	if !x.isCluster() {
-		return "", 0
+		return "", false
 	}
-	v := x.cacheRemote
-	if v == nil {
-		return "", 0
+	//
+	nodes, version := x.GetSystem().GetProvider().GetNodes()
+	vCache := x.cacheRemote
+	changed := false
+	if vCache == nil || vCache.version != version {
+		x.Lock()
+		//double check
+		if vCache == nil || vCache.version != version {
+			cacheAddr := x.GetSystem().getAddrHash().CalcAddressByKind8Id(nodes, x.GetKind(), x.GetName())
+			if cacheAddr == "" {
+				x.Unlock()
+				return "", false
+			}
+			changed = vCache == nil || vCache.remoteAddr != cacheAddr
+			vCache = &cacheRemote{version, cacheAddr}
+			x.cacheRemote = vCache
+		}
+		x.Unlock()
 	}
-	return v.remoteAddr, v.version
+	//
+	if vCache == nil {
+		return "", changed
+	}
+	return vCache.remoteAddr, changed
 }

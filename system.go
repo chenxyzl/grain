@@ -1,11 +1,8 @@
 package grain
 
 import (
-	"hash"
-	"hash/fnv"
 	"log/slog"
 	"strconv"
-	"sync"
 	"sync/atomic"
 
 	"github.com/chenxyzl/grain/message"
@@ -20,9 +17,8 @@ type system struct {
 	rpcService      iRpcServer
 	clusterProvider iProvider
 	timerSchedule   *timerSchedule
-	//hash
-	hasher     hash.Hash32
-	hasherLock sync.Mutex
+	addrHash        *AddrHash
+
 	//
 	forceCloseChan chan bool
 	logger         *slog.Logger
@@ -42,24 +38,19 @@ func NewSystem(clusterName string, version string, clusterUrls []string, opts ..
 	sys.clusterProvider = newProvider[*providerEtcd]()
 	sys.forceCloseChan = make(chan bool, 1)
 	sys.timerSchedule = newTimerSchedule(sys)
-	//
-	sys.hasher = fnv.New32a()
+	sys.addrHash = newAddrHash()
 	//
 	return sys
 }
-
-func (x *system) getAddr() string        { return x.rpcService.Addr() }
-func (x *system) getConfig() *config     { return x.config }
-func (x *system) GetProvider() iProvider { return x.clusterProvider }
-func (x *system) getRegistry() iRegistry {
-	return x.registry
-}
+func (x *system) getAddr() string          { return x.rpcService.Addr() }
+func (x *system) getConfig() *config       { return x.config }
+func (x *system) GetProvider() iProvider   { return x.clusterProvider }
+func (x *system) getRegistry() iRegistry   { return x.registry }
 func (x *system) GetNextAskId() uint64     { return atomic.AddUint64(&x.askId, 1) }
 func (x *system) GetScheduler() iScheduler { return x }
+func (x *system) getAddrHash() *AddrHash   { return x.addrHash }
 
-func (x *system) Logger() *slog.Logger {
-	return x.logger
-}
+func (x *system) Logger() *slog.Logger { return x.logger }
 
 func (x *system) Spawn(p iProducer, opts ...KindOptFunc) ActorRef {
 	return x.SpawnNamed(p, strconv.Itoa(int(uuid.Generate())), opts...)
@@ -81,14 +72,6 @@ func (x *system) SpawnClusterName(p iProducer, opts ...KindOptFunc) ActorRef {
 }
 
 func (x *system) GetClusterActorRef(kind string, name string) ActorRef {
-	////
-	//nodes, _ := x.clusterProvider.getNodes()
-	//addr := x.calcAddressByKind8Id(nodes, kind, name)
-	////
-	//if addr == "" {
-	//	return nil
-	//}
-	//
 	return newClusterActorRef(kind, name, x)
 }
 
@@ -117,15 +100,7 @@ func (x *system) tellWithSender(target ActorRef, msg proto.Message, sender Actor
 			proc.send(newContext(proc.self(), sender, msg, msgSnId, x))
 		} else {
 			//cluster actor
-			//need calc each time?
-			nodes, version := x.clusterProvider.getNodes()
-			cacheAddr, cacheVersion := target.getRemoteAddrCache()
-			if cacheVersion != version {
-				cacheAddr = x.calcAddressByKind8Id(nodes, target.GetKind(), target.GetName())
-				if cacheAddr != "" {
-					target.setRemoteAddrCache(cacheAddr, version)
-				}
-			}
+			cacheAddr, _ := target.GetRemoteAddrCache()
 			if cacheAddr == "" {
 				x.Logger().Error("actor kind not in cluster")
 				return

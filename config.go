@@ -52,7 +52,7 @@ type config struct {
 }
 
 func newConfig(clusterName string, version string, clusterUrls []string, opts ...ConfigOptFunc) *config {
-	config := &config{
+	conf := &config{
 		clusterName:        clusterName,
 		version:            version,
 		clusterUrls:        clusterUrls,
@@ -62,16 +62,19 @@ func newConfig(clusterName string, version string, clusterUrls []string, opts ..
 		dialOptions:        []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())},
 	}
 	for _, f := range opts {
-		f(config)
+		f(conf)
 	}
-	return config
+	return conf
 }
 
 // init after register
 func (x *config) init(addr string, nodeId uint64) tNodeState {
-	x.state = tNodeState{NodeId: nodeId, Address: addr, Time: time.Now().Format(time.DateTime), Version: x.version, Kinds: x.GetKinds()}
+	x.state = tNodeState{NodeId: nodeId, Address: addr, Time: time.Now().Format(time.DateTime), Version: x.version, Kinds: x.getKinds()}
 	return x.state
 }
+
+// GetNodeId return self node id, call must at running
+func (x *config) GetNodeId() uint64 { return x.state.NodeId }
 
 // markRunning ...
 func (x *config) markRunning() {
@@ -87,8 +90,8 @@ func (x *config) mustNotRunning() {
 	}
 }
 
-// GetKinds get all kinds
-func (x *config) GetKinds() []string {
+// getKinds get all kinds
+func (x *config) getKinds() []string {
 	kinds := make([]string, 0, len(x.kinds))
 	for kind := range x.kinds {
 		kinds = append(kinds, kind)
