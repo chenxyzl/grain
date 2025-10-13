@@ -46,7 +46,7 @@ func (x *system) getAddr() string          { return x.rpcService.Addr() }
 func (x *system) getConfig() *config       { return x.config }
 func (x *system) GetProvider() iProvider   { return x.clusterProvider }
 func (x *system) getRegistry() iRegistry   { return x.registry }
-func (x *system) GetNextAskId() uint64     { return atomic.AddUint64(&x.askId, 1) }
+func (x *system) getNextAskId() uint64     { return atomic.AddUint64(&x.askId, 1) }
 func (x *system) GetScheduler() iScheduler { return x }
 func (x *system) getAddrHash() *AddrHash   { return x.addrHash }
 
@@ -100,7 +100,7 @@ func (x *system) tellWithSender(target ActorRef, msg proto.Message, sender Actor
 			proc.send(newContext(proc.self(), sender, msg, msgSnId, x))
 		} else {
 			//cluster actor
-			cacheAddr, _ := target.GetRemoteAddrCache()
+			cacheAddr, _ := target.getRemoteAddrCache()
 			if cacheAddr == "" {
 				x.Logger().Error("actor kind not in cluster")
 				return
@@ -119,7 +119,7 @@ func (x *system) tellWithSender(target ActorRef, msg proto.Message, sender Actor
 }
 
 func (x *system) tell(target ActorRef, msg proto.Message) {
-	x.tellWithSender(target, msg, nil, x.GetNextAskId())
+	x.tellWithSender(target, msg, nil, x.getNextAskId())
 }
 
 func (x *system) sendToLocal(target ActorRef, msg proto.Message, sender ActorRef, msgSnId uint64) {
@@ -130,6 +130,9 @@ func (x *system) sendToLocal(target ActorRef, msg proto.Message, sender ActorRef
 		if _, ok := msg.(*message.Poison); ok {
 			//ignore poison msg if proc not found
 			return
+		}
+		if sender.isAsk() {
+			sender.Send(errActorNotFound)
 		}
 		x.Logger().Error("send, get actor failed", "actor", target, "msgName", msg.ProtoReflect().Descriptor().FullName())
 		return

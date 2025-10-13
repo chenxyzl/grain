@@ -7,7 +7,7 @@ import "google.golang.org/protobuf/proto"
 // but golang not support
 func NoReentryAsk[T proto.Message](target ActorRef, req proto.Message) (T, error) {
 	sys := target.GetSystem()
-	msgSnId := target.GetSystem().GetNextAskId()
+	msgSnId := target.GetSystem().getNextAskId()
 	reqTimeout := sys.getConfig().askTimeout
 	//
 	reply := newProcessorReplay[T](sys, reqTimeout)

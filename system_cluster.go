@@ -11,7 +11,7 @@ func (x *system) clusterMemberChanged() {
 			return
 		}
 		//cluster actor
-		newAddr := x.getAddrHash().CalcAddressByKind8Id(clusterNodes, self.GetKind(), self.GetName())
+		newAddr := x.getAddrHash().CalcAddrByKind8Name(clusterNodes, self.GetKind(), self.GetName())
 		if newAddr != "" && newAddr != addr {
 			x.Poison(self)
 		}

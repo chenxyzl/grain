@@ -20,12 +20,12 @@ func BenchmarkCalcPos(b *testing.B) {
 	b.ResetTimer()
 	var v string
 	for n := 0; n < b.N; n++ {
-		tmp := x.getAddrHash().CalcAddressByKind8Id(clusterNodes, "player3", "testname")
+		tmp := x.getAddrHash().CalcAddrByKind8Name(clusterNodes, "player3", "testname")
 		if v == "" {
 			v = tmp
 		}
 		if v != tmp {
-			b.Error("CalcAddressByKind8Id failed", v)
+			b.Error("CalcAddrByKind8Name failed", v)
 		}
 	}
 }
