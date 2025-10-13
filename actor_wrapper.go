@@ -66,8 +66,8 @@ func (x *actorIdWrapper) isCluster() bool {
 	return x.GetType() == defaultActCluster
 }
 
-// needReply ...
-func (x *actorIdWrapper) needReply() bool {
+// isAsk ...
+func (x *actorIdWrapper) isAsk() bool {
 	return x.GetKind() == defaultReplyKind
 }
 
@@ -86,7 +86,7 @@ func (x *actorIdWrapper) GetRemoteAddrCache() (string, bool) {
 		x.Lock()
 		//double check
 		if vCache == nil || vCache.version != version {
-			cacheAddr := x.GetSystem().getAddrHash().CalcAddressByKind8Id(nodes, x.GetKind(), x.GetName())
+			cacheAddr := x.GetSystem().getAddrHash().CalcAddrByKind8Name(nodes, x.GetKind(), x.GetName())
 			if cacheAddr == "" {
 				x.Unlock()
 				return "", false

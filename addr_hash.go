@@ -18,7 +18,7 @@ func newAddrHash() *AddrHash {
 	return ret
 }
 
-func (x *AddrHash) CalcAddressByKind8Id(clusterNodes []tNodeState, kind string, name string) string {
+func (x *AddrHash) CalcAddrByKind8Name(clusterNodes []tNodeState, kind string, name string) string {
 	var nodes = make([]tNodeState, 0, len(clusterNodes))
 	for _, state := range clusterNodes {
 		if slices.Contains(state.Kinds, kind) {

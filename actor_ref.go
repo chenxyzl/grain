@@ -13,6 +13,8 @@ type ActorRef interface {
 
 	isDirect() bool
 	isCluster() bool
+	//
+	isAsk() bool
 
 	GetRemoteAddrCache() (string, bool)
 

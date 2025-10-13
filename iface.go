@@ -19,7 +19,7 @@ type ISystem interface {
 	GetProvider() iProvider
 	GetScheduler() iScheduler
 	Logger() *slog.Logger
-	GetNextAskId() uint64
+	getNextAskId() uint64
 
 	/*
 		system life
