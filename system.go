@@ -100,7 +100,7 @@ func (x *system) tellWithSender(target ActorRef, msg proto.Message, sender Actor
 			proc.send(newContext(proc.self(), sender, msg, msgSnId, x))
 		} else {
 			//cluster actor
-			cacheAddr, _ := target.GetRemoteAddrCache()
+			cacheAddr, _ := target.getRemoteAddrCache()
 			if cacheAddr == "" {
 				x.Logger().Error("actor kind not in cluster")
 				return

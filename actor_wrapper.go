@@ -74,7 +74,7 @@ func (x *actorIdWrapper) isAsk() bool {
 // GetRemoteAddrCache ...
 // @return remote addr
 // @return remote changed
-func (x *actorIdWrapper) GetRemoteAddrCache() (string, bool) {
+func (x *actorIdWrapper) getRemoteAddrCache() (string, bool) {
 	if !x.isCluster() {
 		return "", false
 	}

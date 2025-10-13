@@ -13,10 +13,9 @@ type ActorRef interface {
 
 	isDirect() bool
 	isCluster() bool
-	//
 	isAsk() bool
 
-	GetRemoteAddrCache() (string, bool)
+	getRemoteAddrCache() (string, bool)
 
 	Send(msg proto.Message)
 	NoReentryAsk(target ActorRef, req proto.Message) proto.Message
