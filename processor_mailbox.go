@@ -142,8 +142,11 @@ func (x *processorMailBox) stop() {
 		//remove from registry
 		x.system.getRegistry().remove(x.self())
 	}()
+	//unregister from cluster
+	defer func() {
+		if x.tOpts.unRegisterFromCluster != nil {
+			x.tOpts.unRegisterFromCluster(x.system.GetProvider(), x.system.getConfig(), x.self())
+		}
+	}()
 	x.receiver.PreStop()
-	if x.tOpts.unRegisterFromCluster != nil {
-		x.tOpts.unRegisterFromCluster(x.system.GetProvider(), x.system.getConfig(), x.self())
-	}
 }
