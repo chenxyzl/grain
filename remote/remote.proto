@@ -3,11 +3,11 @@ package remote;
 option go_package = "github.com/chenxyzl/grain/remote";
 
 message Envelope {
-    enum MsgType {
-        Tell = 0;
-        Ask = 1;
-        Reply = 2;
-    }
+//    enum MsgType {
+//        Tell = 0;
+//        Ask = 1;
+//        Reply = 2;
+//    }
     map<string, string> header = 1; //for context k.v
     string sender = 2;
     string target = 3;

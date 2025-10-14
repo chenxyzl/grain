@@ -1,11 +1,14 @@
 package grain
 
-import "google.golang.org/protobuf/proto"
+import (
+	"github.com/chenxyzl/grain/message"
+	"google.golang.org/protobuf/proto"
+)
 
 // NoReentryAsk mean's not allowed re-entry
 // wanted system.NoReentryAsk[T proto.Message](target ActorRef, req proto.Message) T
 // but golang not support
-func NoReentryAsk[T proto.Message](target ActorRef, req proto.Message) (T, error) {
+func NoReentryAsk[T proto.Message](target ActorRef, req proto.Message) (T, *message.ErrCode) {
 	sys := target.GetSystem()
 	msgSnId := target.GetSystem().getNextAskId()
 	reqTimeout := sys.getConfig().askTimeout

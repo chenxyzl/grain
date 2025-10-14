@@ -38,7 +38,7 @@ func (x *processorReply[T]) self() ActorRef { return x._self }
 func (x *processorReply[T]) init()            {}
 func (x *processorReply[T]) send(ctx Context) { x.result <- ctx.Message() }
 
-func (x *processorReply[T]) Result() (T, error) {
+func (x *processorReply[T]) Result() (T, *message.ErrCode) {
 	ctx, cancel := context.WithTimeout(context.Background(), x.timeout)
 	defer func() {
 		cancel()
@@ -50,14 +50,14 @@ func (x *processorReply[T]) Result() (T, error) {
 		switch msg := resp.(type) {
 		case T:
 			return msg, nil
-		case *message.Error:
-			return null, fmt.Errorf("grain error, code:%v, des:%s", msg.Code, msg.Des)
-		case error:
+		case *message.ErrCode:
 			return null, msg
+		case error:
+			return null, message.WithErr(msg.Error())
 		default:
-			return null, fmt.Errorf("result need %v, now: %v", null.ProtoReflect().Descriptor().FullName(), msg.ProtoReflect().Descriptor().FullName())
+			return null, message.WithErr(fmt.Sprintf("result need %v, now: %v", null.ProtoReflect().Descriptor().FullName(), msg.ProtoReflect().Descriptor().FullName()))
 		}
 	case <-ctx.Done():
-		return null, errors.Join(ctx.Err(), fmt.Errorf("reply result timeout, id:%v", x.self()))
+		return null, message.WithErr(errors.Join(ctx.Err(), fmt.Errorf("reply result timeout, id:%v", x.self())).Error())
 	}
 }
