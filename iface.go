@@ -62,7 +62,7 @@ type iSystemLife interface {
 // iRegistry ...
 type iRegistry interface {
 	get(actRef ActorRef) iProcess
-	add(proc iProcess) iProcess
+	add(iProcP iProcessProvider) iProcess
 	remove(actRef ActorRef)
 }
 

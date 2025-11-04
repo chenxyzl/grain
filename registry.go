@@ -27,7 +27,8 @@ func (r *registry) get(actRef ActorRef) iProcess {
 	return proc
 }
 
-func (r *registry) add(proc iProcess) iProcess {
+func (r *registry) add(iProcP iProcessProvider) iProcess {
+	proc := iProcP()
 	id := proc.self().GetId()
 	old, ok := r.lookup.SetIfNotExist(id, proc)
 	if ok {

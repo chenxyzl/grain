@@ -32,14 +32,15 @@ type processorMailBox struct {
 var _ iProcess = (*processorMailBox)(nil)
 
 func newProcessor(system ISystem, opts tOpts) iProcess {
-	p := &processorMailBox{
-		tOpts:      opts,
-		system:     system,
-		rb:         ringbuffer.New[Context](int64(opts.mailboxSize)),
-		procStatus: idle,
-		restarts:   0,
-	}
-	p = system.getRegistry().add(p).(*processorMailBox)
+	p := system.getRegistry().add(func() iProcess {
+		return &processorMailBox{
+			tOpts:      opts,
+			system:     system,
+			rb:         ringbuffer.New[Context](int64(opts.mailboxSize)),
+			procStatus: idle,
+			restarts:   0,
+		}
+	}).(*processorMailBox)
 	return p
 }
 

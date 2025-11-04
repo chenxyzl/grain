@@ -23,13 +23,14 @@ type processorReply[T proto.Message] struct {
 
 func newProcessorReplay[T proto.Message](system ISystem, timeout time.Duration) *processorReply[T] {
 	self := newDirectActorRef(defaultReplyKind, strconv.Itoa(int(uuid.Generate())), system.getAddr(), system)
-	p := &processorReply[T]{
-		registry: system.getRegistry(),
-		_self:    self,
-		result:   make(chan proto.Message, 1),
-		timeout:  timeout,
-	}
-	p = p.registry.add(p).(*processorReply[T])
+	p := system.getRegistry().add(func() iProcess {
+		return &processorReply[T]{
+			registry: system.getRegistry(),
+			_self:    self,
+			result:   make(chan proto.Message, 1),
+			timeout:  timeout,
+		}
+	}).(*processorReply[T])
 	return p
 }
 
