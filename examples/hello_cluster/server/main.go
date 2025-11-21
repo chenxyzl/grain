@@ -17,7 +17,7 @@ func main() {
 	system.Start()
 	system.Logger().Warn("system started successfully")
 	//wait ctrl+c
-	system.WaitStopSignal()
+	system.WaitStopSignal(nil, nil)
 	//
 	system.Logger().Warn("system stopped successfully")
 }

@@ -56,13 +56,14 @@ var (
 type KindOptFunc func(*tOpts)
 
 type tOpts struct {
-	producer     iProducer
-	mailboxSize  int
-	kind         string
-	maxRestarts  int32
-	restartDelay func(restartTimes int) time.Duration
-	context      context.Context
-	_self        ActorRef
+	producer          iProducer
+	mailboxSize       int
+	kind              string
+	poisonFirstOnQuit bool
+	maxRestarts       int32
+	restartDelay      func(restartTimes int) time.Duration
+	context           context.Context
+	_self             ActorRef
 
 	registerToCluster     func(clusterProvider iProvider, config *config, ref ActorRef)
 	unRegisterFromCluster func(clusterProvider iProvider, config *config, ref ActorRef)
@@ -73,6 +74,7 @@ func newOpts(p iProducer, opts ...KindOptFunc) tOpts {
 	ret := tOpts{
 		producer:              p,
 		mailboxSize:           defaultMailboxSize,
+		poisonFirstOnQuit:     true,
 		kind:                  defaultLocalKind,
 		maxRestarts:           defaultMaxRestarts,
 		restartDelay:          defaultRestartDelay,

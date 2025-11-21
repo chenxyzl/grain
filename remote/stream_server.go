@@ -4,7 +4,6 @@ import (
 	"io"
 	"log/slog"
 	"net"
-	"time"
 
 	"github.com/chenxyzl/grain/ghelper"
 	"google.golang.org/grpc"
@@ -68,24 +67,28 @@ func (x *RpcService) Start() error {
 			panic(err)
 		}
 	}()
+	x.Logger().Info("RpcService Started ...")
 	return nil
 }
 
 func (x *RpcService) Stop() error {
 	if x.gs != nil {
-		c := make(chan bool, 1)
-		go func() {
-			x.gs.GracefulStop()
-			c <- true
-		}()
-
-		select {
-		case <-c:
-			x.Logger().Info("Stopped Proto.Actor server")
-		case <-time.After(time.Second * 10):
-			x.gs.Stop()
-			x.Logger().Info("Stopped Proto.Actor server", "err", "timeout")
-		}
+		x.gs.Stop()
+		x.gs = nil
+		x.Logger().Info("RpcService Stopped ...")
+		//c := make(chan bool, 1)
+		//go func() {
+		//	x.gs.GracefulStop()
+		//	c <- true
+		//}()
+		//
+		//select {
+		//case <-c:
+		//	x.Logger().Info("RpcService Stopped ...")
+		//case <-time.After(time.Second * 10):
+		//	x.gs.Stop()
+		//	x.Logger().Info("RpcService Stopped Timeout", "err", "timeout")
+		//}
 	}
 	return nil
 }

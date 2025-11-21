@@ -35,6 +35,11 @@ func WithOptsUnRegisterFromCluster(fun func(clusterProvider iProvider, config *c
 		opts.unRegisterFromCluster = fun
 	}
 }
+func WithOptsPoisonFirstOnQuit(poisonFirstOnQuit bool) KindOptFunc {
+	return func(opts *tOpts) {
+		opts.poisonFirstOnQuit = poisonFirstOnQuit
+	}
+}
 func WithOptsKindName(kindName string) KindOptFunc {
 	return func(opts *tOpts) {
 		opts.kind = kindName

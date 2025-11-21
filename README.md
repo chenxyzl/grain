@@ -71,7 +71,7 @@ panic(err)
 }
 system.Logger().Info("reply:", "message", reply)
 //waiting ctrl+c
-system.WaitStopSignal()
+system.WaitStopSignal(nil, nil)
 }
 ```
 ## examples/cluster
@@ -99,7 +99,7 @@ system.Logger().Warn("system starting")
 system.Start()
 system.Logger().Warn("system started successfully")
 //wait ctrl+c
-system.WaitStopSignal()
+system.WaitStopSignal(nil, nil)
 //
 system.Logger().Warn("system stopped successfully")
 }
@@ -151,7 +151,7 @@ system.Logger().Info("reply:", "message", reply)
 }()
 
 //wait ctrl+c
-system.WaitStopSignal()
+system.WaitStopSignal(nil, nil)
 //
 system.Logger().Warn("system stopped successfully")
 }

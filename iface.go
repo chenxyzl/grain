@@ -26,7 +26,7 @@ type ISystem interface {
 	*/
 	Start()
 	ForceStop(error)
-	WaitStopSignal()
+	WaitStopSignal(beforeQuit func(), afterQuit func())
 	/*
 		actor create/poison
 	*/

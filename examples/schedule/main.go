@@ -102,5 +102,5 @@ func main() {
 	systemScheduleFunc := testSystem.system.GetScheduler().ScheduleRepeated(aRef, 0, time.Second, &testpb.Hello{Name: "repeated system delay"})
 	time.Sleep(time.Second * 5)
 	systemScheduleFunc()
-	testSystem.system.WaitStopSignal()
+	testSystem.system.WaitStopSignal(nil, nil)
 }

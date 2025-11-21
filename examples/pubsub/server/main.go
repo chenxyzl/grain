@@ -72,7 +72,7 @@ func main() {
 	}
 
 	//run wait
-	system.WaitStopSignal()
+	system.WaitStopSignal(nil, nil)
 	//
 	system.Logger().Warn("system stopped successfully")
 }

@@ -24,5 +24,5 @@ func main() {
 	}
 	system.Logger().Info("reply:", "message", reply)
 	//waiting ctrl+c
-	system.WaitStopSignal()
+	system.WaitStopSignal(nil, nil)
 }

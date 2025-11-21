@@ -34,8 +34,8 @@ func newProcessorReplay[T proto.Message](system ISystem, timeout time.Duration) 
 	return p
 }
 
-func (x *processorReply[T]) self() ActorRef { return x._self }
-
+func (x *processorReply[T]) self() ActorRef   { return x._self }
+func (x *processorReply[T]) opts() *tOpts     { return nil }
 func (x *processorReply[T]) init()            {}
 func (x *processorReply[T]) send(ctx Context) { x.result <- ctx.Message() }
 
@@ -51,12 +51,14 @@ func (x *processorReply[T]) Result() (T, *message.ErrCode) {
 		switch msg := resp.(type) {
 		case T:
 			return msg, nil
+		case *message.Poison:
+			return null, message.WithErr("reply processor poisoned")
 		case *message.ErrCode:
 			return null, msg
 		case error:
 			return null, message.WithErr(msg.Error())
 		default:
-			return null, message.WithErr(fmt.Sprintf("result need %v, now: %v", null.ProtoReflect().Descriptor().FullName(), msg.ProtoReflect().Descriptor().FullName()))
+			return null, message.WithErr(fmt.Sprintf("msg type errr, need:%v, now:%v", null.ProtoReflect().Descriptor().FullName(), msg.ProtoReflect().Descriptor().FullName()))
 		}
 	case <-ctx.Done():
 		return null, message.WithErr(errors.Join(ctx.Err(), fmt.Errorf("reply result timeout, id:%v", x.self())).Error())

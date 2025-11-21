@@ -150,7 +150,7 @@ func (x *system) sendToCluster(targetAddress string, target ActorRef, msg proto.
 		// spawn if not found
 		x.SpawnNamed(func() IActor {
 			return newStreamWriterActor(writeStreamActorRef, targetAddress, x.getConfig().dialOptions, x.getConfig().callOptions)
-		}, writeStreamActorRef.GetName(), WithOptsKindName(writeStreamActorRef.GetKind()))
+		}, writeStreamActorRef.GetName(), WithOptsKindName(writeStreamActorRef.GetKind()), WithOptsPoisonFirstOnQuit(false))
 	}
 	//must
 	proc = x.registry.get(writeStreamActorRef)

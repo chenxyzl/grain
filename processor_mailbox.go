@@ -44,9 +44,8 @@ func newProcessor(system ISystem, opts tOpts) iProcess {
 	return p
 }
 
-func (x *processorMailBox) self() ActorRef {
-	return x._self
-}
+func (x *processorMailBox) self() ActorRef { return x._self }
+func (x *processorMailBox) opts() *tOpts   { return &x.tOpts }
 
 func (x *processorMailBox) init() {
 	x.receiver = x.producer()  //create actor

@@ -47,7 +47,7 @@ func (x *eventStream) Started() {
 }
 
 func (x *eventStream) PreStop() {
-	x.Logger().Info("EventStream stopped ...")
+	x.Logger().Info("eventStream stopped ...")
 }
 
 func (x *eventStream) Receive(ctx Context) {

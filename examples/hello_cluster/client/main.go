@@ -23,9 +23,10 @@ func main() {
 	if actorRef == nil {
 		panic("GetClusterActorRef failed")
 	}
+
 	//
+	c := time.NewTicker(3 * time.Second)
 	go func() {
-		c := time.NewTicker(3 * time.Second)
 		times := 0
 		for range c.C {
 			times++
@@ -42,7 +43,7 @@ func main() {
 	}()
 
 	//wait ctrl+c
-	system.WaitStopSignal()
+	system.WaitStopSignal(func() { c.Stop() }, nil)
 	//
 	system.Logger().Warn("system stopped successfully")
 }

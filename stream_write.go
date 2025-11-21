@@ -56,15 +56,15 @@ func (x *streamWriteActor) Started() {
 			unknownMsg, err := stream.Recv()
 			switch {
 			case errors.Is(err, io.EOF):
-				x.Logger().Info("remote stream closed 1", "address", x.address)
+				x.Logger().Info("streamWriteActor closed 1", "address", x.address)
 			case status.Code(err) == codes.Canceled || status.Code(err) == codes.OK || status.Code(err) == codes.Unavailable:
-				x.Logger().Info("remote stream closed 2", "address", x.address, "cod", status.Code(err))
+				x.Logger().Info("streamWriteActor closed 2", "address", x.address, "cod", status.Code(err))
 			case status.Code(err) > 0:
-				x.Logger().Warn("remote stream closed 3", "address", x.address, "cod", status.Code(err))
+				x.Logger().Warn("streamWriteActor closed 3", "address", x.address, "cod", status.Code(err))
 			case err != nil:
-				x.Logger().Warn("remote stream lost connection with err", "address", x.address, "error", err)
+				x.Logger().Warn("streamWriteActor lost connection with err", "address", x.address, "error", err)
 			default:
-				x.Logger().Warn("remote stream got a msg form remote, but this stream only for write", "address", x.address, "msg", unknownMsg)
+				x.Logger().Warn("streamWriteActor got a msg form remote, but this stream only for write", "address", x.address, "msg", unknownMsg)
 			}
 			//only can send, not allowed Recv
 			x.GetSystem().Poison(x.Self())
@@ -77,18 +77,18 @@ func (x *streamWriteActor) PreStop() {
 	if x.remote != nil {
 		err := x.remote.CloseSend()
 		if err != nil {
-			x.Logger().Error("close grpc send stream err", "error", err)
+			x.Logger().Error("streamWriteActor close grpc send stream err", "error", err)
 		}
 		x.remote = nil
 	}
 	if x.conn != nil {
 		err := x.conn.Close()
 		if err != nil {
-			x.Logger().Error("close grpc conn err", "error", err)
+			x.Logger().Error("streamWriteActor close grpc conn err", "error", err)
 		}
 		x.conn = nil
 	}
-	x.Logger().Info("stop stream write actor end")
+	x.Logger().Info("streamWriteActor Stoped ...")
 }
 
 func (x *streamWriteActor) Receive(ctx Context) {

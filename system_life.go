@@ -43,10 +43,10 @@ func (x *system) init(nodeId uint64) {
 	//init eventStream
 	x.eventStream = x.SpawnNamed(func() IActor {
 		return newEventStream(x.config.state.NodeId, x.clusterProvider.getEtcdClient(), x.clusterProvider.getEtcdLease(), x.config.getEventStreamWatchPath())
-	}, eventStreamWatchName, WithOptsKindName(defaultSystemKind))
+	}, eventStreamWatchName, WithOptsKindName(defaultSystemKind), WithOptsPoisonFirstOnQuit(false))
 }
 
-func (x *system) WaitStopSignal() {
+func (x *system) WaitStopSignal(beforeQuit func(), afterQuit func()) {
 	// signal.Notify的ch信道是阻塞的(signal.Notify不会阻塞发送信号), 需要设置缓冲
 	signals := make(chan os.Signal, 1)
 	// It is not possible to block SIGKILL or syscall.SIGSTOP
@@ -54,6 +54,10 @@ func (x *system) WaitStopSignal() {
 	select {
 	case sig := <-signals:
 		x.Logger().Warn("system will exit by signal", "signal", sig.String())
+		//
+		if beforeQuit != nil {
+			beforeQuit()
+		}
 	case <-x.forceCloseChan:
 		x.Logger().Warn("system will exit by forceCloseChan")
 	}
@@ -70,6 +74,10 @@ func (x *system) WaitStopSignal() {
 			x.Logger().Warn("rpc service stop err", "err", err)
 		}
 	}
+	//
+	if afterQuit != nil {
+		afterQuit()
+	}
 }
 
 func (x *system) ForceStop(err error) {
@@ -82,31 +90,49 @@ func (x *system) ForceStop(err error) {
 }
 
 func (x *system) stopActors() {
-	x.Logger().Info("begin stop all actors")
+	x.Logger().Info("stop all actors begin")
+	x.stopActorsImpl(true)
+	x.stopActorsImpl(false)
+	x.Logger().Info("stop all actors success")
+}
+
+func (x *system) stopActorsImpl(first bool) {
+	firstStr := "<<first>>"
+	if !first {
+		firstStr = "<<latter>>"
+	}
+	x.Logger().Info(firstStr + "stop actors begin")
+	times := 0
 	for {
+		//interval wait
+		if times != 0 {
+			time.Sleep(time.Second)
+		}
+		//check left actors
 		var left []ActorRef
-		times := 0
 		x.registry.lookup.IterCb(func(key string, v iProcess) {
-			//ignore poison
-			if v.self().GetDirectAddr() != x.getAddr() ||
-				v.self().GetKind() == defaultReplyKind ||
-				v.self().GetKind() == defaultSystemKind {
-				return
+			//posion sequence
+			if first { //first poison
+				if v.opts() != nil && !v.opts().poisonFirstOnQuit {
+					return
+				}
+			} else { //later poison
+
 			}
 			//
 			x.tell(v.self(), poison)
 			left = append(left, v.self())
 		})
-		time.Sleep(time.Second)
 		times++
 		if len(left) == 0 {
-			x.Logger().Warn("waiting actors stop success", "times", times)
+			x.Logger().Warn(firstStr+"waiting actors stop success", "times", times)
 			break
 		} else if times >= x.getConfig().stopWaitTimeSecond {
-			x.Logger().Warn("waiting stop timeout", "left", len(left), "times", times, "actors", left)
+			x.Logger().Warn(firstStr+"waiting stop timeout", "left", len(left), "times", times, "actors", left)
 			break
 		} else {
-			x.Logger().Info("waiting actors stop ..., ", "count", len(left), "times", times)
+			x.Logger().Info(firstStr+"waiting actors stop", "count", len(left), "times", times)
 		}
 	}
+	x.Logger().Info(firstStr + "stop actors success")
 }

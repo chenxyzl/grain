@@ -20,5 +20,5 @@ func main() {
 	helloActorA.Tell(&testpb.Hello{Name: "hello tell"})
 	helloActorB.Tell(&testpb.Hello{Name: "hello tell"})
 	//waiting ctrl+c
-	system.WaitStopSignal()
+	system.WaitStopSignal(nil, nil)
 }

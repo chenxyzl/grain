@@ -47,29 +47,19 @@ func (x *actorIdWrapper) parseCache() {
 	}
 }
 
-func (x *actorIdWrapper) GetId() string {
-	return x.fullPath
-}
+func (x *actorIdWrapper) GetId() string { return x.fullPath }
 
 // String ...
-func (x *actorIdWrapper) String() string {
-	return x.fullPath
-}
+func (x *actorIdWrapper) String() string { return x.fullPath }
 
-// IsDirect ...
-func (x *actorIdWrapper) isDirect() bool {
-	return x.GetType() == defaultActDirect
-}
+// isDirect ...
+func (x *actorIdWrapper) isDirect() bool { return x.GetType() == defaultActDirect }
 
-// IsCluster ...
-func (x *actorIdWrapper) isCluster() bool {
-	return x.GetType() == defaultActCluster
-}
+// isCluster ...
+func (x *actorIdWrapper) isCluster() bool { return x.GetType() == defaultActCluster }
 
 // isAsk ...
-func (x *actorIdWrapper) isAsk() bool {
-	return x.GetKind() == defaultReplyKind
-}
+func (x *actorIdWrapper) isAsk() bool { return x.GetKind() == defaultReplyKind }
 
 // GetRemoteAddrCache ...
 // @return remote addr
