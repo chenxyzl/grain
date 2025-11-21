@@ -8,7 +8,7 @@ import (
 func (x *actorIdWrapper) GetSystem() ISystem { return x.system }
 
 // Send wrapper system.tell
-func (x *actorIdWrapper) Send(msg proto.Message) {
+func (x *actorIdWrapper) Tell(msg proto.Message) {
 	x.GetSystem().getSender().tell(x, msg)
 }
 func (x *actorIdWrapper) NoReentryAsk(target ActorRef, req proto.Message) proto.Message {

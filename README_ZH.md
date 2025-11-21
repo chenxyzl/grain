@@ -63,7 +63,7 @@ system.Start()
 //create a actor and return a actorRef
 actorRef := system.Spawn(func() grain.IActor { return &share_actor.HelloActor{} })
 //tell
-actorRef.Send(&testpb.Hello{Name: "hello tell"})
+actorRef.Tell(&testpb.Hello{Name: "hello tell"})
 //ask
 reply, err := grain.NoReentryAsk[*testpb.HelloReply](actorRef, &testpb.HelloAsk{Name: "hello ask"})
 if err != nil {
@@ -139,7 +139,7 @@ times := 0
 for range c.C {
 times++
 //tell
-actorRef.Send(&testpb.Hello{Name: "hello tell, times:" + strconv.Itoa(times)})
+actorRef.Tell(&testpb.Hello{Name: "hello tell, times:" + strconv.Itoa(times)})
 //ask
 system.Logger().Info("ask: ", "target", actorRef)
 reply, err := grain.NoReentryAsk[*testpb.HelloReply](actorRef, &testpb.HelloAsk{Name: "xxx, times:" + strconv.Itoa(times)})

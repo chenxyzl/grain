@@ -72,7 +72,7 @@ func BenchmarkSendOne(b *testing.B) {
 	actorRef := testSystem.system.Spawn(func() grain.IActor { return &HelloActor{} })
 	b.ResetTimer()
 	for range b.N {
-		actorRef.Send(helloSend)
+		actorRef.Tell(helloSend)
 	}
 }
 func BenchmarkSendMore(b *testing.B) {
@@ -84,7 +84,7 @@ func BenchmarkSendMore(b *testing.B) {
 			v := atomic.AddInt64(&idx, 1) % actorCount
 			_ = v
 			actorRef := testSystem.actors[v]
-			actorRef.Send(helloSend)
+			actorRef.Tell(helloSend)
 		}
 	})
 }

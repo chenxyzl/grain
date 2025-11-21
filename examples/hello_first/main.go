@@ -16,7 +16,7 @@ func main() {
 	//create actor and return actorRef
 	actorRef := system.Spawn(func() grain.IActor { return &share_actor.HelloActor{} })
 	//tell
-	actorRef.Send(&testpb.Hello{Name: "hello tell"})
+	actorRef.Tell(&testpb.Hello{Name: "hello tell"})
 	//ask
 	reply, err := grain.NoReentryAsk[*testpb.HelloReply](actorRef, &testpb.HelloAsk{Name: "hello ask"})
 	if err != nil {

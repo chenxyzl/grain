@@ -17,8 +17,8 @@ func main() {
 	//create a then
 	helloActorA = system.Spawn(func() grain.IActor { return &HelloActorA{} })
 	//tell
-	helloActorA.Send(&testpb.Hello{Name: "hello tell"})
-	helloActorB.Send(&testpb.Hello{Name: "hello tell"})
+	helloActorA.Tell(&testpb.Hello{Name: "hello tell"})
+	helloActorB.Tell(&testpb.Hello{Name: "hello tell"})
 	//waiting ctrl+c
 	system.WaitStopSignal()
 }
