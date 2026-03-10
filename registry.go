@@ -1,6 +1,7 @@
 package grain
 
 import (
+	"fmt"
 	"log/slog"
 
 	"github.com/chenxyzl/grain/al/safemap"
@@ -30,10 +31,9 @@ func (r *registry) get(actRef ActorRef) iProcess {
 func (r *registry) add(iProcP iProcessProvider) iProcess {
 	proc := iProcP()
 	id := proc.self().GetId()
-	old, ok := r.lookup.SetIfNotExist(id, proc)
+	_, ok := r.lookup.SetIfNotExist(id, proc)
 	if ok {
-		r.logger.Warn("duplicated process id, ignore new processor, return old processor", "id", id)
-		return old
+		panic(fmt.Sprintf("duplicated process id, id: %s", id))
 	}
 	proc.init()
 	return proc
