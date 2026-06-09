@@ -106,7 +106,7 @@ func (x *config) getMemberPath(memberId uint64) string {
 	return fmt.Sprintf("/%v/member/%d", x.clusterName, memberId)
 }
 func (x *config) getMemberExtDataPath(subKey string, memberId ...uint64) string {
-	if len(memberId) > 0 || memberId[0] == 0 {
+	if len(memberId) > 0 && memberId[0] != 0 {
 		return fmt.Sprintf("/%v/member_ext/%s/%d", x.clusterName, subKey, memberId[0])
 	}
 	return fmt.Sprintf("/%v/member_ext/%s", x.clusterName, subKey)
