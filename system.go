@@ -46,7 +46,7 @@ func (x *system) getAddr() string          { return x.rpcService.Addr() }
 func (x *system) getConfig() *config       { return x.config }
 func (x *system) GetProvider() iProvider   { return x.clusterProvider }
 func (x *system) getRegistry() iRegistry   { return x.registry }
-func (x *system) getNextAskId() uint64     { return atomic.AddUint64(&x.askId, 1) }
+func (x *system) nextSnId() uint64         { return atomic.AddUint64(&x.askId, 1) }
 func (x *system) GetScheduler() iScheduler { return x }
 func (x *system) getAddrHash() *AddrHash   { return x.addrHash }
 
@@ -59,13 +59,6 @@ func (x *system) Spawn(p iProducer, opts ...KindOptFunc) ActorRef {
 func (x *system) SpawnNamed(p iProducer, name string, opts ...KindOptFunc) ActorRef {
 	//
 	opts = append(opts, withOptsDirectSelf(name, x.getAddr(), x))
-	options := newOpts(p, opts...)
-	//
-	return newProcessor(x, options).self()
-}
-
-func (x *system) SpawnClusterName(p iProducer, opts ...KindOptFunc) ActorRef {
-	//
 	options := newOpts(p, opts...)
 	//
 	return newProcessor(x, options).self()
@@ -119,7 +112,7 @@ func (x *system) tellWithSender(target ActorRef, msg proto.Message, sender Actor
 }
 
 func (x *system) tell(target ActorRef, msg proto.Message) {
-	x.tellWithSender(target, msg, nil, x.getNextAskId())
+	x.tellWithSender(target, msg, nil, x.nextSnId())
 }
 
 func (x *system) sendToLocal(target ActorRef, msg proto.Message, sender ActorRef, msgSnId uint64) {
@@ -131,7 +124,7 @@ func (x *system) sendToLocal(target ActorRef, msg proto.Message, sender ActorRef
 			//ignore poison msg if proc not found
 			return
 		}
-		if sender.isAsk() {
+		if sender != nil && sender.isAsk() {
 			sender.Tell(errActorNotFound)
 		}
 		x.Logger().Error("send, get actor failed", "actor", target, "msgName", msg.ProtoReflect().Descriptor().FullName())
@@ -144,19 +137,25 @@ func (x *system) sendToLocal(target ActorRef, msg proto.Message, sender ActorRef
 func (x *system) sendToCluster(targetAddress string, target ActorRef, msg proto.Message, sender ActorRef, msgSnId uint64) {
 	//remote addr
 	writeStreamActorRef := newDirectActorRef(defaultWriteStreamKind, targetAddress, x.getAddr(), x)
-	//get proc
+	//get proc, or spawn idempotently (multiple senders may race here; a
+	//duplicate-id panic would crash the process, so use the get-or-create path).
 	proc := x.registry.get(writeStreamActorRef)
 	if proc == nil {
-		// spawn if not found
-		x.SpawnNamed(func() IActor {
+		opts := newOpts(func() IActor {
 			return newStreamWriterActor(writeStreamActorRef, targetAddress, x.getConfig().dialOptions, x.getConfig().callOptions)
-		}, writeStreamActorRef.GetName(), WithOptsKindName(writeStreamActorRef.GetKind()), WithOptsPoisonFirstOnQuit(false))
+		}, WithOptsKindName(writeStreamActorRef.GetKind()), WithOptsPoisonFirstOnQuit(false), withOptsDirectSelf(writeStreamActorRef.GetName(), x.getAddr(), x))
+		proc = newProcessorOrGet(x, opts)
 	}
-	//must
-	proc = x.registry.get(writeStreamActorRef)
 	proc.send(newContext(target, sender, msg, msgSnId, x))
 }
 
 func (x *system) Poison(ref ActorRef) {
+	// local actor: use the non-blocking control signal (never blocks on a full
+	// mailbox, safe under registry locks). remote actor: send poison as a normal
+	// message over the network.
+	if proc := x.registry.get(ref); proc != nil {
+		proc.poison()
+		return
+	}
 	x.tell(ref, poison)
 }

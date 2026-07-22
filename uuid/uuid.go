@@ -52,6 +52,12 @@ func (n *UUID) Generate() uint64 {
 	// 获取当前时间的时间戳 (毫秒数显示)
 	now := time.Now().UnixMilli()
 
+	// 时钟回拨保护: 若系统时钟回退, 不能使用更小的 now (会产生重复 ID),
+	// 退化为沿用上一次的时间戳继续递增 step。
+	if now < n.timestamp {
+		now = n.timestamp
+	}
+
 	if n.timestamp == now {
 		n.step = (n.step + 1) & stepMax
 

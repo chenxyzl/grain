@@ -230,6 +230,11 @@ func (x *providerEtcd) parseWatch(op mvccpb.Event_EventType, key string, value [
 }
 
 func (x *providerEtcd) GetNodeId() uint64 { return x.config.state.NodeId }
+func (x *providerEtcd) GetNodesVersion() int64 {
+	x.nodeChangeLocker.RLock()
+	defer x.nodeChangeLocker.RUnlock()
+	return x.localProviderVersion
+}
 func (x *providerEtcd) GetNodes() ([]tNodeState, int64) {
 	x.nodeChangeLocker.RLock()
 	defer x.nodeChangeLocker.RUnlock()

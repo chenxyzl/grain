@@ -19,6 +19,9 @@ type iProvider interface {
 	//nodes
 	GetNodeId() uint64
 	GetNodes() ([]tNodeState, int64)
+	//GetNodesVersion returns the current node-set version only, without building
+	//the node slice. Cheap enough to poll on the hot send path.
+	GetNodesVersion() int64
 
 	//set remove key val
 	setTxn(key string, val string) bool

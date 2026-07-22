@@ -37,8 +37,8 @@ func TestTemp1(t *testing.T) {
 func TestActorIdStr(t *testing.T) {
 	id1 := newDirectActorRef("player", "123", "[::]:39318", nil)
 	id2 := newClusterActorRef("home", "456", nil)
-	if id1.GetId() != defaultActDirect+"/player/123" {
-		t.Error("id1 should be kinds/player/123")
+	if id1.GetId() != defaultActDirect+"/player/123@[::]:39318" {
+		t.Error("id1 should be direct/player/123@[::]:39318")
 	}
 	if id1.GetKind() != "player" {
 		t.Error("id1 kind should be player")

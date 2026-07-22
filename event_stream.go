@@ -41,8 +41,11 @@ func (x *eventStream) Started() {
 	//watcher eventStream
 	err := x.watchEventStream()
 	if err != nil {
-		x.Logger().Error("watchEventStream err: ", "err", err)
-		panic(err)
+		// runtime failure (etcd watch): log and stop self rather than panic
+		// (which would only be swallowed by start()'s recover anyway).
+		x.Logger().Error("watchEventStream err, stop self", "err", err)
+		x.GetSystem().Poison(x.Self())
+		return
 	}
 }
 
@@ -195,6 +198,9 @@ func (x *eventStream) unregisterEventStream(eventName string) {
 	}
 	//change local
 	actors, _ := x.eventStreamMaps.Get(eventName)
+	if actors == nil {
+		return
+	}
 	actors.Delete(x.nodeId)
 }
 func (x *eventStream) getActorsByEventFromEventStream(event proto.Message) []ActorRef {

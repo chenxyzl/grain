@@ -1,29 +1,21 @@
 package grain
 
 import (
-	"context"
-	"math"
+	"fmt"
 	"slices"
 	"time"
 )
 
 const (
-	defaultMailboxSize = 1024
-	defaultMaxRestarts = 3
+	defaultMailboxSize   = 1024
+	defaultRegisterTimes = 3
 )
 
 var (
-	defaultRestartDelay = func(restartTimes int) time.Duration {
-		if restartTimes < 1 {
-			restartTimes = 1
-		}
-		return 100 * time.Millisecond * time.Duration(math.Pow(2, float64(restartTimes-1)))
-	}
-	defaultRegisterToCluster = func(clusterProvider iProvider, config *config, ref ActorRef) {
+	defaultRegisterToCluster = func(clusterProvider iProvider, config *config, ref ActorRef) error {
 		//register to cluster
 		if slices.Contains(config.state.Kinds, ref.GetKind()) {
 			times := 0
-			registerSuccess := false
 			for {
 				times++
 				if times >= 2 {
@@ -36,13 +28,11 @@ var (
 					continue
 				}
 				//
-				registerSuccess = true
-				break
+				return nil
 			}
-			if !registerSuccess {
-				panic("failed register cluster actor to clusterProvider")
-			}
+			return fmt.Errorf("failed register cluster actor to clusterProvider, ref:%v", ref.GetId())
 		}
+		return nil
 	}
 	defaultUnregisterFromCluster = func(clusterProvider iProvider, config *config, ref ActorRef) {
 		//unRegister from cluster
@@ -60,12 +50,9 @@ type tOpts struct {
 	mailboxSize       int
 	kind              string
 	poisonFirstOnQuit bool
-	maxRestarts       int32
-	restartDelay      func(restartTimes int) time.Duration
-	context           context.Context
 	_self             ActorRef
 
-	registerToCluster     func(clusterProvider iProvider, config *config, ref ActorRef)
+	registerToCluster     func(clusterProvider iProvider, config *config, ref ActorRef) error
 	unRegisterFromCluster func(clusterProvider iProvider, config *config, ref ActorRef)
 }
 
@@ -76,9 +63,6 @@ func newOpts(p iProducer, opts ...KindOptFunc) tOpts {
 		mailboxSize:           defaultMailboxSize,
 		poisonFirstOnQuit:     true,
 		kind:                  defaultLocalKind,
-		maxRestarts:           defaultMaxRestarts,
-		restartDelay:          defaultRestartDelay,
-		context:               context.Background(),
 		registerToCluster:     defaultRegisterToCluster,
 		unRegisterFromCluster: defaultUnregisterFromCluster,
 	}

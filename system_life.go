@@ -111,6 +111,13 @@ func (x *system) stopActorsImpl(first bool) {
 		//check left actors
 		var left []ActorRef
 		x.registry.lookup.IterCb(func(key string, v iProcess) {
+			//reply processors are transient RPC-reply holders: poison them to wake
+			//any caller blocked in Ask/Result, but don't count them in `left` —
+			//they remove themselves on Result() and must not stall shutdown.
+			if v.self().isAsk() {
+				v.poison()
+				return
+			}
 			//posion sequence
 			if first { //first poison
 				if v.opts() != nil && !v.opts().poisonFirstOnQuit {
@@ -120,7 +127,7 @@ func (x *system) stopActorsImpl(first bool) {
 
 			}
 			//
-			x.tell(v.self(), poison)
+			v.poison()
 			left = append(left, v.self())
 		})
 		times++

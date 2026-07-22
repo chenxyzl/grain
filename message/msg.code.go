@@ -5,7 +5,6 @@ import "strconv"
 type Code int32
 
 const (
-	codeOk            Code = 0  //ok
 	CodeErr           Code = -1 //all err
 	CodeActorNotFound Code = -2 //actor not found
 )

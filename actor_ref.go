@@ -18,6 +18,4 @@ type ActorRef interface {
 	getRemoteAddrCache() (string, bool)
 
 	Tell(msg proto.Message)
-	NoReentryAsk(target ActorRef, req proto.Message) proto.Message
-	NoReentryAskE(target ActorRef, req proto.Message) (proto.Message, error)
 }

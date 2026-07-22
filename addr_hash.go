@@ -1,21 +1,14 @@
 package grain
 
 import (
-	"hash"
 	"hash/fnv"
 	"slices"
-	"sync"
 )
 
-type AddrHash struct {
-	hasher     hash.Hash32
-	hasherLock sync.Mutex
-}
+type AddrHash struct{}
 
 func newAddrHash() *AddrHash {
-	ret := &AddrHash{}
-	ret.hasher = fnv.New32a()
-	return ret
+	return &AddrHash{}
 }
 
 func (x *AddrHash) CalcAddrByKind8Name(clusterNodes []tNodeState, kind string, name string) string {
@@ -34,26 +27,21 @@ func (x *AddrHash) CalcAddrByKind8Name(clusterNodes []tNodeState, kind string, n
 	}
 	keyBytes := []byte(name)
 	var maxScore uint32
-	var maxMember *tNodeState
-	var score uint32
-	//lock hasher
-	x.hasherLock.Lock()
+	var maxAddr string
 	for _, node := range nodes {
-		//
-		x.hasher.Reset()
-		_, _ = x.hasher.Write(keyBytes)
-		_, _ = x.hasher.Write([]byte(node.Address))
-		score = x.hasher.Sum32()
-		//
-		if score > maxScore {
+		// local hasher per call: fnv.New32a is a tiny value, avoids the global
+		// lock that previously serialized all address computations.
+		h := fnv.New32a()
+		_, _ = h.Write(keyBytes)
+		_, _ = h.Write([]byte(node.Address))
+		score := h.Sum32()
+		// deterministic tie-break: on equal score pick the lexicographically
+		// smaller address so every node computes the same owner (GetNodes
+		// returns nodes in random map order).
+		if score > maxScore || (score == maxScore && (maxAddr == "" || node.Address < maxAddr)) {
 			maxScore = score
-			maxMember = &node
+			maxAddr = node.Address
 		}
 	}
-	x.hasherLock.Unlock()
-	//maxMember will not nil
-	if maxMember == nil {
-		return ""
-	}
-	return maxMember.Address
+	return maxAddr
 }

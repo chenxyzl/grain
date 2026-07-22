@@ -10,7 +10,7 @@ import (
 // but golang not support
 func NoReentryAsk[T proto.Message](target ActorRef, req proto.Message) (T, *message.ErrCode) {
 	sys := target.GetSystem()
-	msgSnId := target.GetSystem().getNextAskId()
+	msgSnId := target.GetSystem().nextSnId()
 	reqTimeout := sys.getConfig().askTimeout
 	//
 	reply := newProcessorReplay[T](sys, reqTimeout)

@@ -1,12 +1,15 @@
 package grain
 
-import "sync"
+import (
+	"sync"
+	"sync/atomic"
+)
 
 type actorIdWrapper struct {
 	cacheParse
 	fullPath    string
 	system      ISystem
-	cacheRemote *cacheRemote
+	cacheRemote atomic.Pointer[cacheRemote]
 	sync.RWMutex
 }
 
@@ -69,21 +72,28 @@ func (x *actorIdWrapper) getRemoteAddrCache() (string, bool) {
 		return "", false
 	}
 	//
-	nodes, version := x.GetSystem().GetProvider().GetNodes()
-	vCache := x.cacheRemote
+	// fast path: compare the provider version only (no slice allocation). The
+	// full GetNodes() is called just once, when the version actually advanced.
+	version := x.GetSystem().GetProvider().GetNodesVersion()
+	vCache := x.cacheRemote.Load()
+	if vCache != nil && vCache.version == version {
+		return vCache.remoteAddr, false
+	}
 	changed := false
-	if vCache == nil || vCache.version != version {
+	{
 		x.Lock()
-		//double check
+		//double check: re-read under the lock, not the stale value captured above.
+		vCache = x.cacheRemote.Load()
 		if vCache == nil || vCache.version != version {
+			nodes, ver := x.GetSystem().GetProvider().GetNodes()
 			cacheAddr := x.GetSystem().getAddrHash().CalcAddrByKind8Name(nodes, x.GetKind(), x.GetName())
 			if cacheAddr == "" {
 				x.Unlock()
 				return "", false
 			}
 			changed = vCache == nil || vCache.remoteAddr != cacheAddr
-			vCache = &cacheRemote{version, cacheAddr}
-			x.cacheRemote = vCache
+			vCache = &cacheRemote{ver, cacheAddr}
+			x.cacheRemote.Store(vCache)
 		}
 		x.Unlock()
 	}

@@ -3,7 +3,6 @@ package grain
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 
 	remote2 "github.com/chenxyzl/grain/remote"
@@ -42,12 +41,18 @@ func newStreamWriterActor(router ActorRef, address string, dialOptions []grpc.Di
 func (x *streamWriteActor) Started() {
 	conn, err := grpc.NewClient(x.address, x.dialOptions...)
 	if err != nil {
-		panic(errors.Join(fmt.Errorf("connect to grpc server err, addr:%v", x.address), err))
+		// runtime failure (bad address / dial setup): log and stop self instead
+		// of panicking. A later send re-spawns the write stream actor.
+		x.Logger().Error("connect to grpc server err, stop self", "addr", x.address, "err", err)
+		x.GetSystem().Poison(x.Self())
+		return
 	}
 	stream, err := remote2.NewRemotingClient(conn).Listen(context.Background(), x.callOptions...)
 	if err != nil {
 		_ = conn.Close()
-		panic(errors.Join(fmt.Errorf("listen to grpc server err, addr:%v", x.address), err))
+		x.Logger().Error("listen to grpc server err, stop self", "addr", x.address, "err", err)
+		x.GetSystem().Poison(x.Self())
+		return
 	}
 	x.conn = conn
 	x.remote = stream

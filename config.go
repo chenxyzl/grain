@@ -48,7 +48,6 @@ type config struct {
 	kinds                map[string]tKind
 	addr                 net.Addr
 	state                tNodeState
-	localProviderVersion int64 //
 }
 
 func newConfig(clusterName string, version string, clusterUrls []string, opts ...ConfigOptFunc) *config {

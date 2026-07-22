@@ -2,95 +2,87 @@ package ringbuffer
 
 import (
 	"sync"
-	"sync/atomic"
 )
 
-type buffer[T any] struct {
-	items           []T
-	head, tail, mod int64
-}
-
+// RingBuffer is a fixed-capacity FIFO queue.
+//   - Push blocks when the buffer is full (back-pressure on the sender), and
+//     returns false once the buffer is closed (so a blocked sender to a dead
+//     mailbox is woken rather than stuck forever).
+//   - Pop never blocks: it returns (zero, false) when empty, which keeps the
+//     actor scheduler's drain-and-exit model intact.
+//
+// warning: pushing to your own already-full mailbox blocks the actor goroutine
+// and can self-deadlock. Size the mailbox for the expected in-flight depth.
 type RingBuffer[T any] struct {
-	len     int64
-	content *buffer[T]
 	mu      sync.Mutex
+	notFull *sync.Cond
+	items   []T
+	head    int64 // index of next Pop
+	tail    int64 // index of next Push
+	size    int64 // current element count
+	cap     int64
+	closed  bool
 }
 
 func New[T any](size int64) *RingBuffer[T] {
-	return &RingBuffer[T]{
-		content: &buffer[T]{
-			items: make([]T, size),
-			head:  0,
-			tail:  0,
-			mod:   size,
-		},
-		len: 0,
+	if size <= 0 {
+		size = 1
 	}
+	rb := &RingBuffer[T]{
+		items: make([]T, size),
+		cap:   size,
+	}
+	rb.notFull = sync.NewCond(&rb.mu)
+	return rb
 }
 
-func (rb *RingBuffer[T]) Push(item T) {
+// Push appends item, blocking while the buffer is full. It returns false if the
+// buffer has been closed (item is not enqueued), true otherwise.
+func (rb *RingBuffer[T]) Push(item T) bool {
 	rb.mu.Lock()
-	rb.content.tail = (rb.content.tail + 1) % rb.content.mod
-	if rb.content.tail == rb.content.head {
-		size := rb.content.mod * 2
-		newBuff := make([]T, size)
-		for i := int64(0); i < rb.content.mod; i++ {
-			idx := (rb.content.tail + i) % rb.content.mod
-			newBuff[i] = rb.content.items[idx]
-		}
-		content := &buffer[T]{
-			items: newBuff,
-			head:  0,
-			tail:  rb.content.mod,
-			mod:   size,
-		}
-		rb.content = content
+	for rb.size == rb.cap && !rb.closed {
+		rb.notFull.Wait()
 	}
-	atomic.AddInt64(&rb.len, 1)
-	rb.content.items[rb.content.tail] = item
+	if rb.closed {
+		rb.mu.Unlock()
+		return false
+	}
+	rb.items[rb.tail] = item
+	rb.tail = (rb.tail + 1) % rb.cap
+	rb.size++
+	rb.mu.Unlock()
+	return true
+}
+
+// Close marks the buffer closed and wakes every blocked Push. Already-enqueued
+// items remain poppable; further Push calls return false.
+func (rb *RingBuffer[T]) Close() {
+	rb.mu.Lock()
+	rb.closed = true
+	rb.notFull.Broadcast()
 	rb.mu.Unlock()
 }
 
 func (rb *RingBuffer[T]) Len() int64 {
-	return atomic.LoadInt64(&rb.len)
+	rb.mu.Lock()
+	n := rb.size
+	rb.mu.Unlock()
+	return n
 }
 
 func (rb *RingBuffer[T]) Pop() (T, bool) {
-	if rb.Len() == 0 {
+	rb.mu.Lock()
+	if rb.size == 0 {
+		rb.mu.Unlock()
 		var t T
 		return t, false
 	}
-	rb.mu.Lock()
-	rb.content.head = (rb.content.head + 1) % rb.content.mod
-	item := rb.content.items[rb.content.head]
-	var t T
-	rb.content.items[rb.content.head] = t
-	atomic.AddInt64(&rb.len, -1)
+	item := rb.items[rb.head]
+	var zero T
+	rb.items[rb.head] = zero
+	rb.head = (rb.head + 1) % rb.cap
+	rb.size--
+	rb.notFull.Signal()
 	rb.mu.Unlock()
 	return item, true
-}
-
-func (rb *RingBuffer[T]) PopN(n int64) ([]T, bool) {
-	if rb.Len() == 0 {
-		return nil, false
-	}
-	rb.mu.Lock()
-	content := rb.content
-
-	if n >= rb.len {
-		n = rb.len
-	}
-	atomic.AddInt64(&rb.len, -n)
-
-	items := make([]T, n)
-	for i := int64(0); i < n; i++ {
-		pos := (content.head + 1 + i) % content.mod
-		items[i] = content.items[pos]
-		var t T
-		content.items[pos] = t
-	}
-	content.head = (content.head + n) % content.mod
-
-	rb.mu.Unlock()
-	return items, true
 }

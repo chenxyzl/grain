@@ -1,22 +1,24 @@
 package grain
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
+	"github.com/chenxyzl/grain/message"
 	"google.golang.org/protobuf/proto"
 )
 
 //var _ IActor = (*BaseActor)(nil)
 
-const defaultRegisterTimes = 3
-
 type BaseActor struct {
 	ActorRef
-	logger       *slog.Logger
-	runningMsgId uint64
+	logger *slog.Logger
+	// runningMsgId is written by the actor's own goroutine (run loop) and read
+	// by arbitrary sender goroutines in processorMailBox.send (re-entry check),
+	// so it must be accessed atomically.
+	runningMsgId atomic.Uint64
 }
 
 //func (x *BaseActor) Started()             {}
@@ -27,9 +29,9 @@ func (x *BaseActor) _init(self ActorRef) {
 	x.ActorRef = self
 	x.logger = slog.With("actor", x.Self()) //warning: slog.With performance too slow
 }
-func (x *BaseActor) _getRunningMsgId() uint64             { return x.runningMsgId }
-func (x *BaseActor) _setRunningMsgId(runningMsgId uint64) { x.runningMsgId = runningMsgId }
-func (x *BaseActor) _cleanRunningMsgId()                  { x.runningMsgId = 0 }
+func (x *BaseActor) _getRunningMsgId() uint64             { return x.runningMsgId.Load() }
+func (x *BaseActor) _setRunningMsgId(runningMsgId uint64) { x.runningMsgId.Store(runningMsgId) }
+func (x *BaseActor) _cleanRunningMsgId()                  { x.runningMsgId.Store(0) }
 
 func (x *BaseActor) Self() ActorRef       { return x.ActorRef }
 func (x *BaseActor) Logger() *slog.Logger { return x.logger }
@@ -45,10 +47,13 @@ func (x *BaseActor) Send(target ActorRef, msg proto.Message) {
 // Ask allowed re-entry
 // wanted BaseActor.Ask[T proto.Message](target ActorRef, req proto.Message) T
 // but golang not support
-func (x *BaseActor) Ask(target ActorRef, msg proto.Message) proto.Message {
+//
+// Returns the reply, or an *message.ErrCode on failure (nil target, timeout,
+// remote error, type mismatch). Runtime failures are returned to the caller,
+// not panicked.
+func (x *BaseActor) Ask(target ActorRef, msg proto.Message) (proto.Message, *message.ErrCode) {
 	if target == nil {
-		x.Logger().Error("ask target is nil", "id", x.Self(), "msgName", proto.MessageName(msg), "msg", msg)
-		return nil
+		return nil, message.WithErr(fmt.Sprintf("ask target is nil, sender:%v", x.Self()))
 	}
 	//
 	sys := target.GetSystem()
@@ -58,11 +63,7 @@ func (x *BaseActor) Ask(target ActorRef, msg proto.Message) proto.Message {
 	//
 	sys.getSender().tellWithSender(target, msg, reply.self(), x._getRunningMsgId())
 	//
-	v, err := reply.Result()
-	if err != nil {
-		panic(errors.Join(err, fmt.Errorf("ask err, sender:%v,target:%v,err:%v", x.Self(), target, err)))
-	}
-	return v
+	return reply.Result()
 }
 
 func (x *BaseActor) ScheduleSelfOnce(delay time.Duration, msg proto.Message) CancelScheduleFunc {

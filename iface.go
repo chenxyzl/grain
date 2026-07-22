@@ -19,7 +19,7 @@ type ISystem interface {
 	GetProvider() iProvider
 	GetScheduler() iScheduler
 	Logger() *slog.Logger
-	getNextAskId() uint64
+	nextSnId() uint64
 
 	/*
 		system life
@@ -63,6 +63,7 @@ type iSystemLife interface {
 type iRegistry interface {
 	get(actRef ActorRef) iProcess
 	add(iProcP iProcessProvider) iProcess
+	getOrAdd(id string, iProcP iProcessProvider) iProcess
 	remove(actRef ActorRef)
 }
 
@@ -73,11 +74,6 @@ type CancelScheduleFunc func()
 type iScheduler interface {
 	ScheduleOnce(target ActorRef, delay time.Duration, msg proto.Message) CancelScheduleFunc
 	ScheduleRepeated(target ActorRef, delay time.Duration, interval time.Duration, msg proto.Message) CancelScheduleFunc
-}
-
-type iRegister interface {
-	add(proc iProcess) iProcess
-	remove(actRef ActorRef)
 }
 
 type iRpcServer interface {

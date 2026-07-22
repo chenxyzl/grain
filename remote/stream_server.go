@@ -1,10 +1,12 @@
 package remote
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
 
+	"github.com/chenxyzl/grain/al/gonet"
 	"github.com/chenxyzl/grain/ghelper"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -58,7 +60,20 @@ func (x *RpcService) Start() error {
 	if err != nil {
 		return err
 	}
-	x.addr = lis.Addr().String()
+	// advertise a reachable inner IP instead of the wildcard "[::]" the listener
+	// reports, otherwise other cluster nodes cannot dial this one. Fall back to
+	// loopback when no inner NIC exists (single-machine / container / CI), so the
+	// node still starts (only reachable locally, which is fine for that case).
+	host := "127.0.0.1"
+	if innerIP := gonet.GetTopInnerIP(); innerIP != nil {
+		host = innerIP.String()
+	}
+	_, port, err := net.SplitHostPort(lis.Addr().String())
+	if err != nil {
+		_ = lis.Close()
+		return fmt.Errorf("parse listen addr err: %w", err)
+	}
+	x.addr = net.JoinHostPort(host, port)
 	x.logger = slog.With("rpcService", x.addr)
 	x.gs = grpc.NewServer()
 	RegisterRemotingServer(x.gs, x)

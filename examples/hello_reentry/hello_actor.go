@@ -18,7 +18,11 @@ type HelloActorA struct{ grain.BaseActor }
 
 func (x *HelloActorA) Started() {
 	x.Logger().Info("Started1")
-	reply := x.Ask(helloActorB, &testpb.HelloAskA2B{Name: "hello a2b"})
+	reply, err := x.Ask(helloActorB, &testpb.HelloAskA2B{Name: "hello a2b"})
+	if err != nil {
+		x.Logger().Error("HelloActorA ask err", "err", err)
+		return
+	}
 	x.Logger().Info("HelloActorA get reply", "reply", reply)
 }
 func (x *HelloActorA) PreStop() { x.Logger().Info("PreStop1") }
@@ -43,7 +47,11 @@ func (x *HelloActorB) Receive(context grain.Context) {
 	switch msg := context.Message().(type) {
 	case *testpb.HelloAskA2B: //ask-reply
 		x.Logger().Info("HelloActorB received HelloAskA2B")
-		reply := x.Ask(helloActorA, &testpb.HelloAskB2A{Name: "HelloAskB2A"})
+		reply, err := x.Ask(helloActorA, &testpb.HelloAskB2A{Name: "HelloAskB2A"})
+		if err != nil {
+			x.Logger().Error("HelloActorB ask err", "err", err)
+			return
+		}
 		x.Logger().Info("HelloActorB get reply", "reply", reply)
 		context.Reply(&testpb.HelloReplyA2B{Name: "HelloReplyA2B"})
 		time.Sleep(time.Second * 1)

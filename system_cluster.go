@@ -13,6 +13,8 @@ func (x *system) clusterMemberChanged() {
 		//cluster actor
 		newAddr := x.getAddrHash().CalcAddrByKind8Name(clusterNodes, self.GetKind(), self.GetName())
 		if newAddr != "" && newAddr != addr {
+			// this actor no longer belongs to this node: stop it. A stateful actor
+			// should persist in PreStop and reload in Started on the new owner node.
 			x.Poison(self)
 		}
 	})
@@ -33,7 +35,9 @@ func (x *system) ensureClusterKindActorExist(ref ActorRef) bool {
 	if x.registry.get(ref) != nil {
 		return true
 	}
-	//instant
-	x.SpawnClusterName(kind.producer, append(kind.opts, withOptsClusterSelf(ref))...)
+	//instant: idempotent spawn, concurrent callers must not trigger a
+	//duplicate-id panic that would crash the process.
+	opts := newOpts(kind.producer, append(kind.opts, withOptsClusterSelf(ref))...)
+	newProcessorOrGet(x, opts)
 	return true
 }

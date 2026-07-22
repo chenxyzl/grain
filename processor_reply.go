@@ -34,10 +34,27 @@ func newProcessorReplay[T proto.Message](system ISystem, timeout time.Duration) 
 	return p
 }
 
-func (x *processorReply[T]) self() ActorRef   { return x._self }
-func (x *processorReply[T]) opts() *tOpts     { return nil }
-func (x *processorReply[T]) init()            {}
-func (x *processorReply[T]) send(ctx Context) { x.result <- ctx.Message() }
+func (x *processorReply[T]) self() ActorRef { return x._self }
+func (x *processorReply[T]) opts() *tOpts   { return nil }
+func (x *processorReply[T]) init()          {}
+
+// poison wakes a caller blocked in Result() (e.g. during shutdown) by
+// delivering the poison sentinel, which Result() maps to a "poisoned" error.
+// Non-blocking: the buffered channel holds at most one value.
+func (x *processorReply[T]) poison() {
+	select {
+	case x.result <- poison:
+	default:
+	}
+}
+func (x *processorReply[T]) send(ctx Context) {
+	// non-blocking: the result channel is buffered for exactly one reply. A
+	// duplicate reply (e.g. a retry) must not block the sender goroutine.
+	select {
+	case x.result <- ctx.Message():
+	default:
+	}
+}
 
 func (x *processorReply[T]) Result() (T, *message.ErrCode) {
 	ctx, cancel := context.WithTimeout(context.Background(), x.timeout)
