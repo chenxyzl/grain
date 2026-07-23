@@ -1,7 +1,6 @@
 package grain
 
 import (
-	"runtime"
 	"sync/atomic"
 
 	"github.com/chenxyzl/grain/al/ringbuffer"
@@ -11,13 +10,21 @@ import (
 )
 
 const (
-	defaultThroughput = 10
-)
-
-const (
 	idle int32 = iota
 	running
 	stopped
+)
+
+// lifecycle is the actor's Started/PreStop phase. Its three values are mutually
+// exclusive and it is only ever read/written while holding the turn, so it needs
+// no atomic. It is orthogonal to procStatus (scheduler park state) and poisoned
+// (stop-requested latch), which live in different concurrency domains.
+type lifecycle int8
+
+const (
+	lifeInit     lifecycle = iota // not started yet
+	lifeStarting                  // inside start()/Started()
+	lifeStarted                   // Started() completed
 )
 
 type processorMailBox struct {
@@ -26,11 +33,24 @@ type processorMailBox struct {
 	rb         *ringbuffer.RingBuffer[Context]
 	procStatus int32
 	poisoned   atomic.Bool
-	started    bool // set after Started() runs; only touched on the run goroutine
-	receiver   IActor
+	life       lifecycle // Started/PreStop phase; only touched while holding turn
+
+	// turn is a capacity-1 semaphore (one token = free). Holding a token grants
+	// the exclusive right to execute actor code (Started/Receive/PreStop), so the
+	// actor is strictly single-threaded even across reentrant Ask.
+	turn chan struct{}
+	// inflight counts handler executions in progress, INCLUDING handlers
+	// suspended inside a blocking Ask. stop() may only run once inflight==0.
+	inflight atomic.Int32
+	// activeDS is the drain state of the goroutine currently holding the turn;
+	// only accessed while holding the turn, so it needs no extra sync.
+	activeDS *drainState
+
+	receiver IActor
 }
 
 var _ iProcess = (*processorMailBox)(nil)
+var _ reentryTurn = (*processorMailBox)(nil)
 
 func newProcessor(system ISystem, opts tOpts) iProcess {
 	return spawnProcessor(system, opts, false)
@@ -51,7 +71,9 @@ func spawnProcessor(system ISystem, opts tOpts, orGet bool) iProcess {
 			system:     system,
 			rb:         ringbuffer.New[Context](int64(opts.mailboxSize)),
 			procStatus: idle,
+			turn:       make(chan struct{}, 1),
 		}
+		p.turn <- struct{}{} // turn starts free
 		// Bind the receiver and enqueue the initialize message in the constructor,
 		// before the processor is published to the registry. This guarantees that
 		// a concurrent get()+send() (the write_stream / cluster spawn races) can
@@ -60,6 +82,7 @@ func spawnProcessor(system ISystem, opts tOpts, orGet bool) iProcess {
 		// any externally-sent message. init() below only starts the run loop.
 		p.receiver = p.producer()
 		p.receiver._init(p.self())
+		p.receiver._bindTurn(p)
 		p.rb.Push(newContext(p.self(), p.self(), initialize, system.nextSnId(), system.getSender()))
 		return p
 	}
@@ -72,13 +95,36 @@ func spawnProcessor(system ISystem, opts tOpts, orGet bool) iProcess {
 func (x *processorMailBox) self() ActorRef { return x._self }
 func (x *processorMailBox) opts() *tOpts   { return &x.tOpts }
 
-// poison requests a stop without enqueuing into the (possibly full) mailbox:
-// it sets a flag and wakes the run loop, which drains the remaining messages
-// and then stops. Non-blocking and idempotent, so it is safe to call while
-// holding registry locks (see system_life.stopActorsImpl).
-func (x *processorMailBox) poison() {
-	x.poisoned.Store(true)
-	x.schedule()
+func (x *processorMailBox) acquireTurn() { <-x.turn }
+func (x *processorMailBox) releaseTurn() { x.turn <- struct{}{} }
+
+// yieldTurn is called by BaseActor.Ask (while holding the turn) right before it
+// blocks on a reply. It hands off the drainer role to a fresh successor (so the
+// mailbox keeps draining while this handler is suspended) and releases the turn.
+// Returns the caller's drain state for resumeTurn to restore.
+func (x *processorMailBox) yieldTurn() *drainState {
+	ds := x.activeDS
+	// During start()/Started(), do NOT hand off to a successor: business messages
+	// must not be processed until Started completes. A blocking Ask inside Started
+	// still gets its reply via the reply channel, so it doesn't deadlock — it just
+	// doesn't let other messages in. Once Started returns, the same drainer resumes
+	// and continues draining normally.
+	if ds != nil && !ds.handedOff && x.life != lifeStarting {
+		// first yield of this drainer: spawn a successor to take over draining.
+		// procStatus stays `running` — the running-owner role passes to the
+		// successor; this goroutine exits (handedOff) once its handler completes.
+		ds.handedOff = true
+		go x.process()
+	}
+	x.releaseTurn()
+	return ds
+}
+
+// resumeTurn is called by BaseActor.Ask after the reply arrives; it reacquires
+// the turn so the suspended handler can finish single-threaded.
+func (x *processorMailBox) resumeTurn(ds *drainState) {
+	x.acquireTurn()
+	x.activeDS = ds
 }
 
 func (x *processorMailBox) init() {
@@ -89,17 +135,21 @@ func (x *processorMailBox) init() {
 }
 
 func (x *processorMailBox) send(ctx Context) {
-	//for re-entry
-	if runningMsgId := x.receiver._getRunningMsgId(); runningMsgId != 0 && runningMsgId == ctx.GetMsgSnId() {
-		x.invoke(ctx)
-		return
-	}
 	if !x.rb.Push(ctx) {
 		// mailbox already closed (actor stopped): drop rather than block forever.
 		x.system.Logger().Warn("send to a stopped actor, msg dropped",
 			"id", x.self(), "msgName", proto.MessageName(ctx.Message()))
 		return
 	}
+	x.schedule()
+}
+
+// poison requests a stop without enqueuing into the (possibly full) mailbox:
+// it sets a flag and wakes the run loop, which drains the remaining messages
+// and then stops. Non-blocking and idempotent, so it is safe to call while
+// holding registry locks (see system_life.stopActorsImpl).
+func (x *processorMailBox) poison() {
+	x.poisoned.Store(true)
 	x.schedule()
 }
 
@@ -118,53 +168,89 @@ func (x *processorMailBox) invoke(ctx Context) {
 	case *message.Initialize:
 		x.start()
 	case *message.Poison:
-		x.stop()
+		// A Poison delivered as a message (e.g. from a remote node) must not stop
+		// synchronously here: another handler may be suspended in a blocking Ask
+		// (inflight>0). Route it through the flag path so stop only runs once the
+		// mailbox is drained and inflight==0, exactly like a local poison().
+		x.poison()
 	default:
 		x.receiver.Receive(ctx)
 	}
 }
+
 func (x *processorMailBox) schedule() {
 	if atomic.CompareAndSwapInt32(&x.procStatus, idle, running) {
 		go x.process()
 	}
 }
+
 func (x *processorMailBox) process() {
-	x.run()
+	ds := &drainState{}
+	x.run(ds)
+	if ds.handedOff {
+		// a successor took over the running-owner role; just exit.
+		return
+	}
 	// If run() exited because stop() set the status to stopped, leave it stopped.
 	if !atomic.CompareAndSwapInt32(&x.procStatus, running, idle) {
 		return
 	}
-	// Re-check the queue after going idle: a send() that pushed (or a poison()
-	// that set the flag) between the last Pop and the CAS above would have had
-	// its schedule() no-op (status was still running). Re-schedule so neither a
-	// message nor a pending poison is lost (lost-wakeup fix).
-	if x.rb.Len() > 0 || x.poisoned.Load() {
+	// Re-check after going idle: a send() that pushed re-arms draining. For the
+	// poison path we only need to wake up to run doStop, whose precondition is
+	// inflight==0 — otherwise we'd busy-spin (schedule -> Pop empty -> can't stop
+	// -> reschedule) until a suspended Ask returns. When inflight>0, the handler
+	// that finishes last re-schedules from run() (see the remaining==0 branch).
+	if x.rb.Len() > 0 || (x.poisoned.Load() && x.inflight.Load() == 0) {
 		x.schedule()
 	}
 }
-func (x *processorMailBox) run() {
-	i, t := 0, defaultThroughput
+
+func (x *processorMailBox) run(ds *drainState) {
 	for atomic.LoadInt32(&x.procStatus) != stopped {
-		if i > t {
-			i = 0
-			runtime.Gosched()
+		msg, ok := x.rb.Pop()
+		if !ok {
+			// mailbox drained: if a poison was requested and no handler is still
+			// in flight (including ones suspended in Ask), stop now.
+			if x.poisoned.Load() && x.inflight.Load() == 0 {
+				x.doStop()
+			}
+			return
 		}
-		i++
-		if msg, ok := x.rb.Pop(); ok {
-			x.receiver._setRunningMsgId(msg.GetMsgSnId())
-			x.invoke(msg)
-			x.receiver._cleanRunningMsgId()
-		} else {
-			// mailbox drained: if a poison was requested, stop now (after having
-			// processed all already-enqueued messages). Otherwise just exit the
-			// loop and let process() park the goroutine.
-			if x.poisoned.Load() {
-				x.stop()
+		x.inflight.Add(1)
+		x.acquireTurn()
+		x.activeDS = ds
+		x.invoke(msg) // may yield/resume the turn internally on a blocking Ask
+		x.releaseTurn()
+		remaining := x.inflight.Add(-1)
+		if ds.handedOff {
+			// I yielded during this handler; the successor owns draining now. If I
+			// was the last in-flight handler and we're poisoned, retrigger so the
+			// stop check runs (the successor may already have parked).
+			if remaining == 0 && x.poisoned.Load() {
+				x.schedule()
 			}
 			return
 		}
 	}
 }
+
+// doStop stops the actor while holding the turn, after re-confirming the mailbox
+// is drained and no handler is in flight. Called from the run loop on the poison
+// path. Idempotent via the stopped-state check.
+func (x *processorMailBox) doStop() {
+	x.acquireTurn()
+	defer x.releaseTurn()
+	if atomic.LoadInt32(&x.procStatus) == stopped {
+		return
+	}
+	if x.rb.Len() != 0 || x.inflight.Load() != 0 {
+		// work reappeared between the run-loop check and acquiring the turn; a
+		// drainer (spawned by the send/retrigger) will handle it and retry stop.
+		return
+	}
+	x.stop()
+}
+
 func (x *processorMailBox) start() {
 	defer func() {
 		if err := recover(); err != nil {
@@ -172,7 +258,7 @@ func (x *processorMailBox) start() {
 				"id", x.self(),
 				"err", err,
 				"stack", ghelper.StackTrace())
-			//force to stop self
+			//force to stop self (life stays lifeStarting, so stop skips PreStop)
 			x.stop()
 		}
 	}()
@@ -180,17 +266,25 @@ func (x *processorMailBox) start() {
 		if err := x.tOpts.registerToCluster(x.system.GetProvider(), x.system.getConfig(), x.self()); err != nil {
 			// cluster registration failed: this actor cannot serve its kind, so
 			// stop it (logged, not panicked — a runtime failure, not a crash).
-			// started is still false, so stop() will skip PreStop.
+			// life is still lifeInit, so stop() will skip PreStop.
 			x.system.Logger().Error("register to cluster failed, stop self",
 				"id", x.self(), "err", err)
 			x.stop()
 			return
 		}
 	}
+	x.life = lifeStarting
 	x.receiver.Started()
-	x.started = true
+	x.life = lifeStarted
 }
+
+// stop is always called while holding the turn (from the run loop's invoke of a
+// Poison message, from doStop, or from start()'s failure/recover paths), so it
+// runs single-threaded against the actor. It is idempotent.
 func (x *processorMailBox) stop() {
+	if atomic.LoadInt32(&x.procStatus) == stopped {
+		return
+	}
 	defer func() {
 		if err := recover(); err != nil {
 			x.system.Logger().Error("recover a panic on stop",
@@ -218,7 +312,7 @@ func (x *processorMailBox) stop() {
 	// PreStop pairs with a completed Started(): skip it when the actor never
 	// finished starting (e.g. cluster-register failure, or Started panicked),
 	// so cleanup code doesn't touch resources Started was supposed to set up.
-	if x.started {
+	if x.life == lifeStarted {
 		x.receiver.PreStop()
 	}
 }

@@ -3,7 +3,6 @@ package grain
 import (
 	"fmt"
 	"log/slog"
-	"sync/atomic"
 	"time"
 
 	"github.com/chenxyzl/grain/message"
@@ -15,10 +14,7 @@ import (
 type BaseActor struct {
 	ActorRef
 	logger *slog.Logger
-	// runningMsgId is written by the actor's own goroutine (run loop) and read
-	// by arbitrary sender goroutines in processorMailBox.send (re-entry check),
-	// so it must be accessed atomically.
-	runningMsgId atomic.Uint64
+	turn   reentryTurn // owning processor's turn controller, for reentrant Ask
 }
 
 //func (x *BaseActor) Started()             {}
@@ -29,9 +25,7 @@ func (x *BaseActor) _init(self ActorRef) {
 	x.ActorRef = self
 	x.logger = slog.With("actor", x.Self()) //warning: slog.With performance too slow
 }
-func (x *BaseActor) _getRunningMsgId() uint64             { return x.runningMsgId.Load() }
-func (x *BaseActor) _setRunningMsgId(runningMsgId uint64) { x.runningMsgId.Store(runningMsgId) }
-func (x *BaseActor) _cleanRunningMsgId()                  { x.runningMsgId.Store(0) }
+func (x *BaseActor) _bindTurn(t reentryTurn) { x.turn = t }
 
 func (x *BaseActor) Self() ActorRef       { return x.ActorRef }
 func (x *BaseActor) Logger() *slog.Logger { return x.logger }
@@ -44,13 +38,13 @@ func (x *BaseActor) Send(target ActorRef, msg proto.Message) {
 	x.GetSystem().getSender().tell(target, msg)
 }
 
-// Ask allowed re-entry
-// wanted BaseActor.Ask[T proto.Message](target ActorRef, req proto.Message) T
-// but golang not support
+// Ask sends msg to target and blocks for the reply. It is reentrant: while this
+// actor waits, it yields its execution turn so other messages (including a
+// reply chain a->b->a) can be processed, then reacquires the turn before
+// returning. The actor stays strictly single-threaded.
 //
 // Returns the reply, or an *message.ErrCode on failure (nil target, timeout,
-// remote error, type mismatch). Runtime failures are returned to the caller,
-// not panicked.
+// remote error, type mismatch). Runtime failures are returned, not panicked.
 func (x *BaseActor) Ask(target ActorRef, msg proto.Message) (proto.Message, *message.ErrCode) {
 	if target == nil {
 		return nil, message.WithErr(fmt.Sprintf("ask target is nil, sender:%v", x.Self()))
@@ -60,10 +54,16 @@ func (x *BaseActor) Ask(target ActorRef, msg proto.Message) (proto.Message, *mes
 	reqTimeout := sys.getConfig().askTimeout
 	//
 	reply := newProcessorReplay[proto.Message](sys, reqTimeout)
-	//
-	sys.getSender().tellWithSender(target, msg, reply.self(), x._getRunningMsgId())
-	//
-	return reply.Result()
+	// Yield the turn BEFORE sending: the send may block on a full mailbox, and if
+	// the target is this actor itself (self-ask) or a full a->b->a cycle, only a
+	// successor drainer (spawned by yieldTurn) can free space. Yielding first lets
+	// that successor drain while we send, avoiding a self-deadlock. Yielding also
+	// breaks the a->b->a reply deadlock as before.
+	ds := x.turn.yieldTurn()
+	sys.getSender().tellWithSender(target, msg, reply.self(), sys.nextSnId())
+	v, err := reply.Result()
+	x.turn.resumeTurn(ds)
+	return v, err
 }
 
 func (x *BaseActor) ScheduleSelfOnce(delay time.Duration, msg proto.Message) CancelScheduleFunc {
