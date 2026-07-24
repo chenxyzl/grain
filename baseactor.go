@@ -51,17 +51,17 @@ func (x *BaseActor) Ask(target ActorRef, msg proto.Message) (proto.Message, *mes
 	}
 	//
 	sys := target.GetSystem()
-	reqTimeout := sys.getConfig().askTimeout
-	//
-	reply := newProcessorReplay[proto.Message](sys, reqTimeout)
+	snId := sys.nextSnId()
+	ch := sys.registerAsk(snId)
+	defer sys.cancelAsk(snId) // idempotent: no-op if a reply already Popped it
 	// Yield the turn BEFORE sending: the send may block on a full mailbox, and if
 	// the target is this actor itself (self-ask) or a full a->b->a cycle, only a
 	// successor drainer (spawned by yieldTurn) can free space. Yielding first lets
 	// that successor drain while we send, avoiding a self-deadlock. Yielding also
-	// breaks the a->b->a reply deadlock as before.
+	// breaks the a->b->a reply deadlock.
 	ds := x.turn.yieldTurn()
-	sys.getSender().tellWithSender(target, msg, reply.self(), sys.nextSnId())
-	v, err := reply.Result()
+	sys.getSender().tellWithSender(target, msg, newReplyRef(snId, sys.getAddr(), sys), snId)
+	v, err := awaitReply[proto.Message](ch, sys.getConfig().askTimeout)
 	x.turn.resumeTurn(ds)
 	return v, err
 }

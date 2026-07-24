@@ -20,6 +20,11 @@ type ISystem interface {
 	GetScheduler() iScheduler
 	Logger() *slog.Logger
 	nextSnId() uint64
+	/*
+		ask correlation (reply futures)
+	*/
+	registerAsk(snId uint64) chan proto.Message
+	cancelAsk(snId uint64)
 
 	/*
 		system life

@@ -1,2 +1,4 @@
 **.log
 **.exe
+**.test
+.vscode/

@@ -3,7 +3,6 @@ package safemap
 import (
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"sync"
 )
 
@@ -385,11 +384,12 @@ func stringFnv32(key string) uint32 {
 func intFnv32[K int | uint | int32 | uint32 | int64 | uint64](key K) uint32 {
 	hash := uint32(2166136261)
 	const prime32 = uint32(16777619)
-	sk := strconv.Itoa(int(key))
-	keyLength := len(sk)
-	for i := 0; i < keyLength; i++ {
+	// hash the 8 raw bytes of the key directly — no strconv/string allocation.
+	u := uint64(key)
+	for i := 0; i < 8; i++ {
 		hash *= prime32
-		hash ^= uint32(sk[i])
+		hash ^= uint32(u & 0xff)
+		u >>= 8
 	}
 	return hash
 }

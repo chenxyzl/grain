@@ -9,6 +9,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/chenxyzl/grain/al/ringbuffer"
+	"github.com/chenxyzl/grain/al/safemap"
 	"github.com/chenxyzl/grain/message"
 	"github.com/chenxyzl/grain/uuid"
 )
@@ -18,18 +19,20 @@ import (
 // inherited from the embedded nil ISystem and will panic if unexpectedly used.
 type fakeSys struct {
 	ISystem
-	reg    *registry
-	cfg    *config
-	snId   atomic.Uint64
-	logger *slog.Logger
+	reg     *registry
+	cfg     *config
+	snId    atomic.Uint64
+	logger  *slog.Logger
+	pending safemap.ConcurrentMap[uint64, chan proto.Message]
 }
 
 func newFakeSys() *fakeSys {
 	_ = uuid.Init(1) // reply-processor ids use the global uuid generator
 	return &fakeSys{
-		reg:    newRegistry(slog.Default()),
-		cfg:    &config{askTimeout: 5 * time.Second}, // empty Kinds => register/unregister no-op
-		logger: slog.Default(),
+		reg:     newRegistry(slog.Default()),
+		cfg:     &config{askTimeout: 5 * time.Second}, // empty Kinds => register/unregister no-op
+		logger:  slog.Default(),
+		pending: safemap.NewIntC[uint64, chan proto.Message](),
 	}
 }
 
@@ -41,6 +44,18 @@ func (f *fakeSys) nextSnId() uint64       { return f.snId.Add(1) }
 func (f *fakeSys) getSender() iSender     { return f }
 func (f *fakeSys) getAddr() string        { return "test" }
 
+func (f *fakeSys) registerAsk(snId uint64) chan proto.Message {
+	ch := make(chan proto.Message, 1)
+	f.pending.Set(snId, ch)
+	return ch
+}
+func (f *fakeSys) cancelAsk(snId uint64) { f.pending.Remove(snId) }
+func (f *fakeSys) deliverReply(snId uint64, msg proto.Message) {
+	if ch, ok := f.pending.Pop(snId); ok {
+		ch <- msg
+	}
+}
+
 // tell / tellWithSender: minimal local-only router so real BaseActor.Ask (and
 // ctx.Reply) work in-process without etcd/grpc. Looks the target up in the
 // registry and delivers via proc.send; unknown targets are dropped.
@@ -48,6 +63,11 @@ func (f *fakeSys) tell(target ActorRef, msg proto.Message) {
 	f.tellWithSender(target, msg, nil, f.nextSnId())
 }
 func (f *fakeSys) tellWithSender(target ActorRef, msg proto.Message, sender ActorRef, msgSnId uint64) {
+	// mirror system.sendToLocal: reply targets go to the pending table by snId.
+	if target.isAsk() {
+		f.deliverReply(target.askSnId(), msg)
+		return
+	}
 	if proc := f.reg.get(target); proc != nil {
 		proc.send(newContext(proc.self(), sender, msg, msgSnId, f))
 	}
@@ -405,4 +425,79 @@ func TestSelfAskDoesNotDeadlock(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("self-ask deadlocked: Ask never returned")
 	}
+}
+
+// TestAskTimeoutAndLateReply verifies: an Ask times out to an ErrCode when no
+// reply arrives, and a reply that arrives AFTER the timeout (pending entry
+// already cancelled) is dropped without panicking or blocking.
+func TestAskTimeoutAndLateReply(t *testing.T) {
+	sys := newFakeSys()
+	sys.cfg = &config{askTimeout: 100 * time.Millisecond}
+
+	snId := sys.nextSnId()
+	ch := sys.registerAsk(snId)
+	// no reply sent -> should time out
+	_, err := awaitReply[*message.Unsubscribe](ch, sys.cfg.askTimeout)
+	if err == nil {
+		t.Fatal("expected timeout ErrCode, got nil")
+	}
+	sys.cancelAsk(snId) // caller cleans up (as Ask's defer does)
+
+	// a late reply for the same snId: pending entry is gone -> Pop misses -> drop.
+	// must not panic or block.
+	sys.deliverReply(snId, &message.Unsubscribe{EventName: "late"})
+}
+
+// TestWakePendingAsks verifies shutdown delivers poison to a waiting Ask so it
+// returns immediately instead of waiting out askTimeout.
+func TestWakePendingAsks(t *testing.T) {
+	sys := newFakeSys()
+	snId := sys.nextSnId()
+	ch := sys.registerAsk(snId)
+
+	got := make(chan *message.ErrCode, 1)
+	go func() {
+		_, err := awaitReply[*message.Unsubscribe](ch, 10*time.Second)
+		got <- err
+	}()
+	time.Sleep(20 * time.Millisecond) // ensure the goroutine is blocked in select
+
+	// simulate shutdown wakeup
+	sys.pending.IterCb(func(_ uint64, c chan proto.Message) {
+		select {
+		case c <- poison:
+		default:
+		}
+	})
+
+	select {
+	case err := <-got:
+		if err == nil {
+			t.Fatal("expected poisoned ErrCode on shutdown wakeup")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Ask not woken by shutdown (would have waited askTimeout)")
+	}
+}
+
+// TestAskReplyDelivered verifies the happy path: a reply for the snId is
+// delivered and decoded into the typed result.
+func TestAskReplyDelivered(t *testing.T) {
+	sys := newFakeSys()
+	snId := sys.nextSnId()
+	ch := sys.registerAsk(snId)
+
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		sys.deliverReply(snId, &message.Unsubscribe{EventName: "ok"})
+	}()
+
+	v, err := awaitReply[*message.Unsubscribe](ch, 2*time.Second)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if v == nil || v.EventName != "ok" {
+		t.Fatalf("wrong reply: %+v", v)
+	}
+	sys.cancelAsk(snId)
 }

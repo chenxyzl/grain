@@ -10,6 +10,7 @@ import (
 
 	"github.com/chenxyzl/grain/remote"
 	"github.com/chenxyzl/grain/uuid"
+	"google.golang.org/protobuf/proto"
 )
 
 func (x *system) Start() {
@@ -91,9 +92,29 @@ func (x *system) ForceStop(err error) {
 
 func (x *system) stopActors() {
 	x.Logger().Info("stop all actors begin")
+	// wake any Ask blocked waiting for a reply, so shutdown doesn't wait out
+	// askTimeout. Delivers the poison sentinel to each pending channel, which
+	// awaitReply maps to a "poisoned" error.
+	x.wakePendingAsks()
 	x.stopActorsImpl(true)
 	x.stopActorsImpl(false)
 	x.Logger().Info("stop all actors success")
+}
+
+// wakePendingAsks delivers the poison sentinel to every waiting Ask so shutdown
+// doesn't wait out askTimeout. Safe against a concurrent deliverReply on the
+// same snId: the send here is non-blocking (select/default) and the channel is
+// cap-1, so if a real reply already filled the buffer this poison is simply
+// dropped; awaitReply returns on whichever value it receives. IterCb holds the
+// shard RLock while deliverReply's Pop takes the write lock, so per snId they
+// are serialized rather than truly simultaneous.
+func (x *system) wakePendingAsks() {
+	x.pending.IterCb(func(_ uint64, ch chan proto.Message) {
+		select {
+		case ch <- poison:
+		default:
+		}
+	})
 }
 
 func (x *system) stopActorsImpl(first bool) {
@@ -111,13 +132,6 @@ func (x *system) stopActorsImpl(first bool) {
 		//check left actors
 		var left []ActorRef
 		x.registry.lookup.IterCb(func(key string, v iProcess) {
-			//reply processors are transient RPC-reply holders: poison them to wake
-			//any caller blocked in Ask/Result, but don't count them in `left` —
-			//they remove themselves on Result() and must not stall shutdown.
-			if v.self().isAsk() {
-				v.poison()
-				return
-			}
 			//posion sequence
 			if first { //first poison
 				if v.opts() != nil && !v.opts().poisonFirstOnQuit {

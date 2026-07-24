@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"sync/atomic"
 
+	"github.com/chenxyzl/grain/al/safemap"
 	"github.com/chenxyzl/grain/message"
 	"github.com/chenxyzl/grain/uuid"
 	"google.golang.org/protobuf/proto"
@@ -24,6 +25,10 @@ type system struct {
 	logger         *slog.Logger
 	eventStream    ActorRef
 	askId          uint64
+	// pending holds in-flight Ask correlation channels keyed by msg snId. A reply
+	// (local or routed back from a remote node) is delivered by snId, so a reply
+	// no longer needs to be a registered actor.
+	pending safemap.ConcurrentMap[uint64, chan proto.Message]
 }
 
 // NewSystem ...
@@ -39,6 +44,7 @@ func NewSystem(clusterName string, version string, clusterUrls []string, opts ..
 	sys.forceCloseChan = make(chan bool, 1)
 	sys.timerSchedule = newTimerSchedule(sys)
 	sys.addrHash = newAddrHash()
+	sys.pending = safemap.NewIntC[uint64, chan proto.Message]()
 	//
 	return sys
 }
@@ -116,6 +122,12 @@ func (x *system) tell(target ActorRef, msg proto.Message) {
 }
 
 func (x *system) sendToLocal(target ActorRef, msg proto.Message, sender ActorRef, msgSnId uint64) {
+	// reply target: deliver to the waiting Ask via the pending table (by snId),
+	// not through the registry — a reply is a correlation-id future, not an actor.
+	if target.isAsk() {
+		x.deliverReply(target.askSnId(), msg)
+		return
+	}
 	//to local
 	proc := x.registry.get(target)
 	if proc == nil {
@@ -159,3 +171,27 @@ func (x *system) Poison(ref ActorRef) {
 	}
 	x.tell(ref, poison)
 }
+
+// registerAsk allocates a correlation channel for an in-flight Ask and stores it
+// under snId. The channel is buffered (cap 1) so deliverReply never blocks.
+func (x *system) registerAsk(snId uint64) chan proto.Message {
+	ch := make(chan proto.Message, 1)
+	x.pending.Set(snId, ch)
+	return ch
+}
+
+// deliverReply routes a reply to the waiting Ask by snId. It atomically removes
+// the entry (Pop), so at most one of {reply, timeout, shutdown} ever writes the
+// channel; a late reply whose Ask already finished finds nothing and is dropped.
+func (x *system) deliverReply(snId uint64, msg proto.Message) {
+	if ch, ok := x.pending.Pop(snId); ok {
+		ch <- msg // cap-1 buffered, single writer wins the Pop, never blocks
+	}
+}
+
+// cancelAsk removes the pending entry (Ask finished or timed out). Idempotent:
+// if a reply already Popped it, this is a no-op.
+func (x *system) cancelAsk(snId uint64) {
+	x.pending.Remove(snId)
+}
+

@@ -1,6 +1,7 @@
 package grain
 
 import (
+	"strconv"
 	"sync"
 	"sync/atomic"
 )
@@ -63,6 +64,14 @@ func (x *actorIdWrapper) isCluster() bool { return x.GetType() == defaultActClus
 
 // isAsk ...
 func (x *actorIdWrapper) isAsk() bool { return x.GetKind() == defaultReplyKind }
+
+// askSnId parses the correlation id from the reply ref's name. Only meaningful
+// on the remote inbound path (a reply ref rebuilt via newActorRefFromAID);
+// local asks use the lighter replyRef which carries the snId directly.
+func (x *actorIdWrapper) askSnId() uint64 {
+	n, _ := strconv.ParseUint(x.GetName(), 10, 64)
+	return n
+}
 
 // GetRemoteAddrCache ...
 // @return remote addr

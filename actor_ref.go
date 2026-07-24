@@ -14,6 +14,8 @@ type ActorRef interface {
 	isDirect() bool
 	isCluster() bool
 	isAsk() bool
+	// askSnId returns the correlation id of a reply ref (valid only when isAsk()).
+	askSnId() uint64
 
 	getRemoteAddrCache() (string, bool)
 
