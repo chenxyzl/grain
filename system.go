@@ -25,6 +25,9 @@ type system struct {
 	logger         *slog.Logger
 	eventStream    ActorRef
 	askId          uint64
+	// addr caches rpcService.Addr() after Start(); it is immutable once the grpc
+	// server is listening, so the per-Send getAddr() avoids an interface dispatch.
+	addr string
 	// pending holds in-flight Ask correlation channels keyed by msg snId. A reply
 	// (local or routed back from a remote node) is delivered by snId, so a reply
 	// no longer needs to be a registered actor.
@@ -48,7 +51,7 @@ func NewSystem(clusterName string, version string, clusterUrls []string, opts ..
 	//
 	return sys
 }
-func (x *system) getAddr() string          { return x.rpcService.Addr() }
+func (x *system) getAddr() string          { return x.addr }
 func (x *system) getConfig() *config       { return x.config }
 func (x *system) GetProvider() iProvider   { return x.clusterProvider }
 func (x *system) getRegistry() iRegistry   { return x.registry }

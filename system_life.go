@@ -20,6 +20,8 @@ func (x *system) Start() {
 	if err := x.rpcService.Start(); err != nil {
 		panic(errors.Join(err, errors.New("grpc server start failed")))
 	}
+	//cache the (now-fixed) listen address so getAddr() is a field read
+	x.addr = x.rpcService.Addr()
 	//init logger
 	x.logger = slog.With("system", x.rpcService.Addr())
 	//register to cluster
