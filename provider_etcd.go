@@ -44,12 +44,43 @@ type providerEtcd struct {
 	nodeMap              map[string]tNodeState
 }
 
-func (x *providerEtcd) getEtcdClient() *clientv3.Client {
-	return x.client
+// registerEventStream puts path=val bound to this node's lease (keeps the
+// subscription entry alive with the node).
+func (x *providerEtcd) registerEventStream(path string, val string) error {
+	_, err := x.client.Put(context.Background(), path, val, clientv3.WithLease(x.leaseId))
+	return err
 }
 
-func (x *providerEtcd) getEtcdLease() clientv3.LeaseID {
-	return x.leaseId
+// unregisterEventStream deletes the subscription entry at path.
+func (x *providerEtcd) unregisterEventStream(path string) error {
+	_, err := x.client.Delete(context.Background(), path)
+	return err
+}
+
+// watchEventStream loads the current entries under prefix (as watchPut) then
+// watches for changes, mapping etcd's mvccpb type to the neutral watchOp so the
+// caller (eventStream) stays free of etcd types.
+func (x *providerEtcd) watchEventStream(prefix string, f func(op watchOp, key string, val []byte)) error {
+	rsp, err := x.client.Get(context.Background(), prefix, clientv3.WithPrefix())
+	if err != nil {
+		return errors.Join(err, errors.New("first load eventStream err"))
+	}
+	for _, kv := range rsp.Kvs {
+		f(watchPut, string(kv.Key), kv.Value)
+	}
+	wch := x.client.Watch(context.Background(), prefix, clientv3.WithPrefix(), clientv3.WithPrevKV())
+	go func() {
+		for v := range wch {
+			for _, kv := range v.Events {
+				op := watchPut
+				if kv.Type == mvccpb.DELETE {
+					op = watchDelete
+				}
+				f(op, string(kv.Kv.Key), kv.Kv.Value)
+			}
+		}
+	}()
+	return nil
 }
 
 func (x *providerEtcd) Logger() *slog.Logger {

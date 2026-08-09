@@ -1,16 +1,12 @@
 package grain
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/chenxyzl/grain/al/safemap"
 	"github.com/chenxyzl/grain/message"
-	"go.etcd.io/etcd/api/v3/mvccpb"
-	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -18,19 +14,17 @@ var _ IActor = (*eventStream)(nil)
 
 type eventStream struct {
 	BaseActor
-	client            *clientv3.Client
-	leaseId           clientv3.LeaseID
+	provider          iProvider
 	nodeId            uint64
 	eventStreamPrefix string
 	eventStreamMaps   *safemap.RWMap[string, *safemap.RWMap[uint64, ActorRef]] //eventName:eventStreamId:nodeId-actorId
 	sub               map[string]map[string]bool                               // eventName:actorId:_
 }
 
-func newEventStream(nodeId uint64, client *clientv3.Client, leaseId clientv3.LeaseID, eventStreamPrefix string) IActor {
+func newEventStream(nodeId uint64, provider iProvider, eventStreamPrefix string) IActor {
 	return &eventStream{
 		nodeId:            nodeId,
-		client:            client,
-		leaseId:           leaseId,
+		provider:          provider,
 		eventStreamPrefix: eventStreamPrefix,
 		eventStreamMaps:   safemap.NewRWMap[string, *safemap.RWMap[uint64, ActorRef]](),
 		sub:               make(map[string]map[string]bool)}
@@ -111,30 +105,14 @@ func (x *eventStream) onPublish(_ Context, msg proto.Message) {
 }
 
 func (x *eventStream) watchEventStream() error {
-	//first
-	rsp, err := x.client.Get(context.Background(), x.eventStreamPrefix, clientv3.WithPrefix())
-	if err != nil {
-		return errors.Join(err, errors.New("first load eventStream  err"))
-	}
-	for _, kv := range rsp.Kvs {
-		err = x.parseWatchEventStream(mvccpb.PUT, string(kv.Key), kv.Value)
-		if err != nil {
-			return err
-		}
-	}
-	//real watch
-	wch := x.client.Watch(context.Background(), x.eventStreamPrefix, clientv3.WithPrefix(), clientv3.WithPrevKV())
-	go func() {
-		for v := range wch {
-			for _, kv := range v.Events {
-				_ = x.parseWatchEventStream(kv.Type, string(kv.Kv.Key), kv.Kv.Value)
-			}
-		}
-	}()
-	return nil
+	// initial full load + continuous watch, delegated to the provider so this
+	// actor stays free of etcd (clientv3/mvccpb) types.
+	return x.provider.watchEventStream(x.eventStreamPrefix, func(op watchOp, key string, val []byte) {
+		_ = x.parseWatchEventStream(op, key, val)
+	})
 }
 
-func (x *eventStream) parseWatchEventStream(op mvccpb.Event_EventType, key string, value []byte) (err error) {
+func (x *eventStream) parseWatchEventStream(op watchOp, key string, value []byte) (err error) {
 	//"/$clusterName/event_stream/$eventName/$actor_id"
 	key = strings.TrimPrefix(key, "/")
 	arr := strings.SplitN(key, "/", 4)
@@ -148,7 +126,7 @@ func (x *eventStream) parseWatchEventStream(op mvccpb.Event_EventType, key strin
 	}
 
 	actors, b := x.eventStreamMaps.Get(eventName)
-	if op == mvccpb.DELETE {
+	if op == watchDelete {
 		if b && actors != nil {
 			actors.Delete(uint64(nodeId))
 		}
@@ -176,8 +154,7 @@ func (x *eventStream) getEventNamePath(eventName string) string {
 
 func (x *eventStream) registerEventStream(eventName string) {
 	path := x.getEventNamePath(eventName)
-	_, err := x.client.Put(context.Background(), path, x.Self().GetId(), clientv3.WithLease(x.leaseId))
-	if err != nil {
+	if err := x.provider.registerEventStream(path, x.Self().GetId()); err != nil {
 		x.Logger().Error("register eventStream error", "path", path, "eventName", eventName, "err", err)
 		return
 	}
@@ -191,8 +168,7 @@ func (x *eventStream) registerEventStream(eventName string) {
 }
 func (x *eventStream) unregisterEventStream(eventName string) {
 	path := x.getEventNamePath(eventName)
-	_, err := x.client.Delete(context.Background(), path)
-	if err != nil {
+	if err := x.provider.unregisterEventStream(path); err != nil {
 		x.Logger().Error("unregister eventStream error", "path", path, "eventName", eventName, "err", err)
 		return
 	}

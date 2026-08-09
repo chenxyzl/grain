@@ -45,7 +45,7 @@ func (x *system) init(nodeId uint64) {
 
 	//init eventStream
 	x.eventStream = x.SpawnNamed(func() IActor {
-		return newEventStream(x.config.state.NodeId, x.clusterProvider.getEtcdClient(), x.clusterProvider.getEtcdLease(), x.config.getEventStreamWatchPath())
+		return newEventStream(x.config.state.NodeId, x.clusterProvider, x.config.getEventStreamWatchPath())
 	}, eventStreamWatchName, WithOptsKindName(defaultSystemKind), WithOptsPoisonFirstOnQuit(false))
 }
 

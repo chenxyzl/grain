@@ -3,15 +3,18 @@ package grain
 import (
 	"log/slog"
 	"reflect"
+)
 
-	clientv3 "go.etcd.io/etcd/client/v3"
+// watchOp is the framework-neutral change type delivered by watchEventStream,
+// so the event-stream watcher (eventStream) doesn't depend on etcd's mvccpb.
+type watchOp int8
+
+const (
+	watchPut watchOp = iota
+	watchDelete
 )
 
 type iProvider interface {
-	//etcd
-	getEtcdClient() *clientv3.Client
-	getEtcdLease() clientv3.LeaseID
-
 	//life
 	start(systemLife iSystemLife, clusterMemberChangedListener func(), addr string, config *config, logger *slog.Logger) error
 	stop()
@@ -26,6 +29,15 @@ type iProvider interface {
 	//set remove key val
 	setTxn(key string, val string) bool
 	removeTxn(key string, val string) bool
+
+	//event stream (subscription registry) — keeps clientv3/mvccpb out of eventStream
+	//registerEventStream puts path=val bound to this node's lease
+	registerEventStream(path string, val string) error
+	//unregisterEventStream deletes path
+	unregisterEventStream(path string) error
+	//watchEventStream does an initial full load then watches prefix, invoking f
+	//with a neutral watchOp per change.
+	watchEventStream(prefix string, f func(op watchOp, key string, val []byte)) error
 
 	//GetNodeExtData get node ext data
 	GetNodeExtData(subKey string) (string, error)
