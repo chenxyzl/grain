@@ -2,7 +2,7 @@ module examples
 
 go 1.23.0
 
-toolchain go1.25.12
+toolchain go1.26.5
 
 require (
 	github.com/chenxyzl/grain v1.0.8
