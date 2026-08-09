@@ -1,5 +1,38 @@
 # Changelog
 
+## v1.2.1
+
+Correctness follow-up to v1.2.0. No API changes — a drop-in upgrade.
+
+### 🐞 Correctness / concurrency fixes
+- **ringbuffer lost-wakeup deadlock fixed** (the headline fix). v1.2.0's
+  "`Pop` only signals when the buffer was actually full" optimization was
+  **wrong**: a single drain loop pops many items in a row and frees many slots,
+  but the buffer is full only on the *first* pop — so only one blocked sender was
+  woken and every other queued sender stayed parked in `Push` forever. Because
+  the drainer is only re-armed *after* `Push` returns, the whole actor then
+  deadlocked (observed as thousands of goroutines stuck in `ringbuffer.Push`
+  under load, e.g. `BenchmarkSendMore`). `Pop` now wakes a waiter whenever one is
+  blocked and a slot was freed, tracked via a `waiters` counter (the common
+  no-waiter fast path still skips the notify). Added a scheduler-model regression
+  test that deadlocks on the old code and passes on the fix.
+- **etcd watch could lose events between the initial Get and the Watch.** The
+  three watchers (event-stream, member nodes, node ext-data) did `Get(prefix)`
+  then `Watch(prefix)` with no start revision, so changes made in the gap were
+  lost (neither in the Get snapshot nor the Watch stream). They now anchor the
+  watch to the snapshot revision — `Watch(..., WithRev(rsp.Header.Revision+1))` —
+  the canonical etcd atomic snapshot-then-watch pattern (no lost or duplicated
+  events).
+
+### 🧹 Internal / refactor
+- **eventStream decoupled from etcd**: the `iProvider` interface now exposes
+  semantic event-stream methods (`registerEventStream` / `unregisterEventStream` /
+  `watchEventStream` with a neutral `watchOp`), so `eventStream` no longer imports
+  `clientv3` / `mvccpb`. `getEtcdClient` / `getEtcdLease` removed from `iProvider`.
+- **system listen address cached**: `getAddr()` is now a field read instead of an
+  interface call on every send.
+- Removed a leftover `net/http/pprof` debug server from the benchmark example.
+
 ## v1.2.0
 
 > ⚠️ **Breaking changes** — this release changes several public APIs and raises the
