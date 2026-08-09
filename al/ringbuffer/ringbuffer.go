@@ -21,6 +21,7 @@ type RingBuffer[T any] struct {
 	tail    int64 // index of next Push
 	size    int64 // current element count
 	cap     int64
+	waiters int64 // number of Push calls currently blocked in notFull.Wait
 	closed  bool
 }
 
@@ -41,7 +42,9 @@ func New[T any](size int64) *RingBuffer[T] {
 func (rb *RingBuffer[T]) Push(item T) bool {
 	rb.mu.Lock()
 	for rb.size == rb.cap && !rb.closed {
+		rb.waiters++
 		rb.notFull.Wait()
+		rb.waiters--
 	}
 	if rb.closed {
 		rb.mu.Unlock()
@@ -77,15 +80,18 @@ func (rb *RingBuffer[T]) Pop() (T, bool) {
 		var t T
 		return t, false
 	}
-	wasFull := rb.size == rb.cap
 	item := rb.items[rb.head]
 	var zero T
 	rb.items[rb.head] = zero
 	rb.head = (rb.head + 1) % rb.cap
 	rb.size--
-	// only wake a blocked Push if the buffer was actually full; on the common
-	// not-full path there is no waiter, so skip the Cond notify.
-	if wasFull {
+	// wake one blocked Push if any is waiting. We must NOT gate this on "was the
+	// buffer full before this pop": a single drain loop pops many items in a row,
+	// freeing many slots, but the buffer is full only on the very first pop. Gating
+	// on wasFull would signal just once and strand every other blocked producer
+	// (lost wakeup -> deadlock). Gating on waiters>0 still skips the notify on the
+	// common no-waiter path.
+	if rb.waiters > 0 {
 		rb.notFull.Signal()
 	}
 	rb.mu.Unlock()
