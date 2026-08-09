@@ -68,7 +68,9 @@ func (x *providerEtcd) watchEventStream(prefix string, f func(op watchOp, key st
 	for _, kv := range rsp.Kvs {
 		f(watchPut, string(kv.Key), kv.Value)
 	}
-	wch := x.client.Watch(context.Background(), prefix, clientv3.WithPrefix(), clientv3.WithPrevKV())
+	// anchor the watch to the snapshot revision (+1) so no change made between the
+	// Get above and the Watch below is lost; see etcd's Range+Watch atomic pattern.
+	wch := x.client.Watch(context.Background(), prefix, clientv3.WithPrefix(), clientv3.WithPrevKV(), clientv3.WithRev(rsp.Header.Revision+1))
 	go func() {
 		for v := range wch {
 			for _, kv := range v.Events {
@@ -222,7 +224,9 @@ func (x *providerEtcd) watch() error {
 		}
 	}
 	//real watch
-	wch := x.client.Watch(context.Background(), x.config.getMemberPrefix(), clientv3.WithPrefix(), clientv3.WithPrevKV())
+	// anchor to the snapshot revision (+1) so member changes between the Get and
+	// the Watch are not lost.
+	wch := x.client.Watch(context.Background(), x.config.getMemberPrefix(), clientv3.WithPrefix(), clientv3.WithPrevKV(), clientv3.WithRev(rsp.Header.Revision+1))
 	go func() {
 		for v := range wch {
 			for _, kv := range v.Events {
@@ -315,7 +319,9 @@ func (x *providerEtcd) WatchNodeExtData(subKey string, f func(key, val string)) 
 		f(string(kv.Key), string(kv.Value))
 	}
 	//real watch
-	wch := x.client.Watch(context.Background(), key, clientv3.WithPrefix(), clientv3.WithPrevKV())
+	// anchor to the snapshot revision (+1) so ext-data changes between the Get and
+	// the Watch are not lost.
+	wch := x.client.Watch(context.Background(), key, clientv3.WithPrefix(), clientv3.WithPrevKV(), clientv3.WithRev(rsp.Header.Revision+1))
 	go func() {
 		for v := range wch {
 			for _, kv := range v.Events {
