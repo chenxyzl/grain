@@ -251,9 +251,9 @@ goos: windows
 goarch: amd64
 pkg: examples/benchmark_test/actor_test
 cpu: Intel(R) Core(TM) i7-10700KF CPU @ 3.80GHz
-BenchmarkSendOne-32              5286363               230.6 ns/op            80 B/op          1 allocs/op
-BenchmarkSendMore-32            24138798                69.98 ns/op           80 B/op          1 allocs/op
-BenchmarkAskOne-32                804100              1515 ns/op             273 B/op          5 allocs/op
-BenchmarkAskMore-32              4939455               240.8 ns/op           273 B/op          5 allocs/op
+BenchmarkSendOne-32              4953276               225.0 ns/op            80 B/op          1 allocs/op
+BenchmarkSendMore-32            21939768                72.99 ns/op           80 B/op          1 allocs/op
+BenchmarkAskOne-32                803352              1523 ns/op             273 B/op          5 allocs/op
+BenchmarkAskMore-32              5265314               246.6 ns/op           273 B/op          5 allocs/op
 PASS
 ```
