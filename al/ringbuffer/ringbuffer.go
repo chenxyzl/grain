@@ -77,12 +77,17 @@ func (rb *RingBuffer[T]) Pop() (T, bool) {
 		var t T
 		return t, false
 	}
+	wasFull := rb.size == rb.cap
 	item := rb.items[rb.head]
 	var zero T
 	rb.items[rb.head] = zero
 	rb.head = (rb.head + 1) % rb.cap
 	rb.size--
-	rb.notFull.Signal()
+	// only wake a blocked Push if the buffer was actually full; on the common
+	// not-full path there is no waiter, so skip the Cond notify.
+	if wasFull {
+		rb.notFull.Signal()
+	}
 	rb.mu.Unlock()
 	return item, true
 }
