@@ -3,8 +3,6 @@ package main
 import (
 	"examples/testpb"
 	"log/slog"
-	"net/http"
-	_ "net/http/pprof" // registers /debug/pprof/* handlers on http.DefaultServeMux
 	"runtime"
 	"strconv"
 	"sync/atomic"
@@ -53,16 +51,6 @@ func (x *HelloActor) Receive(context grain.Context) {
 
 func init() {
 	runtime.GOMAXPROCS(runtime.NumCPU() * 2)
-	// pprof: while a benchmark runs, inspect live goroutines to confirm whether
-	// senders are piling up (blocked in Push on a full mailbox). Open:
-	//   http://127.0.0.1:6060/debug/pprof/goroutine?debug=1   (summary + stacks)
-	//   http://127.0.0.1:6060/debug/pprof/goroutine?debug=2   (full per-goroutine stacks)
-	//   go tool pprof http://127.0.0.1:6060/debug/pprof/goroutine
-	go func() {
-		if err := http.ListenAndServe("127.0.0.1:6060", nil); err != nil {
-			slog.Error("pprof server exited", "err", err)
-		}
-	}()
 	//log
 	//actor.InitLog("./test.log")
 	slog.SetLogLoggerLevel(slog.LevelWarn)
