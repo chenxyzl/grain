@@ -3,12 +3,31 @@
 - easy to use. (only etcd needs to be provided)
 - highly scalable.
 - fast. (run examples/benchmark_test/actor_test)
-- support reentrant ask.
+- support reentrant ask. (an actor can Ask while handling a message, even in an a->b->a cycle, without deadlock; the actor stays single-threaded)
 - support publish/subscribe(local and cluster)
 - support schedule
 
+# Requirements
+- Go >= 1.26 (required by go.etcd.io/etcd/client/v3 v3.7.x)
+- an etcd cluster (used for member discovery / cluster addressing)
+
 # Install
 - go get github.com/chenxyzl/grain/...
+
+# Messaging APIs at a glance
+- `ref.Tell(msg)` — fire-and-forget send to an actor (method on `ActorRef`).
+- `ctx.Reply(msg)` — reply to the current request (inside `Receive`).
+- `ctx.Ask(target, msg)` — **reentrant** blocking request/reply, usable from inside
+  `Receive`. While it waits, the actor yields its turn so other messages (including
+  a reply looping back to itself) are processed, then resumes — no deadlock, still
+  single-threaded. Returns `(proto.Message, *message.ErrCode)`.
+- `grain.NoReentryAsk[T](target, msg)` — blocking request/reply for **non-actor**
+  callers (e.g. `main`, a client). NOT reentrant — do not call from inside an
+  actor's `Receive`/`Started`. Returns `(T, *message.ErrCode)`.
+
+> All request/reply errors are returned as `*message.ErrCode` (nil = success),
+> never panicked; runtime failures (timeout / remote error / type mismatch) are
+> classified there.
 
 # Example:
 
@@ -158,6 +177,35 @@ system.Logger().Warn("system stopped successfully")
 
 ```
 
+## examples/hello_reentry (reentrant ask)
+warning: running etcd first
+
+An actor may `ctx.Ask` another actor while handling a message. If the callee asks
+back (a -> b -> a), it does NOT deadlock: while `A` waits, it yields its turn so a
+successor drainer processes the message `B` sends back to `A`; once the reply
+arrives, `A` resumes. The actor is always single-threaded.
+``` go
+func (x *HelloActorA) Receive(ctx grain.Context) {
+switch ctx.Message().(type) {
+case *testpb.HelloAskB2A:
+// A is being asked by B while A itself is blocked in ctx.Ask(B) — reentrancy
+ctx.Reply(&testpb.HelloReplyB2A{Name: "HelloReplyB2A"})
+}
+}
+
+func (x *HelloActorB) Receive(ctx grain.Context) {
+switch ctx.Message().(type) {
+case *testpb.HelloAskA2B:
+// reentrant ask back to A; does not deadlock
+reply, err := x.Ask(helloActorA, &testpb.HelloAskB2A{Name: "HelloAskB2A"})
+_ = reply; _ = err
+ctx.Reply(&testpb.HelloReplyA2B{Name: "HelloReplyA2B"})
+}
+}
+```
+> `x.Ask(...)` (on `BaseActor`, callable inside `Receive`) is the reentrant form.
+> See docs/reentrancy.md for how the turn/handoff mechanism works.
+
 ## examples/pubsub
 - subscribe event  
 $system.Subscribe(ref ActorRef, message proto.Message)
@@ -185,24 +233,27 @@ CancelScheduleFunc()
 for more examples, please read grain/examples
 
 ## Benchmark
-build benchmark exec
+> requires a local etcd on 127.0.0.1:2379 (the benchmark's NewSystem connects there).
+
+build benchmark exec (`CGO_ENABLED=0` for a static, cross-compiled binary)
 ``` bash
   cd examples/benchmark_test/actor_test
-  GOOS=windows GOARCH=amd64 go test -c -o bench-windows-amd64.exe ./...
+  CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go test -c -o bench-windows-amd64.exe .
 ```
-run
+run (the compiled test binary uses `-test.` prefixed flags; `-test.run=none` skips
+normal tests so only benchmarks run)
 ``` cmd
-  bench-windows-amd64.exe -test.bench=.
+  bench-windows-amd64.exe -test.run=none -test.bench=. -test.benchmem
 ```
 result
 ``` benchmark result
 goos: windows
 goarch: amd64
 pkg: examples/benchmark_test/actor_test
-cpu: Intel(R) Core(TM) i7-9700K CPU @ 3.60GHz
-BenchmarkSendOne-16              3841665               279.6 ns/op
-BenchmarkSendMore-16            11471660               128.2 ns/op
-BenchmarkAskOne-16                335313              3230 ns/op
-BenchmarkAskMore-16              1924821               692.6 ns/op
+cpu: Intel(R) Core(TM) i7-10700KF CPU @ 3.80GHz
+BenchmarkSendOne-32              5286363               230.6 ns/op            80 B/op          1 allocs/op
+BenchmarkSendMore-32            24138798                69.98 ns/op           80 B/op          1 allocs/op
+BenchmarkAskOne-32                804100              1515 ns/op             273 B/op          5 allocs/op
+BenchmarkAskMore-32              4939455               240.8 ns/op           273 B/op          5 allocs/op
 PASS
 ```

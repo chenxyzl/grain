@@ -3,12 +3,29 @@
 - 使用简单. (只依赖etcd)
 - 高度可扩展.
 - 高性能. (测试运行 examples/benchmark_test/actor_test)
-- actor支持请求重入.
+- actor支持请求重入. (actor 在处理消息时可再发起 Ask,即使 a->b->a 回环也不死锁;actor 始终单线程)
 - 支持发布订阅(本地和全局)
 - 支持schedule
 
+# 环境要求
+- Go >= 1.26 (go.etcd.io/etcd/client/v3 v3.7.x 的要求)
+- 一个 etcd 集群 (用于成员发现 / 集群寻址)
+
 # 安装
 - go get github.com/chenxyzl/grain/...
+
+# 消息 API 速览
+- `ref.Tell(msg)` — 向 actor 单向发送(fire-and-forget,`ActorRef` 上的方法)。
+- `ctx.Reply(msg)` — 在 `Receive` 内回复当前请求。
+- `ctx.Ask(target, msg)` — **可重入**的阻塞式请求/应答,在 `Receive` 内使用。
+  等待期间 actor 让出执行权,以便处理其它消息(包括回环给自己的应答),拿到
+  回复后再恢复——不死锁,且仍单线程。返回 `(proto.Message, *message.ErrCode)`。
+- `grain.NoReentryAsk[T](target, msg)` — 供**非 actor** 调用者(如 `main`、客户端)
+  使用的阻塞式请求/应答。**不可重入**——不要在 actor 的 `Receive`/`Started` 里调。
+  返回 `(T, *message.ErrCode)`。
+
+> 所有请求/应答的错误都以 `*message.ErrCode` 返回(nil 表示成功),不 panic;
+> 运行期失败(超时 / 远端错误 / 类型不符)都在此归类。
 
 # 例子:
 
@@ -158,6 +175,34 @@ system.Logger().Warn("system stopped successfully")
 
 ```
 
+## examples/hello_reentry（请求重入）
+注意: 先运行一个etcd
+
+actor 在处理消息时可以 `ctx.Ask` 另一个 actor。若被调方回头再问自己(a -> b -> a),
+不会死锁:`A` 等待期间让出执行权,由后继 drainer 处理 `B` 回发给 `A` 的消息;
+应答到达后 `A` 恢复。actor 始终单线程。
+``` go
+func (x *HelloActorA) Receive(ctx grain.Context) {
+switch ctx.Message().(type) {
+case *testpb.HelloAskB2A:
+// A 正阻塞在 ctx.Ask(B) 时被 B 回问 —— 重入
+ctx.Reply(&testpb.HelloReplyB2A{Name: "HelloReplyB2A"})
+}
+}
+
+func (x *HelloActorB) Receive(ctx grain.Context) {
+switch ctx.Message().(type) {
+case *testpb.HelloAskA2B:
+// 重入地回问 A,不会死锁
+reply, err := x.Ask(helloActorA, &testpb.HelloAskB2A{Name: "HelloAskB2A"})
+_ = reply; _ = err
+ctx.Reply(&testpb.HelloReplyA2B{Name: "HelloReplyA2B"})
+}
+}
+```
+> `x.Ask(...)`(`BaseActor` 上的方法,可在 `Receive` 内调用)是可重入形式。
+> turn/交接机制的原理见 docs/reentrancy.md。
+
 ## examples/pubsub（发布订阅）
 - 订阅事件  
 $system.Subscribe(ref ActorRef, message proto.Message)
@@ -185,24 +230,26 @@ CancelScheduleFunc()
 更多例子参考： /examples
 
 ## Benchmark
-build benchmark exec
+> 需要本地 127.0.0.1:2379 上有一个 etcd(benchmark 的 NewSystem 连这里)。
+
+编译 benchmark 可执行文件(`CGO_ENABLED=0` 得到静态、可交叉编译的二进制)
 ``` bash
   cd examples/benchmark_test/actor_test
-  GOOS=windows GOARCH=amd64 go test -c -o bench-windows-amd64.exe ./...
+  CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go test -c -o bench-windows-amd64.exe .
 ```
-run
+运行(编出来的测试二进制用 `-test.` 前缀参数;`-test.run=none` 跳过普通测试,只跑 benchmark)
 ``` cmd
-  bench-windows-amd64.exe -test.bench=.
+  bench-windows-amd64.exe -test.run=none -test.bench=. -test.benchmem
 ```
 result
 ``` benchmark result
 goos: windows
 goarch: amd64
 pkg: examples/benchmark_test/actor_test
-cpu: Intel(R) Core(TM) i7-9700K CPU @ 3.60GHz
-BenchmarkSendOne-16              3841665               279.6 ns/op
-BenchmarkSendMore-16            11471660               128.2 ns/op
-BenchmarkAskOne-16                335313              3230 ns/op
-BenchmarkAskMore-16              1924821               692.6 ns/op
+cpu: Intel(R) Core(TM) i7-10700KF CPU @ 3.80GHz
+BenchmarkSendOne-32              5286363               230.6 ns/op            80 B/op          1 allocs/op
+BenchmarkSendMore-32            24138798                69.98 ns/op           80 B/op          1 allocs/op
+BenchmarkAskOne-32                804100              1515 ns/op             273 B/op          5 allocs/op
+BenchmarkAskMore-32              4939455               240.8 ns/op           273 B/op          5 allocs/op
 PASS
 ```
