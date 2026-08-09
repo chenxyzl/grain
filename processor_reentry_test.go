@@ -392,7 +392,7 @@ func (a *selfAskActor) Receive(ctx Context) {
 		switch m.EventName {
 		case "go": // trigger: fill self-mailbox, then self-ask
 			for i := 0; i < a.mailboxCap; i++ {
-				a.Send(a.Self(), &message.Unsubscribe{EventName: "filler"})
+				a.Self().Tell(&message.Unsubscribe{EventName: "filler"})
 			}
 			// real self-ask: send-before-yield would block on the full self-mailbox
 			// forever; yield-before-send lets a successor drain and it completes.

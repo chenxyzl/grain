@@ -30,14 +30,6 @@ func (x *BaseActor) _bindTurn(t reentryTurn) { x.turn = t }
 func (x *BaseActor) Self() ActorRef       { return x.ActorRef }
 func (x *BaseActor) Logger() *slog.Logger { return x.logger }
 
-func (x *BaseActor) Send(target ActorRef, msg proto.Message) {
-	if target == nil {
-		x.Logger().Error("send target is nil", "id", x.Self(), "msgName", proto.MessageName(msg), "msg", msg)
-		return
-	}
-	x.GetSystem().getSender().tell(target, msg)
-}
-
 // Ask sends msg to target and blocks for the reply. It is reentrant: while this
 // actor waits, it yields its execution turn so other messages (including a
 // reply chain a->b->a) can be processed, then reacquires the turn before

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/chenxyzl/grain/uuid"
@@ -35,10 +36,12 @@ type providerEtcd struct {
 	cancelFunc context.CancelFunc
 
 	//
-	nodeChangeLocker     sync.RWMutex
-	localProviderVersion int64
+	nodeChangeLocker sync.RWMutex
+	// localProviderVersion is bumped on every node-set change. Read lock-free via
+	// GetNodesVersion on the cluster-send hot path; written under nodeChangeLocker
+	// (which also guards nodeMap) so version and map stay consistent.
+	localProviderVersion atomic.Int64
 	nodeMap              map[string]tNodeState
-	//nodeMap              *safemap.RWMap[string, tNodeState]
 }
 
 func (x *providerEtcd) getEtcdClient() *clientv3.Client {
@@ -56,9 +59,8 @@ func (x *providerEtcd) Logger() *slog.Logger {
 func (x *providerEtcd) start(systemLife iSystemLife, clusterMemberChangedListener func(), addr string, config *config, logger *slog.Logger) error {
 	//
 	x.logger = logger
-	x.localProviderVersion = 1 // 0 is direct[local] actor
+	x.localProviderVersion.Store(1) // 0 is direct[local] actor
 	x.nodeMap = make(map[string]tNodeState)
-	//x.nodeMap = safemap.NewRWMap[string, tNodeState]()
 	x.system = systemLife
 	x.clusterMemberChangedListener = clusterMemberChangedListener
 	x.config = config
@@ -205,7 +207,7 @@ func (x *providerEtcd) watch() error {
 func (x *providerEtcd) parseWatch(op mvccpb.Event_EventType, key string, value []byte) (err error) {
 	x.nodeChangeLocker.Lock()
 	defer x.nodeChangeLocker.Unlock()
-	x.localProviderVersion++
+	x.localProviderVersion.Add(1)
 	//
 	arr := strings.Split(key, "/")
 	if len(arr) > 0 {
@@ -213,17 +215,14 @@ func (x *providerEtcd) parseWatch(op mvccpb.Event_EventType, key string, value [
 	}
 	if op == mvccpb.DELETE {
 		delete(x.nodeMap, key)
-		//x.nodeMap.Delete(key)
 		return nil
 	}
 	a := tNodeState{}
 	if err = json.Unmarshal(value, &a); err != nil {
 		delete(x.nodeMap, key)
-		//x.nodeMap.Delete(key)
 		x.Logger().Error("watcher key changed, bug parse err, remove node", "node", key, "v", string(value), "err", err)
 	} else {
 		x.nodeMap[key] = a
-		//x.nodeMap.Set(key, a)
 		x.Logger().Warn("watcher key changed, success", "key", key, "v", a)
 	}
 	return err
@@ -231,24 +230,19 @@ func (x *providerEtcd) parseWatch(op mvccpb.Event_EventType, key string, value [
 
 func (x *providerEtcd) GetNodeId() uint64 { return x.config.state.NodeId }
 func (x *providerEtcd) GetNodesVersion() int64 {
-	x.nodeChangeLocker.RLock()
-	defer x.nodeChangeLocker.RUnlock()
-	return x.localProviderVersion
+	// lock-free: version is atomic, so the cluster-send hot path avoids the RLock.
+	return x.localProviderVersion.Load()
 }
 func (x *providerEtcd) GetNodes() ([]tNodeState, int64) {
 	x.nodeChangeLocker.RLock()
 	defer x.nodeChangeLocker.RUnlock()
 	//
-	var localProviderVersion = x.localProviderVersion
+	version := x.localProviderVersion.Load()
 	var nodes []tNodeState
 	for _, state := range x.nodeMap {
 		nodes = append(nodes, state)
 	}
-	//x.nodeMap.Range(func(key string, state tNodeState) bool {
-	//	nodes = append(nodes, state)
-	//	return true
-	//})
-	return nodes, localProviderVersion
+	return nodes, version
 }
 
 // GetNodeExtData set node ext data, keep life with node
