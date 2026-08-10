@@ -53,7 +53,7 @@ func init() {
 	runtime.GOMAXPROCS(runtime.NumCPU() * 2)
 	//log
 	//actor.InitLog("./test.log")
-	slog.SetLogLoggerLevel(slog.LevelWarn)
+	slog.SetLogLoggerLevel(slog.LevelError)
 	//new
 	testSystem.system = grain.NewSystem("hello", "0.0.1", []string{"127.0.0.1:2379"}, grain.WithConfigAskTimeout(askTimeout))
 	//start

@@ -74,12 +74,14 @@ func (f *fakeSys) tellWithSender(target ActorRef, msg proto.Message, sender Acto
 }
 
 // newTestProcessor builds a processorMailBox wired to a fakeSys, mirroring
-// spawnProcessor's constructor but without the registry publish dance.
+// spawnProcessor's constructor but without the registry publish dance. The
+// mailbox starts at `mailbox` and can grow (like production), so a self-Ask
+// never overflows for want of a single slot.
 func newTestProcessor(sys *fakeSys, r IActor, mailbox int) *processorMailBox {
 	self := newDirectActorRef("local", "t", "test", sys)
 	p := &processorMailBox{
 		system:     sys,
-		rb:         ringbuffer.New[Context](int64(mailbox)),
+		rb:         ringbuffer.New[Context](int64(mailbox), int64(mailbox)*1024),
 		procStatus: idle,
 		turn:       make(chan struct{}, 1),
 		receiver:   r,
@@ -372,11 +374,12 @@ func TestRemotePoisonWaitsInflight(t *testing.T) {
 }
 
 
-// selfAskActor: on the trigger message it fills its own mailbox to capacity,
-// then issues a real BaseActor.Ask to ITSELF. With the send-before-yield
-// ordering this deadlocks (the send blocks on the full self-mailbox and only
-// this same drainer could drain it, but it's stuck sending). With yield-before-
-// send, a successor drainer frees space and the self-ask completes.
+// selfAskActor: on the trigger message it enqueues some self-messages, then
+// issues a real BaseActor.Ask to ITSELF. The self-ask request can only be
+// processed by a drainer; with the send-before-yield ordering this goroutine
+// would block in awaitReply while still holding the turn, and no successor would
+// exist to drain the request -> deadlock. With yield-before-send, a successor
+// drainer runs the request and replies, so the self-ask completes.
 type selfAskActor struct {
 	BaseActor
 	mailboxCap int
@@ -390,12 +393,12 @@ func (a *selfAskActor) Receive(ctx Context) {
 	switch m := ctx.Message().(type) {
 	case *message.Subscribe:
 		switch m.EventName {
-		case "go": // trigger: fill self-mailbox, then self-ask
+		case "go": // trigger: enqueue self-messages, then self-ask
 			for i := 0; i < a.mailboxCap; i++ {
 				a.Self().Tell(&message.Unsubscribe{EventName: "filler"})
 			}
-			// real self-ask: send-before-yield would block on the full self-mailbox
-			// forever; yield-before-send lets a successor drain and it completes.
+			// real self-ask: only a successor drainer can process this request and
+			// reply; yield-before-send guarantees that successor exists.
 			_, err := a.Ask(a.Self(), &message.Subscribe{EventName: "selfask"})
 			_ = err
 			if a.doneOnce.CompareAndSwap(false, true) {

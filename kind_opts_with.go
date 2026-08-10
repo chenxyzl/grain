@@ -1,8 +1,20 @@
 package grain
 
+// WithOptsInboxSize sets the mailbox's INITIAL capacity (default 128). The
+// mailbox grows on demand up to its max size; use WithOptsInboxMaxSize to set
+// the ceiling.
 func WithOptsInboxSize(size int) KindOptFunc {
 	return func(opts *tOpts) {
-		opts.mailboxSize = size
+		opts.mailboxInitSize = size
+	}
+}
+
+// WithOptsInboxMaxSize sets the mailbox's MAX capacity (default 4096). Once the
+// mailbox is full at this size, further messages overflow to a dead letter
+// instead of blocking the sender.
+func WithOptsInboxMaxSize(size int) KindOptFunc {
+	return func(opts *tOpts) {
+		opts.mailboxMaxSize = size
 	}
 }
 func WithOptsRegisterToCluster(fun func(clusterProvider iProvider, config *config, ref ActorRef) error) KindOptFunc {

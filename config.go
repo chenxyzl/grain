@@ -48,6 +48,7 @@ type config struct {
 	kinds                map[string]tKind
 	addr                 net.Addr
 	state                tNodeState
+	deadLetterHandler    DeadLetterHandler
 }
 
 func newConfig(clusterName string, version string, clusterUrls []string, opts ...ConfigOptFunc) *config {

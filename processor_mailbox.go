@@ -69,7 +69,7 @@ func spawnProcessor(system ISystem, opts tOpts, orGet bool) iProcess {
 		p := &processorMailBox{
 			tOpts:      opts,
 			system:     system,
-			rb:         ringbuffer.New[Context](int64(opts.mailboxSize)),
+			rb:         ringbuffer.New[Context](int64(opts.mailboxInitSize), int64(opts.mailboxMaxSize)),
 			procStatus: idle,
 			turn:       make(chan struct{}, 1),
 		}
@@ -135,13 +135,42 @@ func (x *processorMailBox) init() {
 }
 
 func (x *processorMailBox) send(ctx Context) {
-	if !x.rb.Push(ctx) {
-		// mailbox already closed (actor stopped): drop rather than block forever.
-		x.system.Logger().Warn("send to a stopped actor, msg dropped",
-			"id", x.self(), "msgName", proto.MessageName(ctx.Message()))
+	switch x.rb.Push(ctx) {
+	case ringbuffer.PushOK:
+		x.schedule()
+	case ringbuffer.PushOverflow:
+		// mailbox full at max capacity: drop rather than block the sender (which
+		// could deadlock a→b→a). Route to the dead letter.
+		x.toDeadLetter(ctx, DeadLetterReasonOverflow)
+	case ringbuffer.PushClosed:
+		// mailbox closed (actor stopped): route to the dead letter.
+		x.toDeadLetter(ctx, DeadLetterReasonStopped)
+	}
+}
+
+// toDeadLetter surfaces an undeliverable message to the configured
+// DeadLetterHandler, or logs it at WARN when none is set. Runs on the sender's
+// goroutine, so a panicking handler is recovered here rather than crashing an
+// arbitrary sender (consistent with invoke/start/stop).
+func (x *processorMailBox) toDeadLetter(ctx Context, reason string) {
+	if h := x.system.getConfig().deadLetterHandler; h != nil {
+		defer func() {
+			if err := recover(); err != nil {
+				x.system.Logger().Error("dead letter handler panic",
+					"id", x.self(), "reason", reason, "err", err, "stack", ghelper.StackTrace())
+			}
+		}()
+		h(DeadLetter{
+			Target:  ctx.Target(),
+			Sender:  ctx.Sender(),
+			Message: ctx.Message(),
+			MsgSnId: ctx.GetMsgSnId(),
+			Reason:  reason,
+		})
 		return
 	}
-	x.schedule()
+	x.system.Logger().Warn("dead letter",
+		"id", x.self(), "msgName", proto.MessageName(ctx.Message()), "reason", reason)
 }
 
 // poison requests a stop without enqueuing into the (possibly full) mailbox:

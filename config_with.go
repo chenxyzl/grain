@@ -45,3 +45,13 @@ func WithConfigKind(kindName string, producer iProducer, opts ...KindOptFunc) Co
 		config.kinds[kindName] = tKind{producer: producer, opts: opts}
 	}
 }
+
+// WithConfigDeadLetter sets a system-wide handler for undeliverable messages
+// (mailbox overflow or a send to a stopped actor). When unset, dead letters are
+// logged at WARN. The handler runs on the sender's goroutine, so keep it fast
+// and non-blocking.
+func WithConfigDeadLetter(h DeadLetterHandler) ConfigOptFunc {
+	return func(config *config) {
+		config.deadLetterHandler = h
+	}
+}
