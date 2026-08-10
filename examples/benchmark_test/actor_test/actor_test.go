@@ -14,6 +14,7 @@ import (
 
 var (
 	actorCount  int64 = 10000
+	mailboxSize       = 1024
 	testSystem        = TestSystem{}
 	idx         int64 = 0
 	parallelism       = 32
@@ -53,7 +54,7 @@ func init() {
 	runtime.GOMAXPROCS(runtime.NumCPU() * 2)
 	//log
 	//actor.InitLog("./test.log")
-	slog.SetLogLoggerLevel(slog.LevelError)
+	slog.SetLogLoggerLevel(slog.LevelWarn)
 	//new
 	testSystem.system = grain.NewSystem("hello", "0.0.1", []string{"127.0.0.1:2379"}, grain.WithConfigAskTimeout(askTimeout))
 	//start
@@ -64,12 +65,17 @@ func init() {
 	testSystem.system.Logger().Warn("system started successfully")
 
 	for i := int64(0); i < actorCount; i++ {
-		actorRef := testSystem.system.Spawn(func() grain.IActor { return &HelloActor{} })
+		actorRef := testSystem.system.Spawn(func() grain.IActor { return &HelloActor{} }, spawnOpts()...)
 		testSystem.actors = append(testSystem.actors, actorRef)
 	}
 }
+
+// spawnOpts sets the mailbox initial size for benchmark actors (mailboxSize).
+func spawnOpts() []grain.KindOptFunc {
+	return []grain.KindOptFunc{grain.WithOptsInboxSize(mailboxSize)}
+}
 func BenchmarkSendOne(b *testing.B) {
-	actorRef := testSystem.system.Spawn(func() grain.IActor { return &HelloActor{} })
+	actorRef := testSystem.system.Spawn(func() grain.IActor { return &HelloActor{} }, spawnOpts()...)
 	b.ResetTimer()
 	for range b.N {
 		actorRef.Tell(helloSend)
@@ -89,7 +95,7 @@ func BenchmarkSendMore(b *testing.B) {
 	})
 }
 func BenchmarkAskOne(b *testing.B) {
-	actorRef := testSystem.system.Spawn(func() grain.IActor { return &HelloActor{} })
+	actorRef := testSystem.system.Spawn(func() grain.IActor { return &HelloActor{} }, spawnOpts()...)
 	b.ResetTimer()
 	for range b.N {
 		reply, err := grain.NoReentryAsk[*testpb.HelloReply](actorRef, helloAsk)

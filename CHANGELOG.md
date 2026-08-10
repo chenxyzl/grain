@@ -1,5 +1,37 @@
 # Changelog
 
+## v1.2.2
+
+Mailbox reworked from fixed-capacity blocking to non-blocking auto-growth, with
+overflow routed to a dead letter. Removes the deadlock and goroutine-pileup risk
+of blocking mailboxes.
+
+### ⚠️ Behavior changes
+- **Sending no longer blocks (no back-pressure).** The mailbox starts small and
+  **grows on demand (doubling) up to a max capacity**; a full mailbox at max
+  overflows to a **dead letter** instead of blocking the sender. This removes the
+  bounded-blocking-mailbox deadlock (a→b→a) and the goroutine pile-up under load.
+  A fast producer + slow consumer now **drops at the ceiling** rather than
+  slowing the sender down.
+- **Default mailbox size**: was a fixed `1024`; now **init `128`, max `4096`**
+  (init chosen as the throughput/memory sweet spot; idle actors use ~2KB).
+- **`WithOptsInboxSize` now sets the INITIAL capacity** (was the fixed capacity).
+  New **`WithOptsInboxMaxSize`** sets the ceiling.
+
+### ✨ Additions
+- **Dead letters**: undeliverable messages (mailbox overflow, or a send to a
+  stopped actor) are surfaced as `DeadLetter{Target,Sender,Message,MsgSnId,Reason}`.
+  Configure a handler with **`WithConfigDeadLetter`**; defaults to a WARN log. A
+  panic in the handler is recovered and logged.
+
+### 🧹 Internal
+- ringbuffer rewritten: no `sync.Cond`/waiters, `Push` never blocks and returns
+  `PushOK`/`PushOverflow`/`PushClosed`; `grow()` doubles + linearizes (amortized
+  O(1), zero steady-state allocation). This also retires the machinery behind the
+  v1.2.1 lost-wakeup fix.
+- `msg.ProtoReflect().Descriptor().FullName()` unified to `proto.MessageName` on
+  the internal error/log paths.
+
 ## v1.2.1
 
 Correctness follow-up to v1.2.0. No API changes — a drop-in upgrade.
