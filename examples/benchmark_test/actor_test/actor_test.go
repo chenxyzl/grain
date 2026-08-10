@@ -2,6 +2,7 @@ package main
 
 import (
 	"examples/testpb"
+	"fmt"
 	"log/slog"
 	"runtime"
 	"strconv"
@@ -23,6 +24,13 @@ var (
 	helloAsk          = &testpb.HelloAsk{Name: body}
 	helloReply        = &testpb.HelloReply{Name: "hell go reply"}
 	askTimeout        = time.Second * 1
+
+	// deadLetters counts messages that overflowed the mailbox (hit the max
+	// capacity) or went to a stopped actor, so a benchmark run reveals when the
+	// send rate outpaces consumption and reaches the ceiling.
+	deadLetters       atomic.Int64
+	deadLetterSampled atomic.Bool // capture one sample to print its reason
+	deadLetterReason  atomic.Value
 )
 
 type TestSystem struct {
@@ -56,7 +64,14 @@ func init() {
 	//actor.InitLog("./test.log")
 	slog.SetLogLoggerLevel(slog.LevelWarn)
 	//new
-	testSystem.system = grain.NewSystem("hello", "0.0.1", []string{"127.0.0.1:2379"}, grain.WithConfigAskTimeout(askTimeout))
+	testSystem.system = grain.NewSystem("hello", "0.0.1", []string{"127.0.0.1:2379"},
+		grain.WithConfigAskTimeout(askTimeout),
+		grain.WithConfigDeadLetter(func(dl grain.DeadLetter) {
+			deadLetters.Add(1)
+			if deadLetterSampled.CompareAndSwap(false, true) {
+				deadLetterReason.Store(dl.Reason)
+			}
+		}))
 	//start
 	testSystem.system.Logger().Warn("system starting")
 	//
@@ -127,6 +142,14 @@ func TestMain(m *testing.M) {
 	testSystem.system.Logger().Info("test init")
 	// run
 	exitCode := m.Run()
+	// report dead letters: non-zero means the send rate outpaced consumption and
+	// hit the mailbox max capacity (or targeted a stopped actor).
+	if n := deadLetters.Load(); n > 0 {
+		reason, _ := deadLetterReason.Load().(string)
+		fmt.Printf("[deadletter] total=%d sampleReason=%q (mailboxSize=%d)\n", n, reason, mailboxSize)
+	} else {
+		fmt.Printf("[deadletter] total=0 (no overflow; mailboxSize=%d)\n", mailboxSize)
+	}
 	testSystem.system.Logger().Info("test end with code:" + strconv.Itoa(exitCode))
 	// end with clean
 	testSystem.system.ForceStop(nil)
