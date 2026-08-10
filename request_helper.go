@@ -62,7 +62,7 @@ func awaitReply[T proto.Message](ch chan proto.Message, timeout time.Duration) (
 			return null, message.WithErr(msg.Error())
 		default:
 			return null, message.WithErr(fmt.Sprintf("msg type err, need:%v, now:%v",
-				null.ProtoReflect().Descriptor().FullName(), msg.ProtoReflect().Descriptor().FullName()))
+				proto.MessageName(null), proto.MessageName(msg)))
 		}
 	case <-timer.C:
 		return null, message.WithErr("ask reply timeout")

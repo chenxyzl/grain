@@ -99,7 +99,7 @@ func (x *streamWriteActor) PreStop() {
 func (x *streamWriteActor) Receive(ctx Context) {
 	//
 	msg := ctx.Message()
-	msgName := string(msg.ProtoReflect().Descriptor().FullName())
+	msgName := string(proto.MessageName(msg))
 	//marshal
 	content, err := proto.Marshal(msg)
 	if err != nil {
