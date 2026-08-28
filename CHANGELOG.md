@@ -55,6 +55,71 @@ error-swallowing bug into a compile-time-checked reply type.
 - **`safemap.RWMap.GetOrCreate(key, create)`** — check-and-insert under one write
   lock, returning the same value to all concurrent callers.
 
+### ⛔ `Ask` is now restricted to the actor's running phase
+**Behavior change — code that Asks from `Started()` or `PreStop()` starts failing.**
+It sends nothing and returns the preset `errAskNotRunning`
+(`message.CodeAskNotRunning`) immediately, instead of blocking.
+
+Why `Started()`: reentrancy is deliberately off there — `yieldTurn` skips the
+successor-drainer handoff so no handler runs against half-initialized state — which
+also means the actor cannot answer any incoming request in that window. A reply
+still arrives via the pending table, so a plain a→b Ask used to work; but if the
+reply required the peer to send this actor a message first (an a→b→a cycle), that
+message landed in a mailbox nobody was draining and both sides waited out
+`askTimeout`. Whether a given Ask depends on that is **not decidable at call time**,
+so rather than predict it — or report it late, after the timeout already elapsed —
+the phase itself is disallowed. The error therefore lands at the earliest possible
+point, with no waiting and no false positives.
+
+Why `PreStop()`: see the double-`PreStop` fix below.
+
+- **Migration:** move the Ask into a normal handler. For "Ask at startup", `Tell`
+  self from `Started()` and Ask when handling that message. `Tell` is unrestricted in
+  every phase, so shutdown notifications belong there too. This is a **runtime**
+  error, not a compile error, so grep for `Ask` inside `Started()`/`PreStop()` when
+  upgrading.
+- The gate is an **allow-list** (`life == lifeStarted`) rather than a deny-list on
+  specific phases, so a lifecycle phase added later is refused by default instead of
+  silently permitting a blocking Ask. `lifeStopping` turned out to be exactly such a
+  phase.
+- `examples/hello_reentry` was Asking from `Started()`: the flagship reentrancy demo
+  actually produced two `ask reply timeout` errors instead of demonstrating
+  reentrancy. The Ask now runs from a normal handler and the full a→b→a cycle
+  completes sub-second.
+- Not covered: `NoReentryAsk` passes no turn, so the framework cannot tell which
+  phase it is called from. Calling it inside an actor was already wrong (it never
+  yields the turn) and remains so.
+- `message.CodeAskNotRunning` (`-3`) is a new code, so this is distinguishable from a
+  timeout programmatically. Nothing in the tree inspected `ErrCode.Code` before, so
+  no existing check changes meaning.
+- The misleading `yieldTurn` comment ("still gets its reply ... so it doesn't
+  deadlock" — false for a cycle) is corrected, and the rule plus the reasoning about
+  *when* it is decidable is written up in **docs/reentrancy.md §九**.
+
+### 🐞 `PreStop()` could run twice
+A turn-yielding call inside `PreStop()` — an `Ask`, back when that was allowed — let
+`PreStop` execute **twice**. Confirmed by test before the fix, count was 2.
+
+`stop()` holds the turn while calling `PreStop`, but `procStatus` only becomes
+`stopped` in `stop()`'s **defer**, i.e. after `PreStop` returns. So when `PreStop`
+released the turn, the successor drainer spawned by `yieldTurn` found
+`procStatus == running`, an empty mailbox and `inflight == 0`, re-entered
+`doStop() -> stop()`, passed the top guard, still saw `life == lifeStarted` and called
+`PreStop` again. Any cleanup in `PreStop` that is not idempotent ran twice.
+
+- Fixed by a new `lifeStopping` lifecycle value: `stop()` advances `life` **before**
+  invoking `PreStop`, so a re-entrant `stop()` skips it. This also removes `PreStop`
+  from the Ask-allowed phase, which is why `Ask` is refused there.
+- The `lifecycle` type's doc claimed "Started/PreStop phase" while having no PreStop
+  value; it now does.
+- Regression tests: `TestPreStopRunsOnceWhenItYieldsTheTurn` drives the low-level
+  yield path (still reachable now that `Ask` refuses), and
+  `TestAskFromPreStopIsRejected` covers the `Ask` route. Both fail with count 2 if the
+  `lifeStopping` assignment is removed.
+- New test `TestAskFromStartedIsRejected` pins the rule: it asserts the code, that
+  nothing was delivered to the target, and that no `askTimeout` wait occurs.
+  `TestSelfAskDoesNotDeadlock` covers the working from-a-handler case.
+
 ### 🧹 Internal
 - `BaseActor.Ask` and `NoReentryAsk` now share one `askImpl[T]`; the correlation-id
   /register/send/await sequence and the yield-before-send reasoning live in one

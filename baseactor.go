@@ -39,9 +39,20 @@ func (x *BaseActor) Logger() *slog.Logger { return x.logger }
 //
 //	reply, err := x.Ask[*pb.HelloReply](target, &pb.HelloAsk{})
 //
-// Returns the typed reply, or an *message.ErrCode on failure (nil target,
-// timeout, actor not found, remote error, reply type mismatch, or shutdown while
-// waiting). Runtime failures are returned, not panicked.
+// It may only be called while the actor is running — from a normal handler. It is
+// refused from Started() (reentrancy is off there, so the actor cannot answer
+// incoming requests and the Ask may never be satisfiable) and from PreStop()
+// (blocking there re-enters the stop path). Either way it sends nothing and returns
+// message.CodeAskNotRunning immediately. To Ask at startup, Tell self a message
+// from Started() and Ask when handling it:
+//
+//	func (x *A) Started()            { x.Self().Tell(&pb.Kickoff{}) }
+//	func (x *A) Receive(c Context)   { /* case *pb.Kickoff: x.Ask[...](...) */ }
+//
+// Returns the typed reply, or an *message.ErrCode on failure (called outside the
+// running phase, nil target, timeout, actor not found, remote error, reply type
+// mismatch, or shutdown while waiting). Runtime failures are returned, not
+// panicked.
 func (x *BaseActor) Ask[T proto.Message](target ActorRef, msg proto.Message) (T, *message.ErrCode) {
 	return askImpl[T](x.Self(), target, msg, x.turn)
 }

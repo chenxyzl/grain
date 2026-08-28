@@ -327,7 +327,115 @@ run 返回 → process 又见 poisoned → 又 schedule……**满核空转**直
 
 ---
 
-## 九、一句话总结
+## 九、规则:阻塞式 Ask 只允许在「运行中」阶段
+
+**`x.Ask[T]` 只能在普通 handler 里调用。在 `Started()` 或 `PreStop()` 里调用会立即
+返回 `message.CodeAskNotRunning` 错误,什么都不发送。** 这不是运行期偶发失败,而是
+一条确定性规则。
+
+生命周期与 Ask 的关系:
+
+| `life` | 阶段 | Ask |
+|---|---|---|
+| `lifeInit` | `registerToCluster` 期间 | ✗(handler 够不到) |
+| `lifeStarting` | `Started()` 内 | ✗ 拒绝 |
+| `lifeStarted` | 正常处理消息 | ✅ **唯一允许** |
+| `lifeStopping` | `PreStop()` 内 | ✗ 拒绝 |
+
+判据写成**允许列表**(`isStarted()` 即 `life == lifeStarted`)而非拒绝列表,这样将来
+新增任何阶段都是默认拒绝,不会静默放行。
+
+### 为什么 `Started()` 里不行
+
+`yieldTurn` 的守卫里有一个 `x.life != lifeStarting`:
+
+```go
+if ds != nil && !ds.handedOff && x.life != lifeStarting {
+```
+
+即 `Started()` 期间的阻塞不会派后继 drainer,只是单纯让出令牌。理由是要守住一条
+不变量:**`Started()` 完成前不处理任何业务消息**——否则 handler 会跑在只初始化了
+一半的 actor 状态上。
+
+代价是这个窗口里**没人排空 mailbox**,所以 actor **无法回应任何进来的请求**。于是
+"回复的前提是对方先给我发一条消息"的 Ask(a→b→a 回环)永远等不到:
+
+```
+A.Started() 里 Ask(B) ── A 让出令牌,但没有后继 drainer
+   └─ B.Receive 里 Ask(A) ── B 发请求给 A
+        └─ 这条消息进了 A 的 mailbox,而 A 的 mailbox 没人排空
+             (A 唯一的 drainer 正阻塞在 Started 的 awaitReply 里)
+```
+
+### 为什么 `PreStop()` 里也不行
+
+`stop()` 是持有令牌调用的,而 `procStatus` 要到 `stop()` 的 **defer** 里才置
+`stopped`(即 `PreStop()` 返回之后)。所以如果 `PreStop()` 让出了令牌:
+
+```
+doStop(): acquireTurn → stop() → PreStop() → Ask → yieldTurn: 派后继 + 释放令牌
+                                                          ↓
+   后继 drainer: run() 见 procStatus 仍是 running、mailbox 空、inflight==0
+                 → doStop() → 抢到刚释放的令牌 → stop() 顶部守卫过不了
+                 → life 仍是 lifeStarted → PreStop() 再跑一遍 ✗
+```
+
+`stop()` 现在在调 `PreStop()` **之前**就把 `life` 推进到 `lifeStopping`,第二次进来
+`life == lifeStarted` 不成立,PreStop 不会重复执行;同时这也让 `isStarted()` 为假,
+把 Ask 一并挡在门外。
+
+> 这是实测出来的:修复前该场景下 `PreStop` 会被调用 **2 次**。回归测试见
+> `TestPreStopRunsOnceWhenItYieldsTheTurn` 与 `TestAskFromPreStopIsRejected`。
+
+### 为什么是「一律禁止」而不是「检测到才报错」
+
+关键在于**可判定性的时点**:
+
+| 时点 | 能力 |
+|---|---|
+| Ask 调用那一刻 | **无法**判断这个 Ask 会不会卡。普通 a→b 能正常返回(回复走 `pending` 表不走 mailbox),回环则永远卡。对方接下来会直接回复还是回头问我,此刻拿不到 |
+| 消息落进排不到的 mailbox | 强信号但非证明:第三方 actor 此时 Ask 本 actor 也满足条件,而本 actor 的 a→b 可能马上正常返回。要变成证明需要 wait-for 图(`pending` 表记 `{waiter, target}` 再反查),成本高且只覆盖短环 |
+| 超时 | 最差:故障已经发生并等满了 `askTimeout`,只是事后解释 |
+
+所以框架**不去预测**,而是把整个阶段判为非法。这样报错落在最早的时点(调用处),
+零等待、零误判——因为拒绝的依据不是"你会卡",而是"这里不允许 Ask",那是确定性的。
+
+### 正确写法:自投递(self-Tell)蹦床
+
+让 `Started()` 只做纯初始化;需要 Ask 的启动逻辑放到普通 handler:
+
+```go
+func (x *A) Started() {
+    x.initState()                       // 只做纯初始化,不 Ask
+    x.Self().Tell(&pb.Kickoff{})        // 自投递一条消息
+}
+
+func (x *A) Receive(ctx Context) {
+    switch ctx.Message().(type) {
+    case *pb.Kickoff:                   // 此时 life == lifeStarted
+        resp, err := x.Ask[*pb.Resp](b, req)   // 正常重入
+    }
+}
+```
+
+这条自投递消息在 `Started()` 返回后才会被处理,所以不变量不破,而 Ask 拿到了完整的
+重入能力。`examples/hello_reentry` 就是按这个思路组织的(由外部 Tell 触发)。
+
+注意 `Tell` **不受**此规则限制——它不阻塞、不需要让出令牌,在 `Started()` 和
+`PreStop()` 里都能随便发。受限的只有阻塞式的 `Ask`。关停时想通知对端,用 `Tell`。
+
+### 两个已知边界
+
+- **`NoReentryAsk` 拦不住。** 它给 `askImpl` 传的 `turn` 是 `nil`(调用方本就不是
+  actor),所以框架无从知道你是不是在 `Started()`/`PreStop()` 里调它。在 actor 内部
+  调用 `NoReentryAsk` 一直都是错误用法(它不让出令牌),这条规则也不改变这一点。
+- **绕过 `Ask` 直接用 `yieldTurn`/`resumeTurn` 的低层代码不受限制**(框架内部和
+  `processor_reentry_test.go` 里的机制测试就是这么做的)。规则加在 `askImpl` 上;
+  `lifeStopping` 则保护了 `stop()` 本身,所以低层路径也不会导致 PreStop 重复执行。
+
+---
+
+## 十、一句话总结
 
 > **重入 = Ask 阻塞前"让出执行令牌 + 派一个后继 goroutine 接管排空",
 > 阻塞期间后继单线程处理其它消息(含回环消息),Ask 拿到回复后抢回令牌继续;

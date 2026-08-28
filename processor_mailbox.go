@@ -15,7 +15,7 @@ const (
 	stopped
 )
 
-// lifecycle is the actor's Started/PreStop phase. Its three values are mutually
+// lifecycle is the actor's Started/PreStop phase. Its values are mutually
 // exclusive and it is only ever read/written while holding the turn, so it needs
 // no atomic. It is orthogonal to procStatus (scheduler park state) and poisoned
 // (stop-requested latch), which live in different concurrency domains.
@@ -24,7 +24,13 @@ type lifecycle int8
 const (
 	lifeInit     lifecycle = iota // not started yet
 	lifeStarting                  // inside start()/Started()
-	lifeStarted                   // Started() completed
+	lifeStarted                   // Started() completed; the only phase Ask is allowed in
+	// lifeStopping means we are inside PreStop(). It exists so stop() cannot run
+	// PreStop twice: if PreStop releases the turn (any blocking, turn-yielding
+	// call), a successor drainer can re-enter doStop -> stop() while procStatus is
+	// still `running` (it only becomes `stopped` in stop()'s defer, after PreStop
+	// returns). The lifeStarted check would pass again and re-run PreStop.
+	lifeStopping
 )
 
 type processorMailBox struct {
@@ -98,6 +104,17 @@ func (x *processorMailBox) opts() *tOpts   { return &x.tOpts }
 func (x *processorMailBox) acquireTurn() { <-x.turn }
 func (x *processorMailBox) releaseTurn() { x.turn <- struct{}{} }
 
+// isStarted reports whether the actor is in its running phase — Started() has
+// completed and PreStop() has not begun. Callers hold the turn (every handler
+// does), and life is only written while holding it, so this needs no atomic.
+//
+// Deliberately a positive test against lifeStarted rather than `!= lifeStarting`:
+// askImpl uses it as an allow-list, so a lifecycle phase added later is refused by
+// default instead of silently permitting a blocking Ask. lifeStopping is exactly
+// such a phase — under the old `!= lifeStarting` form an Ask in PreStop would slip
+// through and re-enter stop().
+func (x *processorMailBox) isStarted() bool { return x.life == lifeStarted }
+
 // yieldTurn is called on behalf of BaseActor.Ask (from askImpl, while holding the
 // turn) right before it blocks on a reply. It hands off the drainer role to a
 // fresh successor (so the mailbox keeps draining while this handler is suspended)
@@ -106,10 +123,16 @@ func (x *processorMailBox) releaseTurn() { x.turn <- struct{}{} }
 func (x *processorMailBox) yieldTurn() *drainState {
 	ds := x.activeDS
 	// During start()/Started(), do NOT hand off to a successor: business messages
-	// must not be processed until Started completes. A blocking Ask inside Started
-	// still gets its reply via the reply channel, so it doesn't deadlock — it just
-	// doesn't let other messages in. Once Started returns, the same drainer resumes
-	// and continues draining normally.
+	// must not be processed until Started completes, or a handler would run against
+	// half-initialized actor state.
+	//
+	// Because nothing drains the mailbox in that window, the actor cannot answer any
+	// incoming request either — which is why askImpl refuses an Ask unless
+	// isStarted() (errAskNotRunning), instead of letting it block here and possibly
+	// wait out askTimeout. So in practice this branch is only reached via the
+	// lower-level yieldTurn path, not through Ask.
+	//
+	// Once Started returns, the same drainer resumes and drains normally.
 	if ds != nil && !ds.handedOff && x.life != lifeStarting {
 		// first yield of this drainer: spawn a successor to take over draining.
 		// procStatus stays `running` — the running-owner role passes to the
@@ -343,7 +366,13 @@ func (x *processorMailBox) stop() {
 	// PreStop pairs with a completed Started(): skip it when the actor never
 	// finished starting (e.g. cluster-register failure, or Started panicked),
 	// so cleanup code doesn't touch resources Started was supposed to set up.
+	//
+	// Advance to lifeStopping BEFORE the call, so a re-entrant stop() (possible when
+	// PreStop releases the turn — see lifeStopping) finds lifeStarted false and does
+	// not run PreStop a second time. It also takes the actor out of the Ask-allowed
+	// phase for the duration of PreStop.
 	if x.life == lifeStarted {
+		x.life = lifeStopping
 		x.receiver.PreStop()
 	}
 }

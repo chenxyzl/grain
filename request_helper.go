@@ -30,6 +30,26 @@ func NoReentryAsk[T proto.Message](target ActorRef, req proto.Message) (T, *mess
 // asker is used only for the nil-target diagnostic and may be nil.
 func askImpl[T proto.Message](asker ActorRef, target ActorRef, req proto.Message, turn reentryTurn) (T, *message.ErrCode) {
 	var null T
+	// A blocking Ask is only permitted while the actor is running — after Started()
+	// completed and before PreStop() began — and is refused here at the call site,
+	// the earliest point at which this is decidable.
+	//
+	// Started(): reentrancy is off (a handler must not run against half-initialized
+	// state), so the actor cannot answer any incoming request in that window; an Ask
+	// whose reply depends on that would silently wait out askTimeout. Whether a
+	// *given* Ask depends on it is NOT predictable here, so the phase is disallowed
+	// outright rather than guessed at.
+	//
+	// PreStop(): yielding the turn there lets a successor drainer re-enter
+	// doStop -> stop() while procStatus is still `running`, which used to run PreStop
+	// a second time (see lifeStopping).
+	//
+	// Phrased as an allow-list (isStarted) so any lifecycle phase added later is
+	// refused by default instead of silently permitting a blocking Ask. Nothing is
+	// sent, so the target never sees the request.
+	if turn != nil && !turn.isStarted() {
+		return null, errAskNotRunning
+	}
 	if target == nil {
 		return null, message.WithErr(fmt.Sprintf("ask target is nil, sender:%v", asker))
 	}

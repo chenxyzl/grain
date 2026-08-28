@@ -504,3 +504,174 @@ func TestAskReplyDelivered(t *testing.T) {
 	}
 	sys.cancelAsk(snId)
 }
+
+// startedAskActor self-asks from Started() instead of from a normal handler.
+type startedAskActor struct {
+	BaseActor
+	out    chan *message.ErrCode
+	served atomic.Bool // set if the request ever reached the target
+}
+
+func (a *startedAskActor) Started() {
+	_, err := a.Ask[*message.Unsubscribe](a.Self(), &message.Subscribe{EventName: "req"})
+	a.out <- err
+}
+func (a *startedAskActor) PreStop() {}
+func (a *startedAskActor) Receive(ctx Context) {
+	if m, ok := ctx.Message().(*message.Subscribe); ok && m.EventName == "req" {
+		a.served.Store(true)
+		ctx.Reply(&message.Unsubscribe{EventName: "reply"})
+	}
+}
+
+// TestAskFromStartedIsRejected pins the rule (docs/reentrancy.md §九): an Ask
+// issued from Started() is refused at the call site with message.CodeAskNotRunning
+// and nothing is sent.
+//
+// Why refuse rather than let it run: reentrancy is deliberately off during
+// Started() (yieldTurn skips the successor-drainer handoff so no handler observes
+// half-initialized state), which means the actor cannot answer incoming requests
+// in that window. An Ask whose reply depends on that would silently wait out
+// askTimeout, and whether a given Ask depends on it is not decidable at call time.
+//
+// The contrast case — the same self-ask from a normal handler, which hands off and
+// completes — is TestSelfAskDoesNotDeadlock above.
+func TestAskFromStartedIsRejected(t *testing.T) {
+	sys := newFakeSys()
+	// A generous timeout: a correct rejection never waits, so if this test ever
+	// takes ~askTimeout the guard is gone and the Ask actually went out.
+	sys.cfg.askTimeout = 30 * time.Second
+	act := &startedAskActor{out: make(chan *message.ErrCode, 1)}
+	p := newTestProcessor(sys, act, 8)
+	p.init()
+
+	select {
+	case err := <-act.out:
+		if err == nil {
+			t.Fatal("an Ask from Started() must be rejected, but it succeeded")
+		}
+		if err.Code != int32(message.CodeAskNotRunning) {
+			t.Errorf("want CodeAskNotRunning (%d), got code %d: %q",
+				message.CodeAskNotRunning, err.Code, err.Des)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Ask from Started() neither returned nor was rejected — it blocked, " +
+			"so the rejection is not in effect")
+	}
+
+	// The request must never have been sent: the target (self) must not have served
+	// it, before or after Started() returned.
+	time.Sleep(50 * time.Millisecond)
+	if act.served.Load() {
+		t.Error("the rejected Ask still delivered its request to the target")
+	}
+}
+
+// preStopAskActor attempts a real (turn-yielding) Ask from PreStop() and counts how
+// many times PreStop runs.
+type preStopAskActor struct {
+	BaseActor
+	sys      *fakeSys
+	out      chan *message.ErrCode
+	preStops atomic.Int32
+}
+
+func (a *preStopAskActor) Started()            {}
+func (a *preStopAskActor) Receive(ctx Context) {}
+func (a *preStopAskActor) PreStop() {
+	if n := a.preStops.Add(1); n > 1 {
+		return // never recurse; the count is what the test asserts
+	}
+	// A ghost target (registered nowhere) would be dropped by fakeSys, so if the
+	// Ask were NOT refused it would block until askTimeout and yield the turn.
+	ghost := newDirectActorRef("local", "ghost", "test", a.sys)
+	_, err := a.Ask[*message.Unsubscribe](ghost, &message.Subscribe{EventName: "x"})
+	a.out <- err
+}
+
+// TestAskFromPreStopIsRejected pins two coupled decisions.
+//
+// 1. PreStop() is outside the Ask-allowed phase. stop() advances life to
+// lifeStopping before calling PreStop, so the isStarted() allow-list refuses the
+// Ask with CodeAskNotRunning and nothing is sent.
+//
+// 2. PreStop runs exactly once. This is why (1) matters: before lifeStopping
+// existed, a turn-yielding Ask in PreStop spawned a successor drainer which
+// re-entered doStop -> stop() while procStatus was still `running` (it only becomes
+// `stopped` in stop()'s defer, i.e. after PreStop returns), passed the lifeStarted
+// check, and ran PreStop a SECOND time. Verified against the pre-fix code: the
+// count was 2.
+func TestAskFromPreStopIsRejected(t *testing.T) {
+	sys := newFakeSys()
+	sys.cfg.askTimeout = 200 * time.Millisecond // short, so a regression shows as a delay not a hang
+	act := &preStopAskActor{sys: sys, out: make(chan *message.ErrCode, 1)}
+	p := newTestProcessor(sys, act, 8)
+	p.init()
+	time.Sleep(50 * time.Millisecond) // let Started() complete
+	p.poison()
+
+	select {
+	case err := <-act.out:
+		if err == nil {
+			t.Fatal("an Ask from PreStop() must be rejected, but it succeeded")
+		}
+		if err.Code != int32(message.CodeAskNotRunning) {
+			t.Errorf("want CodeAskNotRunning (%d), got code %d: %q",
+				message.CodeAskNotRunning, err.Code, err.Des)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("PreStop() never ran")
+	}
+
+	// Give any wrongly-spawned successor drainer time to re-enter stop().
+	time.Sleep(300 * time.Millisecond)
+	if n := act.preStops.Load(); n != 1 {
+		t.Errorf("PreStop ran %d times, want exactly 1 (lifeStopping guard is not holding)", n)
+	}
+}
+
+// preStopYieldActor releases the turn from PreStop() directly, bypassing Ask. This
+// is the path that can still re-enter stop() now that Ask refuses to run there, so
+// it is what actually guards the lifeStopping fix.
+type preStopYieldActor struct {
+	BaseActor
+	turnCtl  reentryTurn
+	release  chan struct{}
+	preStops atomic.Int32
+}
+
+func (a *preStopYieldActor) _bindTurn(t reentryTurn) { a.BaseActor._bindTurn(t); a.turnCtl = t }
+func (a *preStopYieldActor) Started()                {}
+func (a *preStopYieldActor) Receive(ctx Context)     {}
+func (a *preStopYieldActor) PreStop() {
+	if n := a.preStops.Add(1); n > 1 {
+		return
+	}
+	// Hand the turn to a successor drainer, exactly as a blocking Ask used to.
+	ds := a.turnCtl.yieldTurn()
+	<-a.release
+	a.turnCtl.resumeTurn(ds)
+}
+
+// TestPreStopRunsOnceWhenItYieldsTheTurn is the direct regression test for the
+// lifeStopping state: any turn-yielding call inside PreStop lets a successor drainer
+// re-enter stop(), which must not run PreStop again.
+func TestPreStopRunsOnceWhenItYieldsTheTurn(t *testing.T) {
+	sys := newFakeSys()
+	act := &preStopYieldActor{release: make(chan struct{})}
+	p := newTestProcessor(sys, act, 8)
+	p.init()
+	time.Sleep(50 * time.Millisecond)
+	p.poison()
+
+	// Wait for PreStop to have yielded, let a successor try to re-enter stop().
+	time.Sleep(300 * time.Millisecond)
+	if n := act.preStops.Load(); n != 1 {
+		t.Errorf("PreStop ran %d times while the turn was yielded, want exactly 1", n)
+	}
+	close(act.release)
+	time.Sleep(200 * time.Millisecond)
+	if n := act.preStops.Load(); n != 1 {
+		t.Errorf("PreStop ran %d times after resume, want exactly 1", n)
+	}
+}

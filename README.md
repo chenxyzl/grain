@@ -31,6 +31,14 @@
 > never panicked; runtime failures (timeout / remote error / type mismatch) are
 > classified there.
 
+> ⚠️ **`x.Ask` is only allowed while the actor is running** — from a normal handler.
+> From `Started()` or `PreStop()` it sends nothing and returns
+> `message.CodeAskNotRunning` immediately. In `Started()` reentrancy is off (a
+> handler must not run against half-initialized state) so the actor cannot answer
+> incoming requests; in `PreStop()` blocking would re-enter the stop path. To Ask at
+> startup, self-`Tell` from `Started()` and Ask when handling that message. `Tell` is
+> unrestricted in every phase. See docs/reentrancy.md §九.
+
 # Example:
 
 ## examples/first(tell & ask/reply)

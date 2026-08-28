@@ -40,5 +40,12 @@ type reentryTurn interface {
 	yieldTurn() *drainState
 	// resumeTurn reacquires the turn after the reply arrives.
 	resumeTurn(ds *drainState)
+	// isStarted reports whether the actor is in its running phase: Started() has
+	// completed and PreStop() has not begun (life == lifeStarted). That is the ONLY
+	// phase in which a blocking Ask is permitted, so askImpl uses this as an
+	// allow-list rather than denying specific phases: a lifecycle state added later
+	// is refused by default instead of silently slipping through.
+	// Only valid while holding the turn, which every actor handler does.
+	isStarted() bool
 }
 

@@ -16,14 +16,15 @@ var (
 
 type HelloActorA struct{ grain.BaseActor }
 
+// Started deliberately does NOT Ask. Reentrancy is off during Started() —
+// yieldTurn skips the successor-drainer handoff while life == lifeStarting, so no
+// handler runs against half-initialized state — which also means the actor cannot
+// answer incoming requests there. Ask therefore refuses outright from Started()
+// and returns message.CodeAskNotRunning. See docs/reentrancy.md §九.
+//
+// The a->b->a cycle is therefore kicked off from a normal handler below.
 func (x *HelloActorA) Started() {
 	x.Logger().Info("Started1")
-	reply, err := x.Ask[*testpb.HelloReplyA2B](helloActorB, &testpb.HelloAskA2B{Name: "hello a2b"})
-	if err != nil {
-		x.Logger().Error("HelloActorA ask err", "err", err)
-		return
-	}
-	x.Logger().Info("HelloActorA get reply", "reply", reply)
 }
 func (x *HelloActorA) PreStop() { x.Logger().Info("PreStop1") }
 func (x *HelloActorA) Receive(context grain.Context) {
@@ -32,8 +33,14 @@ func (x *HelloActorA) Receive(context grain.Context) {
 		x.Logger().Info("HelloActorA received HelloAskB2A")
 		context.Reply(&testpb.HelloReplyB2A{Name: "HelloReplyB2A"})
 		time.Sleep(time.Second * 1)
-	case *testpb.Hello: //tell
+	case *testpb.Hello: //tell — kicks off the a->b->a cycle from a normal handler
 		x.Logger().Info("HelloActorA recv tell", "message", context.Message())
+		reply, err := x.Ask[*testpb.HelloReplyA2B](helloActorB, &testpb.HelloAskA2B{Name: "hello a2b"})
+		if err != nil {
+			x.Logger().Error("HelloActorA ask err", "err", err)
+			return
+		}
+		x.Logger().Info("HelloActorA get reply", "reply", reply)
 	default:
 		panic(fmt.Sprintf("not register msg type, msgType:%v, msg:%v", proto.MessageName(msg), msg))
 	}

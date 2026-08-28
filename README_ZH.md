@@ -28,6 +28,13 @@
 > 所有请求/应答的错误都以 `*message.ErrCode` 返回(nil 表示成功),不 panic;
 > 运行期失败(超时 / 远端错误 / 类型不符)都在此归类。
 
+> ⚠️ **`x.Ask` 只允许在 actor「运行中」时调用** —— 即普通 handler 里。在 `Started()`
+> 或 `PreStop()` 里调用会什么都不发送、立即返回 `message.CodeAskNotRunning` 错误。
+> `Started()` 期间重入是关闭的(handler 不能跑在只初始化了一半的状态上),actor 无法
+> 回应任何进来的请求;`PreStop()` 里阻塞会重入停止流程。若想启动即发起 Ask,请在
+> `Started()` 里自投递一条消息,在处理该消息时再 Ask。`Tell` 在所有阶段都不受限制。
+> 详见 docs/reentrancy.md §九。
+
 # 例子:
 
 ## examples/first(通知&请求应答)
