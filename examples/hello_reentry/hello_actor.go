@@ -18,7 +18,7 @@ type HelloActorA struct{ grain.BaseActor }
 
 func (x *HelloActorA) Started() {
 	x.Logger().Info("Started1")
-	reply, err := x.Ask(helloActorB, &testpb.HelloAskA2B{Name: "hello a2b"})
+	reply, err := x.Ask[*testpb.HelloReplyA2B](helloActorB, &testpb.HelloAskA2B{Name: "hello a2b"})
 	if err != nil {
 		x.Logger().Error("HelloActorA ask err", "err", err)
 		return
@@ -47,7 +47,7 @@ func (x *HelloActorB) Receive(context grain.Context) {
 	switch msg := context.Message().(type) {
 	case *testpb.HelloAskA2B: //ask-reply
 		x.Logger().Info("HelloActorB received HelloAskA2B")
-		reply, err := x.Ask(helloActorA, &testpb.HelloAskB2A{Name: "HelloAskB2A"})
+		reply, err := x.Ask[*testpb.HelloReplyB2A](helloActorA, &testpb.HelloAskB2A{Name: "HelloAskB2A"})
 		if err != nil {
 			x.Logger().Error("HelloActorB ask err", "err", err)
 			return

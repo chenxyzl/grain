@@ -1,6 +1,6 @@
 module github.com/chenxyzl/grain
 
-go 1.26
+go 1.27
 
 require (
 	go.etcd.io/etcd/api/v3 v3.7.1

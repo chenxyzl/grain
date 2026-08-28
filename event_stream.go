@@ -125,25 +125,22 @@ func (x *eventStream) parseWatchEventStream(op watchOp, key string, value []byte
 		return fmt.Errorf("invalid eventStream, convert to nodeId err, key:%v, err:%v", key, err)
 	}
 
-	actors, b := x.eventStreamMaps.Get(eventName)
 	if op == watchDelete {
-		if b && actors != nil {
+		if actors, ok := x.eventStreamMaps.Get(eventName); ok && actors != nil {
 			actors.Delete(uint64(nodeId))
 		}
 		x.Logger().Warn("event stream key delete, success", "key", key)
 		return nil
-	} else {
-		if actors == nil {
-			actors = safemap.NewRWMap[uint64, ActorRef]()
-			x.eventStreamMaps.Set(eventName, actors)
-		}
-		actorRef := newActorRefFromAID(string(value), x.GetSystem())
-		if actorRef == nil {
-			return fmt.Errorf("invalid eventStream, id to actorRef err, key:%v", key)
-		}
-		actors.Set(uint64(nodeId), actorRef)
-		x.Logger().Warn("event stream key add, success", "key", key)
 	}
+	actorRef := newActorRefFromAID(string(value), x.GetSystem())
+	if actorRef == nil {
+		return fmt.Errorf("invalid eventStream, id to actorRef err, key:%v", key)
+	}
+	// GetOrCreate, not Get/nil-check/Set: this runs on the provider's watch
+	// goroutine while registerEventStream runs on the actor's, and the racing
+	// Set would drop whichever per-event map was published first.
+	x.eventStreamMaps.GetOrCreate(eventName, safemap.NewRWMap[uint64, ActorRef]).Set(uint64(nodeId), actorRef)
+	x.Logger().Warn("event stream key add, success", "key", key)
 	return nil
 }
 
@@ -159,12 +156,7 @@ func (x *eventStream) registerEventStream(eventName string) {
 		return
 	}
 	//change local
-	actors, _ := x.eventStreamMaps.Get(eventName)
-	if actors == nil {
-		actors = safemap.NewRWMap[uint64, ActorRef]()
-		x.eventStreamMaps.Set(eventName, actors)
-	}
-	actors.Set(x.nodeId, x.Self())
+	x.eventStreamMaps.GetOrCreate(eventName, safemap.NewRWMap[uint64, ActorRef]).Set(x.nodeId, x.Self())
 }
 func (x *eventStream) unregisterEventStream(eventName string) {
 	path := x.getEventNamePath(eventName)

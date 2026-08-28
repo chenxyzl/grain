@@ -30,9 +30,10 @@ type drainState struct {
 	handedOff bool
 }
 
-// reentryTurn lets BaseActor.Ask release the actor's execution turn before
-// blocking on a reply and reacquire it afterwards, enabling reentrancy while
-// keeping the actor strictly single-threaded. Implemented by processorMailBox.
+// reentryTurn lets BaseActor.Ask (through askImpl) release the actor's execution
+// turn before blocking on a reply and reacquire it afterwards, enabling
+// reentrancy while keeping the actor strictly single-threaded. Implemented by
+// processorMailBox.
 type reentryTurn interface {
 	// yieldTurn releases the turn before blocking (ensuring a successor drainer
 	// exists) and returns the caller's drain state to restore on resume.

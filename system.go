@@ -43,7 +43,7 @@ func NewSystem(clusterName string, version string, clusterUrls []string, opts ..
 	//
 	sys.logger = slog.Default()
 	sys.registry = newRegistry(sys.Logger())
-	sys.clusterProvider = newProvider[*providerEtcd]()
+	sys.clusterProvider = &providerEtcd{}
 	sys.forceCloseChan = make(chan bool, 1)
 	sys.timerSchedule = newTimerSchedule(sys)
 	sys.addrHash = newAddrHash()

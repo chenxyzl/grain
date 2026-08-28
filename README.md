@@ -8,7 +8,7 @@
 - support schedule
 
 # Requirements
-- Go >= 1.26 (required by go.etcd.io/etcd/client/v3 v3.7.x)
+- Go >= 1.27 (required by the generic method `BaseActor.Ask[T]`)
 - an etcd cluster (used for member discovery / cluster addressing)
 
 # Install
@@ -17,10 +17,12 @@
 # Messaging APIs at a glance
 - `ref.Tell(msg)` — fire-and-forget send to an actor (method on `ActorRef`).
 - `ctx.Reply(msg)` — reply to the current request (inside `Receive`).
-- `ctx.Ask(target, msg)` — **reentrant** blocking request/reply, usable from inside
-  `Receive`. While it waits, the actor yields its turn so other messages (including
-  a reply looping back to itself) are processed, then resumes — no deadlock, still
-  single-threaded. Returns `(proto.Message, *message.ErrCode)`.
+- `x.Ask[T](target, msg)` — **reentrant** blocking request/reply, usable from inside
+  `Receive` (method on `BaseActor`). While it waits, the actor yields its turn so
+  other messages (including a reply looping back to itself) are processed, then
+  resumes — no deadlock, still single-threaded. Returns `(T, *message.ErrCode)`.
+  `T` is the expected reply type and must be written explicitly, as it cannot be
+  inferred from the arguments.
 - `grain.NoReentryAsk[T](target, msg)` — blocking request/reply for **non-actor**
   callers (e.g. `main`, a client). NOT reentrant — do not call from inside an
   actor's `Receive`/`Started`. Returns `(T, *message.ErrCode)`.
@@ -180,7 +182,7 @@ system.Logger().Warn("system stopped successfully")
 ## examples/hello_reentry (reentrant ask)
 warning: running etcd first
 
-An actor may `ctx.Ask` another actor while handling a message. If the callee asks
+An actor may `x.Ask[T]` another actor while handling a message. If the callee asks
 back (a -> b -> a), it does NOT deadlock: while `A` waits, it yields its turn so a
 successor drainer processes the message `B` sends back to `A`; once the reply
 arrives, `A` resumes. The actor is always single-threaded.
@@ -188,7 +190,7 @@ arrives, `A` resumes. The actor is always single-threaded.
 func (x *HelloActorA) Receive(ctx grain.Context) {
 switch ctx.Message().(type) {
 case *testpb.HelloAskB2A:
-// A is being asked by B while A itself is blocked in ctx.Ask(B) — reentrancy
+// A is being asked by B while A itself is blocked in x.Ask(B) — reentrancy
 ctx.Reply(&testpb.HelloReplyB2A{Name: "HelloReplyB2A"})
 }
 }
@@ -197,13 +199,13 @@ func (x *HelloActorB) Receive(ctx grain.Context) {
 switch ctx.Message().(type) {
 case *testpb.HelloAskA2B:
 // reentrant ask back to A; does not deadlock
-reply, err := x.Ask(helloActorA, &testpb.HelloAskB2A{Name: "HelloAskB2A"})
+reply, err := x.Ask[*testpb.HelloReplyB2A](helloActorA, &testpb.HelloAskB2A{Name: "HelloAskB2A"})
 _ = reply; _ = err
 ctx.Reply(&testpb.HelloReplyA2B{Name: "HelloReplyA2B"})
 }
 }
 ```
-> `x.Ask(...)` (on `BaseActor`, callable inside `Receive`) is the reentrant form.
+> `x.Ask[T](...)` (on `BaseActor`, callable inside `Receive`) is the reentrant form.
 > See docs/reentrancy.md for how the turn/handoff mechanism works.
 
 ## examples/pubsub

@@ -2,7 +2,6 @@ package grain
 
 import (
 	"log/slog"
-	"reflect"
 )
 
 // watchOp is the framework-neutral change type delivered by watchEventStream,
@@ -47,10 +46,4 @@ type iProvider interface {
 	RemoveNodeExtData(subKey string) error
 	//WatchNodeExtData watch node ext data, if val == "", mean`s delete
 	WatchNodeExtData(subKey string, f func(key, val string)) error
-}
-
-func newProvider[T iProvider]() T {
-	var a T
-	var t = reflect.TypeOf(a)
-	return reflect.New(t.Elem()).Interface().(T)
 }

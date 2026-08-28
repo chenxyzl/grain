@@ -1,5 +1,68 @@
 # Changelog
 
+## v1.2.3
+
+`Ask` becomes a generic method now that Go 1.27 allows methods to declare their
+own type parameters. This is what the `// wanted ... but golang not support`
+comment on `NoReentryAsk` had been waiting for — and it turns a latent
+error-swallowing bug into a compile-time-checked reply type.
+
+### ⚠️ Behavior changes
+- **Requires Go 1.27** (was 1.26). Declaring a generic method needs `-lang=go1.27`;
+  only this module is affected, callers may stay on an older language version.
+- **`BaseActor.Ask` is now `Ask[T proto.Message]`** and returns `(T, *message.ErrCode)`
+  instead of `(proto.Message, *message.ErrCode)`. `T` appears only in the result so
+  it cannot be inferred — write it explicitly:
+
+  ```go
+  // before
+  reply, err := x.Ask(target, &pb.HelloAsk{})            // reply is proto.Message
+  // after
+  reply, err := x.Ask[*pb.HelloReply](target, &pb.HelloAsk{})
+  ```
+
+  `x.Ask[proto.Message](...)` reproduces the old signature, but see the fix below
+  before relying on it.
+
+### 🐞 Correctness fixes
+- **`Ask` no longer reports a failure reply as success** (the headline fix).
+  `awaitReply`'s type switch tested `case T` first, and with `T` bound to
+  `proto.Message` that arm matched *everything* — including `*message.ErrCode` and
+  `*message.Poison`, which are themselves proto messages. The later `case *ErrCode`
+  / `case *Poison` arms were dead code. Consequences, all now fixed:
+  - Asking an actor that does not exist returned `errActorNotFound` as a **successful
+    reply** with `err == nil`, instead of an error.
+  - An actor replying `ctx.Reply(message.WithErr(...))` was likewise seen as success.
+  - Shutdown's `wakePendingAsks` handed the poison sentinel back as a successful
+    reply instead of `"ask reply poisoned"`.
+
+  The two sentinels are now matched **before** `case T`, so the contract holds for
+  every `T` — `Ask[proto.Message]` included.
+- **Reply type mismatch is now actually detected.** With `T` = `proto.Message`
+  nothing could mismatch; the `msg type err, need:%v, now:%v` diagnostic was
+  unreachable and its `need:` was empty (`proto.MessageName` on a nil interface
+  returns `""`). With a concrete `T` the zero value is a typed nil and the message
+  names both types.
+- **`event_stream` no longer loses subscriptions to a race.** Two paths did
+  `Get` → nil-check → `NewRWMap` → `Set` on `eventStreamMaps`: `registerEventStream`
+  on the actor's goroutine and `parseWatchEventStream` on the provider's watch
+  goroutine. Interleaved, the second `Set` replaced the map the first had already
+  written a node into. Both now use the new atomic `RWMap.GetOrCreate`.
+- **`NoReentryAsk(nil, msg)` no longer panics** on `target.GetSystem()`; the
+  nil-target guard moved into the shared path and returns an `ErrCode`.
+
+### ✨ Additions
+- **`safemap.RWMap.GetOrCreate(key, create)`** — check-and-insert under one write
+  lock, returning the same value to all concurrent callers.
+
+### 🧹 Internal
+- `BaseActor.Ask` and `NoReentryAsk` now share one `askImpl[T]`; the correlation-id
+  /register/send/await sequence and the yield-before-send reasoning live in one
+  place. `askImpl` takes the turn controller, so the only difference between the
+  two entry points is whether a turn is yielded.
+- `newProvider[T iProvider]()` and its `reflect` dependency are gone — the single
+  call site constructs `&providerEtcd{}` directly.
+
 ## v1.2.2
 
 Mailbox reworked from fixed-capacity blocking to non-blocking auto-growth, with

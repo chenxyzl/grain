@@ -23,6 +23,26 @@ func (rm *RWMap[K, V]) Get(key K) (V, bool) {
 	return val, exists
 }
 
+// GetOrCreate returns the value stored under key, calling create() to build and
+// store one when the key is absent. The check and the insert happen under a
+// single write lock, so concurrent callers all receive the *same* value.
+//
+// This is not equivalent to Get + nil-check + Set: in that sequence two callers
+// can both miss, both build, and the second Set clobbers the value the first one
+// already handed out, silently discarding whatever was written into it.
+//
+// create runs while the write lock is held, so it must not touch this map.
+func (rm *RWMap[K, V]) GetOrCreate(key K, create func() V) V {
+	rm.mu.Lock()         // w lock
+	defer rm.mu.Unlock() // w unlock
+	if val, exists := rm.m[key]; exists {
+		return val
+	}
+	val := create()
+	rm.m[key] = val
+	return val
+}
+
 // Set ...
 func (rm *RWMap[K, V]) Set(key K, value V) {
 	rm.mu.Lock()         // w lock

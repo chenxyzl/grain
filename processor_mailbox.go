@@ -98,10 +98,11 @@ func (x *processorMailBox) opts() *tOpts   { return &x.tOpts }
 func (x *processorMailBox) acquireTurn() { <-x.turn }
 func (x *processorMailBox) releaseTurn() { x.turn <- struct{}{} }
 
-// yieldTurn is called by BaseActor.Ask (while holding the turn) right before it
-// blocks on a reply. It hands off the drainer role to a fresh successor (so the
-// mailbox keeps draining while this handler is suspended) and releases the turn.
-// Returns the caller's drain state for resumeTurn to restore.
+// yieldTurn is called on behalf of BaseActor.Ask (from askImpl, while holding the
+// turn) right before it blocks on a reply. It hands off the drainer role to a
+// fresh successor (so the mailbox keeps draining while this handler is suspended)
+// and releases the turn. Returns the caller's drain state for resumeTurn to
+// restore.
 func (x *processorMailBox) yieldTurn() *drainState {
 	ds := x.activeDS
 	// During start()/Started(), do NOT hand off to a successor: business messages
@@ -120,8 +121,9 @@ func (x *processorMailBox) yieldTurn() *drainState {
 	return ds
 }
 
-// resumeTurn is called by BaseActor.Ask after the reply arrives; it reacquires
-// the turn so the suspended handler can finish single-threaded.
+// resumeTurn is called on behalf of BaseActor.Ask (from askImpl) after the reply
+// arrives; it reacquires the turn so the suspended handler can finish
+// single-threaded.
 func (x *processorMailBox) resumeTurn(ds *drainState) {
 	x.acquireTurn()
 	x.activeDS = ds

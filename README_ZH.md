@@ -8,7 +8,7 @@
 - 支持schedule
 
 # 环境要求
-- Go >= 1.26 (go.etcd.io/etcd/client/v3 v3.7.x 的要求)
+- Go >= 1.27 (泛型方法 `BaseActor.Ask[T]` 的要求)
 - 一个 etcd 集群 (用于成员发现 / 集群寻址)
 
 # 安装
@@ -17,9 +17,10 @@
 # 消息 API 速览
 - `ref.Tell(msg)` — 向 actor 单向发送(fire-and-forget,`ActorRef` 上的方法)。
 - `ctx.Reply(msg)` — 在 `Receive` 内回复当前请求。
-- `ctx.Ask(target, msg)` — **可重入**的阻塞式请求/应答,在 `Receive` 内使用。
-  等待期间 actor 让出执行权,以便处理其它消息(包括回环给自己的应答),拿到
-  回复后再恢复——不死锁,且仍单线程。返回 `(proto.Message, *message.ErrCode)`。
+- `x.Ask[T](target, msg)` — **可重入**的阻塞式请求/应答,在 `Receive` 内使用
+  (`BaseActor` 上的方法)。等待期间 actor 让出执行权,以便处理其它消息(包括回环
+  给自己的应答),拿到回复后再恢复——不死锁,且仍单线程。返回
+  `(T, *message.ErrCode)`。`T` 是期望的应答类型,因无法从入参推导,必须显式写出。
 - `grain.NoReentryAsk[T](target, msg)` — 供**非 actor** 调用者(如 `main`、客户端)
   使用的阻塞式请求/应答。**不可重入**——不要在 actor 的 `Receive`/`Started` 里调。
   返回 `(T, *message.ErrCode)`。
@@ -178,14 +179,14 @@ system.Logger().Warn("system stopped successfully")
 ## examples/hello_reentry（请求重入）
 注意: 先运行一个etcd
 
-actor 在处理消息时可以 `ctx.Ask` 另一个 actor。若被调方回头再问自己(a -> b -> a),
+actor 在处理消息时可以 `x.Ask[T]` 另一个 actor。若被调方回头再问自己(a -> b -> a),
 不会死锁:`A` 等待期间让出执行权,由后继 drainer 处理 `B` 回发给 `A` 的消息;
 应答到达后 `A` 恢复。actor 始终单线程。
 ``` go
 func (x *HelloActorA) Receive(ctx grain.Context) {
 switch ctx.Message().(type) {
 case *testpb.HelloAskB2A:
-// A 正阻塞在 ctx.Ask(B) 时被 B 回问 —— 重入
+// A 正阻塞在 x.Ask(B) 时被 B 回问 —— 重入
 ctx.Reply(&testpb.HelloReplyB2A{Name: "HelloReplyB2A"})
 }
 }
@@ -194,13 +195,13 @@ func (x *HelloActorB) Receive(ctx grain.Context) {
 switch ctx.Message().(type) {
 case *testpb.HelloAskA2B:
 // 重入地回问 A,不会死锁
-reply, err := x.Ask(helloActorA, &testpb.HelloAskB2A{Name: "HelloAskB2A"})
+reply, err := x.Ask[*testpb.HelloReplyB2A](helloActorA, &testpb.HelloAskB2A{Name: "HelloAskB2A"})
 _ = reply; _ = err
 ctx.Reply(&testpb.HelloReplyA2B{Name: "HelloReplyA2B"})
 }
 }
 ```
-> `x.Ask(...)`(`BaseActor` 上的方法,可在 `Receive` 内调用)是可重入形式。
+> `x.Ask[T](...)`(`BaseActor` 上的方法,可在 `Receive` 内调用)是可重入形式。
 > turn/交接机制的原理见 docs/reentrancy.md。
 
 ## examples/pubsub（发布订阅）

@@ -399,7 +399,7 @@ func (a *selfAskActor) Receive(ctx Context) {
 			}
 			// real self-ask: only a successor drainer can process this request and
 			// reply; yield-before-send guarantees that successor exists.
-			_, err := a.Ask(a.Self(), &message.Subscribe{EventName: "selfask"})
+			_, err := a.Ask[*message.Unsubscribe](a.Self(), &message.Subscribe{EventName: "selfask"})
 			_ = err
 			if a.doneOnce.CompareAndSwap(false, true) {
 				close(a.done)

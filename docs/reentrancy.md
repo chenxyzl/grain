@@ -14,7 +14,7 @@ Actor 模型的铁律:**一个 actor 同一时刻只有一个 goroutine 在执�
 
 ```go
 func (x *MyActor) Receive(ctx Context) {
-    resp, err := ctx.Ask(otherActor, req)  // 阻塞,等 otherActor 回复
+    resp, err := x.Ask[*pb.Resp](otherActor, req)  // 阻塞,等 otherActor 回复
     use(resp)
 }
 ```
@@ -96,14 +96,24 @@ run(ds):   for {                          // 排空循环(drainer 主体)
 
 ## 四、重入发生时:yield → 后继接管 → resume
 
-现在看 A 在 Receive 里 `ctx.Ask(B)`。Ask 内部(`BaseActor.Ask`)关键三步:
+现在看 A 在 Receive 里 `x.Ask[T](B, req)`。`BaseActor.Ask` 只是把活委托给
+`askImpl`(`request_helper.go`),关键四步在那里:
 
 ```go
-ds := x.turn.yieldTurn()                         // ① 让出令牌 + 派后继
-sys.getSender().tellWithSender(target, msg, ...) // ② 发消息给 B
-v, err := awaitReply(ch, timeout)                // ③ 阻塞等回复
-x.turn.resumeTurn(ds)                            // ④ 抢回令牌
+var ds *drainState
+if turn != nil {                                 // ① 让出令牌 + 派后继
+    ds = turn.yieldTurn()
+}
+sys.getSender().tellWithSender(target, req, ...) // ② 发消息给 B
+v, err := awaitReply[T](ch, timeout)             // ③ 阻塞等回复
+if turn != nil {                                 // ④ 抢回令牌
+    turn.resumeTurn(ds)
+}
 ```
+
+`turn` 就是发起方 actor 的令牌控制器。`BaseActor.Ask` 传自己的 `x.turn`,所以
+①④ 生效、可重入;`NoReentryAsk` 传 `nil`(调用方不是 actor,没有令牌可让),
+跳过 ①④ 直接阻塞——这是两者唯一的差别。
 
 ### ① yieldTurn:让出令牌,并"派一个接班的"
 
@@ -191,7 +201,7 @@ if ds.handedOff { return }   // 交过班,直接退,不碰 procStatus(后继拥�
 
 这就是 **Akka/Orleans 式"通用可重入"**语义,代价:
 > 一次 Receive 内(Ask 前后),actor 状态可能被**插入执行的其它消息**改变。
-> 例:A 在 `x := a.field; ctx.Ask(...); use(a.field)` 里,两次读 `a.field`
+> 例:A 在 `x := a.field; a.Ask[T](...); use(a.field)` 里,两次读 `a.field`
 > 可能不同——因为 Ask 期间别的消息改了它。
 
 但**单线程保证仍成立**(同一时刻只有令牌持有者在跑),所以没有数据竞争,只是
@@ -292,7 +302,7 @@ run 返回 → process 又见 poisoned → 又 schedule……**满核空转**直
 
 ```
 [drainer-A1]  run: Pop(msgX) → acquireTurn ✓ → A.Receive(msgX)
-                                                   │ ctx.Ask(B, req)
+                                                   │ x.Ask[T](B, req)
                                                    │  ├ yieldTurn:
                                                    │  │    handedOff=true
                                                    │  │    go process() ──────► [drainer-A2] 启动

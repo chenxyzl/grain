@@ -9,18 +9,49 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// NoReentryAsk mean's not allowed re-entry
-// wanted system.NoReentryAsk[T proto.Message](target ActorRef, req proto.Message) T
-// but golang not support
+// NoReentryAsk sends req to target and blocks for a reply of type T WITHOUT
+// releasing any actor execution turn, so it must not be called from inside an
+// actor handler (use BaseActor.Ask[T] there, which is reentrant). It is the entry
+// point for non-actor code: main, tests, http handlers.
+//
+// A nil *message.ErrCode means success.
 func NoReentryAsk[T proto.Message](target ActorRef, req proto.Message) (T, *message.ErrCode) {
+	return askImpl[T](nil, target, req, nil)
+}
+
+// askImpl is the shared body of BaseActor.Ask and NoReentryAsk: allocate a
+// correlation id, register the reply channel, send with a replyRef as the sender,
+// then block until the reply arrives, times out, or the system shuts down.
+//
+// When turn is non-nil the caller's actor execution turn is released before the
+// send and reacquired after the reply — that is what makes BaseActor.Ask
+// reentrant. NoReentryAsk passes nil and simply blocks.
+//
+// asker is used only for the nil-target diagnostic and may be nil.
+func askImpl[T proto.Message](asker ActorRef, target ActorRef, req proto.Message, turn reentryTurn) (T, *message.ErrCode) {
+	var null T
+	if target == nil {
+		return null, message.WithErr(fmt.Sprintf("ask target is nil, sender:%v", asker))
+	}
 	sys := target.GetSystem()
 	snId := sys.nextSnId()
 	ch := sys.registerAsk(snId)
-	defer sys.cancelAsk(snId)
-	//
+	defer sys.cancelAsk(snId) // idempotent: no-op if a reply already Popped it
+	// Yield the turn BEFORE sending: the send may block on a full mailbox, and if
+	// the target is this actor itself (self-ask) or a full a->b->a cycle, only a
+	// successor drainer (spawned by yieldTurn) can free space. Yielding first lets
+	// that successor drain while we send, avoiding a self-deadlock. Yielding also
+	// breaks the a->b->a reply deadlock.
+	var ds *drainState
+	if turn != nil {
+		ds = turn.yieldTurn()
+	}
 	sys.getSender().tellWithSender(target, req, newReplyRef(snId, sys.getAddr(), sys), snId)
-	//
-	return awaitReply[T](ch, sys.getConfig().askTimeout)
+	v, err := awaitReply[T](ch, sys.getConfig().askTimeout)
+	if turn != nil {
+		turn.resumeTurn(ds)
+	}
+	return v, err
 }
 
 // askTimerPool reuses per-Ask timeout timers. The timer's lifetime is fully
@@ -51,13 +82,20 @@ func awaitReply[T proto.Message](ch chan proto.Message, timeout time.Duration) (
 	}()
 	select {
 	case resp := <-ch:
+		// The framework sentinels are matched BEFORE T on purpose. Both are
+		// themselves proto.Messages, so a `case T` placed first would match them
+		// whenever T is an interface (Ask[proto.Message]) and hand a failure back
+		// as a successful reply. Matching them first makes the error semantics hold
+		// for every T. Consequence: Ask[*message.ErrCode] reports an error instead
+		// of returning the ErrCode as a value — asking for the error type itself is
+		// not a supported use.
 		switch msg := resp.(type) {
-		case T:
-			return msg, nil
 		case *message.Poison:
 			return null, message.WithErr("ask reply poisoned")
 		case *message.ErrCode:
 			return null, msg
+		case T:
+			return msg, nil
 		case error:
 			return null, message.WithErr(msg.Error())
 		default:
