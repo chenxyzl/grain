@@ -16,6 +16,9 @@
 
 # 消息 API 速览
 - `ref.Tell(msg)` — 向 actor 单向发送(fire-and-forget,`ActorRef` 上的方法)。
+- `x.Self()` — 在 actor 内部取自己的 `ActorRef`。所有「引用」性质的操作都经由它:
+  `x.Self().Tell(m)`、`x.Self().GetId()`。`BaseActor` 不再嵌入 `ActorRef`,所以用户
+  actor 本身不再「是」一个 `ActorRef`。
 - `ctx.Reply(msg)` — 在 `Receive` 内回复当前请求。
 - `x.Ask[T](target, msg)` — **可重入**的阻塞式请求/应答,在 `Receive` 内使用
   (`BaseActor` 上的方法)。等待期间 actor 让出执行权,以便处理其它消息(包括回环

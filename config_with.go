@@ -18,19 +18,35 @@ func WithConfigStopWaitTimeSecond(t int) ConfigOptFunc {
 	}
 }
 
+// WithConfigGrpcDialOptions APPENDS dial options to the defaults.
+//
+// It used to replace the slice, which silently dropped the default
+// insecure.NewCredentials() seeded in newConfig — so adding a single unrelated option
+// made grpc.NewClient fail with "no transport security set", surfacing only as
+// streamWriteActor logging and poisoning itself. If you need different credentials,
+// pass grpc.WithTransportCredentials explicitly; the later option wins.
 func WithConfigGrpcDialOptions(dialOptions ...grpc.DialOption) ConfigOptFunc {
 	return func(config *config) {
-		config.dialOptions = dialOptions
+		config.dialOptions = append(config.dialOptions, dialOptions...)
 	}
 }
 
+// WithConfigCallDialOptions appends grpc call options.
+//
+// Deprecated: the name is wrong — these are CallOptions, nothing to do with dialing.
+// Use WithConfigGrpcCallOptions.
 func WithConfigCallDialOptions(callOptions ...grpc.CallOption) ConfigOptFunc {
+	return WithConfigGrpcCallOptions(callOptions...)
+}
+
+// WithConfigGrpcCallOptions appends grpc call options used for the outbound stream.
+func WithConfigGrpcCallOptions(callOptions ...grpc.CallOption) ConfigOptFunc {
 	return func(config *config) {
-		config.callOptions = callOptions
+		config.callOptions = append(config.callOptions, callOptions...)
 	}
 }
 
-func WithConfigKind(kindName string, producer iProducer, opts ...KindOptFunc) ConfigOptFunc {
+func WithConfigKind(kindName string, producer Producer, opts ...KindOptFunc) ConfigOptFunc {
 	return func(config *config) {
 		config.mustNotRunning()
 		if kindName == defaultLocalKind ||

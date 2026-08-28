@@ -73,42 +73,34 @@ func (x *actorIdWrapper) askSnId() uint64 {
 	return n
 }
 
-// GetRemoteAddrCache ...
-// @return remote addr
-// @return remote changed
-func (x *actorIdWrapper) getRemoteAddrCache() (string, bool) {
+// getRemoteAddrCache resolves which node currently owns this cluster actor, caching
+// the answer against the provider's node-set version. Returns "" when the actor's
+// kind is not hosted anywhere (or this is not a cluster ref).
+//
+// The second result used to be a "changed" flag that no caller ever read; it and the
+// unreachable `vCache == nil` tail are gone.
+func (x *actorIdWrapper) getRemoteAddrCache() string {
 	if !x.isCluster() {
-		return "", false
+		return ""
 	}
-	//
 	// fast path: compare the provider version only (no slice allocation). The
 	// full GetNodes() is called just once, when the version actually advanced.
-	version := x.GetSystem().GetProvider().GetNodesVersion()
+	version := x.GetSystem().getProvider().GetNodesVersion()
+	if vCache := x.cacheRemote.Load(); vCache != nil && vCache.version == version {
+		return vCache.remoteAddr
+	}
+	x.Lock()
+	defer x.Unlock()
+	//double check: re-read under the lock, not the stale value captured above.
 	vCache := x.cacheRemote.Load()
 	if vCache != nil && vCache.version == version {
-		return vCache.remoteAddr, false
+		return vCache.remoteAddr
 	}
-	changed := false
-	{
-		x.Lock()
-		//double check: re-read under the lock, not the stale value captured above.
-		vCache = x.cacheRemote.Load()
-		if vCache == nil || vCache.version != version {
-			nodes, ver := x.GetSystem().GetProvider().GetNodes()
-			cacheAddr := x.GetSystem().getAddrHash().CalcAddrByKind8Name(nodes, x.GetKind(), x.GetName())
-			if cacheAddr == "" {
-				x.Unlock()
-				return "", false
-			}
-			changed = vCache == nil || vCache.remoteAddr != cacheAddr
-			vCache = &cacheRemote{ver, cacheAddr}
-			x.cacheRemote.Store(vCache)
-		}
-		x.Unlock()
+	nodes, ver := x.GetSystem().getProvider().GetNodes()
+	cacheAddr := x.GetSystem().getAddrHash().CalcAddrByKind8Name(nodes, x.GetKind(), x.GetName())
+	if cacheAddr == "" {
+		return ""
 	}
-	//
-	if vCache == nil {
-		return "", changed
-	}
-	return vCache.remoteAddr, changed
+	x.cacheRemote.Store(&cacheRemote{ver, cacheAddr})
+	return cacheAddr
 }

@@ -66,6 +66,11 @@ func (rm *RWMap[K, V]) Len() int {
 
 // Range ...
 // return@true break for range
+//
+// WARNING: f runs while the read lock is held, so it MUST NOT call back into this
+// map (a nested write deadlocks outright; a nested read deadlocks as soon as a
+// writer is queued, because sync.RWMutex read locks are not reentrant). Snapshot
+// and act afterwards if you need that.
 func (rm *RWMap[K, V]) Range(f func(key K, value V) bool) {
 	rm.mu.RLock()
 	defer rm.mu.RUnlock()

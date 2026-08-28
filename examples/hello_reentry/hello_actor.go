@@ -3,7 +3,6 @@ package main
 import (
 	"examples/testpb"
 	"fmt"
-	"time"
 
 	"github.com/chenxyzl/grain"
 	"google.golang.org/protobuf/proto"
@@ -32,7 +31,7 @@ func (x *HelloActorA) Receive(context grain.Context) {
 	case *testpb.HelloAskB2A:
 		x.Logger().Info("HelloActorA received HelloAskB2A")
 		context.Reply(&testpb.HelloReplyB2A{Name: "HelloReplyB2A"})
-		time.Sleep(time.Second * 1)
+		// time.Sleep(time.Second * 1)
 	case *testpb.Hello: //tell — kicks off the a->b->a cycle from a normal handler
 		x.Logger().Info("HelloActorA recv tell", "message", context.Message())
 		reply, err := x.Ask[*testpb.HelloReplyA2B](helloActorB, &testpb.HelloAskA2B{Name: "hello a2b"})
@@ -61,7 +60,7 @@ func (x *HelloActorB) Receive(context grain.Context) {
 		}
 		x.Logger().Info("HelloActorB get reply", "reply", reply)
 		context.Reply(&testpb.HelloReplyA2B{Name: "HelloReplyA2B"})
-		time.Sleep(time.Second * 1)
+		// time.Sleep(time.Second * 1)
 	case *testpb.Hello: //tell
 		x.Logger().Info("HelloActorB recv tell", "message", context.Message())
 	default:

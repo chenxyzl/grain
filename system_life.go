@@ -44,9 +44,15 @@ func (x *system) init(nodeId uint64) {
 	x.logger = slog.With("system", x.getAddr(), "node", x.config.state.NodeId)
 
 	//init eventStream
-	x.eventStream = x.SpawnNamed(func() IActor {
+	eventStreamRef, err := x.SpawnNamed(func() IActor {
 		return newEventStream(x.config.state.NodeId, x.clusterProvider, x.config.getEventStreamWatchPath())
 	}, eventStreamWatchName, WithOptsKindName(defaultSystemKind), WithOptsPoisonFirstOnQuit(false))
+	if err != nil {
+		// init runs once per system, so the fixed eventStream name cannot already be
+		// taken unless the framework itself is broken.
+		panic(errors.Join(err, errors.New("event stream spawn failed")))
+	}
+	x.eventStream = eventStreamRef
 }
 
 func (x *system) WaitStopSignal(beforeQuit func(), afterQuit func()) {
@@ -89,11 +95,24 @@ func (x *system) ForceStop(err error) {
 	} else {
 		x.logger.Warn("system forceStop")
 	}
-	x.forceCloseChan <- true
+	// Non-blocking: forceCloseChan has capacity 1 and only WaitStopSignal drains it,
+	// so a plain send wedges the caller forever on a second ForceStop, or if
+	// WaitStopSignal was never called / has already returned. Callers include the etcd
+	// keepalive and member-watch goroutines, which must not be parked. One queued
+	// stop request is all that is needed; further ones are redundant.
+	select {
+	case x.forceCloseChan <- true:
+	default:
+		x.logger.Warn("system forceStop already requested, ignoring")
+	}
 }
 
 func (x *system) stopActors() {
 	x.Logger().Info("stop all actors begin")
+	// From here on, refuse to activate new cluster grains on demand: grpc is still
+	// listening (it is stopped after this returns), so inbound envelopes would
+	// otherwise spawn actors that nothing poisons and whose PreStop never runs.
+	x.draining.Store(true)
 	// wake any Ask blocked waiting for a reply, so shutdown doesn't wait out
 	// askTimeout. Delivers the poison sentinel to each pending channel, which
 	// awaitReply maps to a "poisoned" error.

@@ -16,6 +16,9 @@
 
 # Messaging APIs at a glance
 - `ref.Tell(msg)` — fire-and-forget send to an actor (method on `ActorRef`).
+- `x.Self()` — inside an actor, its own `ActorRef`. Everything reference-shaped goes
+  through it: `x.Self().Tell(m)`, `x.Self().GetId()`. `BaseActor` no longer embeds
+  `ActorRef`, so a user actor is not itself an `ActorRef` any more.
 - `ctx.Reply(msg)` — reply to the current request (inside `Receive`).
 - `x.Ask[T](target, msg)` — **reentrant** blocking request/reply, usable from inside
   `Receive` (method on `BaseActor`). While it waits, the actor yields its turn so

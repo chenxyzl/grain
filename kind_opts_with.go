@@ -1,32 +1,29 @@
 package grain
 
-// WithOptsInboxSize sets the mailbox's INITIAL capacity (default 128). The
-// mailbox grows on demand up to its max size; use WithOptsInboxMaxSize to set
+// WithOptsMailboxSize sets the mailbox's INITIAL capacity (default 128). The
+// mailbox grows on demand up to its max size; use WithOptsMailboxMaxSize to set
 // the ceiling.
-func WithOptsInboxSize(size int) KindOptFunc {
+func WithOptsMailboxSize(size int) KindOptFunc {
 	return func(opts *tOpts) {
 		opts.mailboxInitSize = size
 	}
 }
 
-// WithOptsInboxMaxSize sets the mailbox's MAX capacity (default 4096). Once the
+// WithOptsMailboxMaxSize sets the mailbox's MAX capacity (default 4096). Once the
 // mailbox is full at this size, further messages overflow to a dead letter
 // instead of blocking the sender.
-func WithOptsInboxMaxSize(size int) KindOptFunc {
+func WithOptsMailboxMaxSize(size int) KindOptFunc {
 	return func(opts *tOpts) {
 		opts.mailboxMaxSize = size
 	}
 }
-func WithOptsRegisterToCluster(fun func(clusterProvider iProvider, config *config, ref ActorRef) error) KindOptFunc {
-	return func(opts *tOpts) {
-		opts.registerToCluster = fun
-	}
-}
-func WithOptsUnRegisterFromCluster(fun func(clusterProvider iProvider, config *config, ref ActorRef)) KindOptFunc {
-	return func(opts *tOpts) {
-		opts.unRegisterFromCluster = fun
-	}
-}
+
+// NOTE: WithOptsRegisterToCluster / WithOptsUnRegisterFromCluster were removed.
+// They had zero call sites AND were impossible to call from outside the package: the
+// callback took iProvider and *config, both unexported, so no external closure could
+// be written. Reinstating them as a real extension point requires exporting those
+// types first.
+
 func WithOptsPoisonFirstOnQuit(poisonFirstOnQuit bool) KindOptFunc {
 	return func(opts *tOpts) {
 		opts.poisonFirstOnQuit = poisonFirstOnQuit

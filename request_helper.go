@@ -48,7 +48,7 @@ func askImpl[T proto.Message](asker ActorRef, target ActorRef, req proto.Message
 	// refused by default instead of silently permitting a blocking Ask. Nothing is
 	// sent, so the target never sees the request.
 	if turn != nil && !turn.isStarted() {
-		return null, errAskNotRunning
+		return null, errAskNotRunning()
 	}
 	if target == nil {
 		return null, message.WithErr(fmt.Sprintf("ask target is nil, sender:%v", asker))

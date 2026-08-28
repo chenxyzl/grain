@@ -18,16 +18,27 @@ func startTimer(delay, interval time.Duration, fn func()) CancelScheduleFunc {
 	var t *time.Timer
 	var state int32
 	t = time.AfterFunc(delay, func() {
+		// Wait until the constructor has published t (stateReady): AfterFunc can fire
+		// before the assignment to t completes for a zero/tiny delay.
 		for atomic.LoadInt32(&state) == stateInit {
 			runtime.Gosched()
 		}
 
-		if state == stateDone {
+		// Must be an atomic load: the cancel func below writes state with
+		// atomic.SwapInt32 from another goroutine.
+		if atomic.LoadInt32(&state) == stateDone {
 			return
 		}
 
 		fn()
-		t.Reset(interval)
+
+		// Re-check before re-arming, otherwise a cancel racing with fn() leaves the
+		// timer armed for one more interval after Stop() already ran. Still a race in
+		// the strict sense — cancel does not guarantee fn() has stopped, only that no
+		// *further* fn() runs after the tick that observes stateDone.
+		if atomic.LoadInt32(&state) != stateDone {
+			t.Reset(interval)
+		}
 	})
 
 	atomic.StoreInt32(&state, stateReady)

@@ -39,7 +39,7 @@ func newFakeSys() *fakeSys {
 func (f *fakeSys) getRegistry() iRegistry { return f.reg }
 func (f *fakeSys) getConfig() *config     { return f.cfg }
 func (f *fakeSys) Logger() *slog.Logger   { return f.logger }
-func (f *fakeSys) GetProvider() iProvider { return nil }
+func (f *fakeSys) getProvider() iProvider { return nil }
 func (f *fakeSys) nextSnId() uint64       { return f.snId.Add(1) }
 func (f *fakeSys) getSender() iSender     { return f }
 func (f *fakeSys) getAddr() string        { return "test" }

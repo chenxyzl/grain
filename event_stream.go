@@ -133,8 +133,11 @@ func (x *eventStream) parseWatchEventStream(op watchOp, key string, value []byte
 		return nil
 	}
 	actorRef := newActorRefFromAID(string(value), x.GetSystem())
-	if actorRef == nil {
-		return fmt.Errorf("invalid eventStream, id to actorRef err, key:%v", key)
+	// newActorRefFromAID never returns nil — it hands back a ref with empty fields for
+	// a malformed AID — so the old `actorRef == nil` check was dead code and the
+	// intended validation never happened. Check what actually indicates a bad AID.
+	if actorRef.GetKind() == "" || actorRef.GetName() == "" {
+		return fmt.Errorf("invalid eventStream, unparsable actor id %q, key:%v", string(value), key)
 	}
 	// GetOrCreate, not Get/nil-check/Set: this runs on the provider's watch
 	// goroutine while registerEventStream runs on the actor's, and the racing

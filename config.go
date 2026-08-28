@@ -2,7 +2,6 @@ package grain
 
 import (
 	"fmt"
-	"net"
 	"sync/atomic"
 	"time"
 
@@ -46,7 +45,6 @@ type config struct {
 	dialOptions          []grpc.DialOption
 	callOptions          []grpc.CallOption
 	kinds                map[string]tKind
-	addr                 net.Addr
 	state                tNodeState
 	deadLetterHandler    DeadLetterHandler
 }
@@ -72,9 +70,6 @@ func (x *config) init(addr string, nodeId uint64) tNodeState {
 	x.state = tNodeState{NodeId: nodeId, Address: addr, Time: time.Now().Format(time.DateTime), Version: x.version, Kinds: x.getKinds()}
 	return x.state
 }
-
-// GetNodeId return self node id, call must at running
-func (x *config) GetNodeId() uint64 { return x.state.NodeId }
 
 // markRunning ...
 func (x *config) markRunning() {

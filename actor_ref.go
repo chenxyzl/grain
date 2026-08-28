@@ -5,6 +5,9 @@ import (
 )
 
 type ActorRef interface {
+	// GetSystem returns the owning system. ISystem embeds the unexported iSystem, so
+	// framework code reaches the internal hooks straight off this value while callers
+	// outside the package cannot.
 	GetSystem() ISystem
 	GetId() string
 	GetKind() string
@@ -17,7 +20,7 @@ type ActorRef interface {
 	// askSnId returns the correlation id of a reply ref (valid only when isAsk()).
 	askSnId() uint64
 
-	getRemoteAddrCache() (string, bool)
+	getRemoteAddrCache() string
 
 	Tell(msg proto.Message)
 }

@@ -59,7 +59,9 @@ func main() {
 		panic(err)
 	}
 	//create a local actor
-	system.SpawnNamed(func() grain.IActor { return &PlayerActor{} }, "local_player")
+	if _, err := system.SpawnNamed(func() grain.IActor { return &PlayerActor{} }, "local_player"); err != nil {
+		panic(err)
+	}
 
 	times := 0
 	for {

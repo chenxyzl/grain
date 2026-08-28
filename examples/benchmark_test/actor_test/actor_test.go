@@ -87,7 +87,7 @@ func init() {
 
 // spawnOpts sets the mailbox initial size for benchmark actors (mailboxSize).
 func spawnOpts() []grain.KindOptFunc {
-	return []grain.KindOptFunc{grain.WithOptsInboxSize(mailboxSize)}
+	return []grain.KindOptFunc{grain.WithOptsMailboxSize(mailboxSize)}
 }
 func BenchmarkSendOne(b *testing.B) {
 	actorRef := testSystem.system.Spawn(func() grain.IActor { return &HelloActor{} }, spawnOpts()...)

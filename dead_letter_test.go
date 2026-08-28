@@ -146,3 +146,88 @@ func TestDeadLetterHandlerPanicRecovered(t *testing.T) {
 	// must not panic
 	p.send(newContext(p._self, nil, &message.Subscribe{EventName: "x"}, sys.nextSnId(), nil))
 }
+
+// slowPreStopActor blocks inside PreStop until released, holding stop() open.
+type slowPreStopActor struct {
+	BaseActor
+	inPreStop chan struct{}
+	release   chan struct{}
+	once      sync.Once
+}
+
+func (a *slowPreStopActor) Started()            {}
+func (a *slowPreStopActor) Receive(ctx Context) {}
+func (a *slowPreStopActor) PreStop() {
+	a.once.Do(func() {
+		close(a.inPreStop)
+		<-a.release
+	})
+}
+
+// TestDeadLetterOnStopWindow pins the fix for silent message loss.
+//
+// doStop only checks the mailbox is empty BEFORE PreStop runs, and procStatus stays
+// `running` for the whole of PreStop — it only becomes `stopped` in stop()'s defer.
+// So during PreStop (arbitrarily long: it is user code) a sender gets PushOK while
+// schedule()'s CAS(idle→running) fails, meaning nothing will ever drain those
+// messages. rb.Close() keeps queued items poppable rather than rejecting them, so
+// they used to be dropped with no dead letter and no log whatsoever.
+func TestDeadLetterOnStopWindow(t *testing.T) {
+	sys := newFakeSys()
+	var mu sync.Mutex
+	var got []DeadLetter
+	sys.cfg = &config{
+		askTimeout: 5 * time.Second,
+		deadLetterHandler: func(dl DeadLetter) {
+			mu.Lock()
+			got = append(got, dl)
+			mu.Unlock()
+		},
+	}
+
+	act := &slowPreStopActor{inPreStop: make(chan struct{}), release: make(chan struct{})}
+	p := newTestProcessor(sys, act, 8)
+	p.init()
+	time.Sleep(50 * time.Millisecond) // let Started() complete
+	p.poison()
+
+	// Wait until PreStop is executing: stop() is now open and procStatus is `running`.
+	select {
+	case <-act.inPreStop:
+	case <-time.After(3 * time.Second):
+		t.Fatal("PreStop never ran")
+	}
+
+	const n = 3
+	for range n {
+		p.send(newContext(p.self(), nil, &message.Subscribe{EventName: "sent-during-stop"}, sys.nextSnId(), sys))
+	}
+	close(act.release) // let PreStop finish so stop()'s defers run
+
+	deadline := time.After(3 * time.Second)
+	for {
+		mu.Lock()
+		c := len(got)
+		mu.Unlock()
+		if c >= n {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("only %d of %d messages sent during the stop window surfaced as "+
+				"dead letters — the rest were silently dropped", c, n)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	for i, dl := range got {
+		if dl.Reason != DeadLetterReasonStopped {
+			t.Errorf("dead letter %d: reason = %q, want %q", i, dl.Reason, DeadLetterReasonStopped)
+		}
+		if dl.Message == nil {
+			t.Errorf("dead letter %d: nil Message", i)
+		}
+	}
+}

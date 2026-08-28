@@ -7,6 +7,227 @@ own type parameters. This is what the `// wanted ... but golang not support`
 comment on `NoReentryAsk` had been waiting for — and it turns a latent
 error-swallowing bug into a compile-time-checked reply type.
 
+This release also fixes three pre-existing production-triggerable faults found in a
+full-framework audit: a cluster-wide deadlock, a crash on peer disconnect, and a
+data race. **If you run a cluster, upgrade for those rather than for `Ask[T]`.**
+
+### 💥 Crash / deadlock / race fixes
+All three were reproduced with a test before fixing, and each fix ships with a
+regression test that was verified to fail against the old code.
+
+- **Deadlock: a cluster membership change concurrent with any actor spawn/stop could
+  wedge a whole registry shard, permanently.** `ConcurrentMap.IterCb` holds a shard
+  read lock while invoking its callback, and `clusterMemberChanged` called
+  `system.Poison` from inside it → `registry.get` → the *same* shard. `sync.RWMutex`
+  read locks are not reentrant once a writer is queued, so a concurrent
+  `registry.add`/`remove` blocked the nested read behind that writer while the outer
+  read lock was still held — and it was never released, so every later lookup or
+  spawn on that shard blocked too. In a live cluster the trigger (etcd membership
+  change + an actor starting or stopping) is routine.
+  - `registry.rangeIt` now snapshots and invokes the callback **outside** the lock, so
+    re-entry is safe by construction. As a bonus the per-actor rendezvous hashing no
+    longer runs under the shard lock.
+  - `clusterMemberChanged` now calls `v.poison()` on the process it already holds
+    instead of `x.Poison(self)`. That also avoids `Poison`'s "not in registry →
+    `tell(ref, poison)`" fallback, which for a cluster ref would route through
+    `ensureClusterKindActorExist` and **spawn the actor just to kill it**.
+  - `IterCb` and `RWMap.Range` now document that the callback must not touch the map.
+- **Crash: one peer disconnecting could take the whole process down.**
+  `remote/stream_server.go`'s `Listen` had a `case status.Code(err) > 0` arm that
+  logged without returning. `codes.Canceled` is 1, so every code ≥ 2 — notably
+  `Unavailable` (14), what grpc reports when a peer process dies or its TCP
+  connection drops — fell through to `recvEnvelope(msg)` with `msg == nil`. Measured
+  before the fix: **~460k iterations/sec** on a dead stream, each delivering a nil
+  envelope, and `system.RecvEnvelope` dereferenced it. That panic runs on a grpc
+  handler goroutine, which nothing recovers.
+  - `Listen` now returns on *every* `Recv` error (EOF/Canceled as success, anything
+    else as an error), and never passes a nil envelope on.
+  - `RecvEnvelope` now rejects a nil envelope and uses the nil-safe `Get*` accessors
+    throughout — it is the entry point for data from another node, so it is treated
+    as untrusted.
+- **Data race in `ScheduleRepeated`.** `schedule.go` read the timer's `state`
+  non-atomically in the fired callback while the cancel func wrote it with
+  `atomic.SwapInt32`; the race detector flags it on any repeated-schedule + cancel.
+  Now an `atomic.LoadInt32`. The callback also re-checks before `t.Reset`, so a
+  cancel racing with the callback no longer leaves the timer armed for one more
+  interval after `Stop()`.
+
+### 🐞 Correctness fixes from the same audit
+- **A remote `Tell` gave you a non-nil but empty `ctx.Sender()`.** `stream_write`
+  writes `""` when there is no sender, and `newActorRefFromAID("")` returns a NON-nil
+  ref whose kind/name/addr are all empty. So `if ctx.Sender() != nil` — used by the
+  framework itself and by essentially every handler — was a false positive for every
+  remote Tell, and `ctx.Reply()` on such a message failed with the misleading
+  `"actor kind not in cluster"`. The sender is now nil when the AID is empty, and an
+  envelope with an empty target is rejected instead of routed.
+- **`Poison` on a dormant cluster actor activated it just to kill it.**
+  `tellWithSender` called `ensureClusterKindActorExist` unconditionally, so a poison
+  ran the grain's full `Started()` (cluster registration, state load) and then
+  `PreStop()` immediately — which for a grain that persists in `PreStop` can write
+  empty or just-loaded state over the real thing. It also made `sendToLocal`'s
+  existing "ignore poison if proc not found" guard unreachable for cluster kinds.
+  Poison no longer activates anything.
+- **Messages sent during `stop()` vanished without a dead letter.** `doStop` only
+  checks the mailbox is empty *before* `PreStop`, and `procStatus` stays `running`
+  for the whole of `PreStop` (user code, so arbitrarily long). In that window a sender
+  got `PushOK` while `schedule()`'s CAS failed, so nothing drained them — and
+  `rb.Close()` keeps queued items poppable rather than rejecting them, so they were
+  dropped with no dead letter and no log. `stop()` now drains the remainder to dead
+  letters after closing the ring.
+- **An `Ask` into a saturated or stopped mailbox blocked for the full `askTimeout`**,
+  while an `Ask` to a *missing* actor failed instantly. `toDeadLetter` now replies to
+  a waiting Ask, so both fail promptly.
+- **New cluster grains could be activated after shutdown had finished.** grpc is
+  stopped only after the actors are drained, so inbound envelopes kept arriving and
+  `ensureClusterKindActorExist` happily spawned actors that nothing would ever poison
+  — their `PreStop`, and any state persistence in it, never ran. A `draining` flag set
+  at the start of `stopActors` now refuses on-demand activation.
+- **`errActorNotFound` / `errAskNotRunning` were shared mutable singletons** that
+  escape into user code (one is Tell'd to the asking actor and comes back out of Ask).
+  `*ErrCode` has exported fields, so one caller doing `err.Des += ...` corrupted it
+  process-wide. Both are now built per use; they are on cold paths.
+- **`ForceStop` could block its caller forever.** `forceCloseChan` has capacity 1 and
+  only `WaitStopSignal` drains it, so a second `ForceStop` — or one issued when
+  `WaitStopSignal` was never called or has already returned — parked the caller
+  permanently. Callers include the etcd keepalive and member-watch goroutines. Now a
+  non-blocking send.
+- **Cluster-register retry slept 400ms after its final attempt** before giving up,
+  with the actor's `Started()` blocked on it. The backoff now only happens between
+  attempts. A failed *de*-registration is no longer swallowed by an empty `if` either
+  — it returns an error and is logged, since it leaves a stale routing entry.
+
+### 🔌 etcd provider: liveness and lifecycle
+- **A terminated watch froze the node's view of the cluster, silently and
+  permanently.** All three watch loops were plain `for v := range wch` and never
+  checked `v.Canceled` / `v.Err()`. clientv3 signals a terminal watcher failure
+  (compacted revision — likely here, since the watch is anchored with
+  `WithRev(rev+1)` — auth revocation, server-side cancel) with one Canceled response
+  and then closes the channel: the loop just exited and nothing was logged. The member
+  watch kept routing cluster actors to nodes that had left and never learned of new
+  ones. All three now detect it; the member watch escalates to `ForceStop`, because
+  routing on a stale member set is worse than being down (the same escalation the
+  lease-expiry path already used). Automatic re-establishment is a follow-up, marked
+  with a TODO.
+- **`start()` leaked on every error path** — the etcd client, the lease, and the
+  keepalive goroutine were all left running, and `x.cancelFunc` was never called
+  anywhere in the codebase. Worse, if `watch()` failed, `register()` had already
+  published this node's member key, so peers routed real traffic for up to the lease
+  TTL to a node that never came up. A shared `releaseEtcd()` now cancels, revokes
+  (which deletes the lease-bound member key) and closes on both the failure path and
+  `stop()`.
+- **`stop()` signalled teardown by assigning `x.system = nil`**, an unsynchronized
+  write to an interface field that the keepalive goroutine reads — a data race, with a
+  nil-call window between its check and its use. Replaced with an `atomic.Bool`.
+- **One malformed member value bricked every node trying to join.** `parseWatch`
+  returned the json error *after* already handling it, and `watch()`'s initial load
+  propagated it up through `start()` into a panic in `system.Start()` — while the live
+  watch path discarded the identical error with `_ =`. It now logs, drops that node,
+  and returns nothing.
+- Dropped `WithPrevKV()` from all three watches: `PrevKv` was never read, so it was
+  pure server-side cost and bandwidth. Demoted the per-member-change log from `Warn`
+  to `Info`.
+- `setTxn` / `removeTxn` return `false` both for "lost the race" and "etcd failed",
+  which the caller cannot tell apart, so the etcd error is now logged at the point of
+  failure. Without it, a brief etcd outage during `register()` looked exactly like
+  "node ids 1..1023 are all taken" and the real cause appeared nowhere.
+
+### 💣 Breaking API changes
+Done in one step rather than staged behind deprecations, by request.
+
+- **`BaseActor` no longer embeds `ActorRef`** — it holds a named `self` field. The
+  embedded form made every user actor implicitly *be* an `ActorRef`, with three
+  consequences: `x.Tell(msg)` read like "tell someone" while meaning "tell myself";
+  `&MyActor{}` compiled anywhere an `ActorRef` was expected, silently passing an actor
+  where a reference belonged; and before `_init` the embedded interface was nil, so
+  touching it from a constructor or a field initializer nil-panicked with no
+  explanation.
+  - **Migration:** anything reference-shaped now goes through `Self()` —
+    `x.Tell(m)` → `x.Self().Tell(m)`, `x.GetId()` → `x.Self().GetId()`, likewise
+    `GetKind` / `GetName` / `GetDirectAddr`. `Self()`, `GetSystem()`, `Logger()`,
+    `Ask[T]` and `ScheduleSelf*` are unchanged.
+  - Using any of them before the actor is spawned now panics with a message naming the
+    mistake, instead of dereferencing nil.
+  - Nothing in this repo used the promoted methods, so the framework, examples and
+    tests needed no changes — but your own actors may.
+- **`SpawnNamed` returns `(ActorRef, error)`** and reports `ErrNameExists` instead of
+  panicking. `registry.add`'s `panic("duplicated process id")` killed the whole process
+  for what is either a caller mistake or a benign race (respawning a named actor after
+  a crash; two goroutines racing to create it).
+  - Reference points: protoactor-go — the closest sibling design — returns
+    `(*PID, error)` with `ErrNameExists`; Akka throws a *catchable*
+    `InvalidActorNameException`; Orleans has no such failure at all, because grains are
+    virtual and activation is idempotent. This framework's *cluster* kinds already
+    behave the Orleans way via `ensureClusterKindActorExist`, so only the explicit
+    named spawn needed fixing, and in Go that means an error.
+  - `Spawn` keeps its error-free signature: the name is a generated uuid, so a
+    collision would be a framework invariant violation, and it panics as such.
+- **`WithOptsInboxSize` / `WithOptsInboxMaxSize` renamed to `WithOptsMailboxSize` /
+  `WithOptsMailboxMaxSize`.** Everything else in the codebase — the fields, the
+  constants, the docs, the dead-letter reasons — says "mailbox"; "Inbox" appeared only
+  in these two option names.
+
+### 🧽 API and hygiene
+- **`ISystem` is now a sealed interface with its internals grouped.** The nine
+  unexported methods (`getAddr`, `getSender`, `getConfig`, `getRegistry`, `nextSnId`,
+  `registerAsk`, `cancelAsk`, `getAddrHash`, `getProvider`) moved into an embedded
+  unexported `iSystem`, so godoc shows the public contract plus one embedded name
+  instead of nine internals inline. Behaviour for callers is unchanged: unexported
+  methods were never reachable from another package, and embedding them keeps `ISystem`
+  *sealed* — no outside type can implement it, which leaves the framework free to add
+  methods without breaking anyone. No second accessor was needed on `ActorRef`:
+  internal code calls the hooks straight off any `ISystem` value.
+- **No exported symbol returns or takes an unexported type any more.**
+  - `iScheduler` → **`IScheduler`**: `GetScheduler()` is documented in the README, so
+    returning an unexported interface meant callers could invoke its methods but never
+    declare a variable, write a helper, or mock it.
+  - `iProducer` → **`Producer`**: appears in `Spawn`, `SpawnNamed` and
+    `WithConfigKind`. A func literal satisfied it either way, so existing call sites
+    are unaffected.
+  - **`GetProvider()` is gone** (now internal `getProvider()`). It returned the
+    unexported `iProvider`, whose exported methods were therefore callable only by
+    accident. The genuinely user-facing ones are now first-class on `ISystem`:
+    `GetNodeId`, `GetNodeExtData`, `SetNodeExtData`, `RemoveNodeExtData`,
+    `WatchNodeExtData`. **Migration:** `system.GetProvider().GetNodeExtData(k)` →
+    `system.GetNodeExtData(k)`.
+- **On-demand grain activation moved from `tellWithSender` into `sendToLocal`**, after
+  the poison check that was already there. Same behaviour, but the message-type check
+  happens once on that path instead of twice, and the routing layer no longer
+  special-cases a message type. A failed activation now also reports
+  `errActorNotFound` to a waiting Ask instead of only logging.
+- **`WithConfigGrpcDialOptions` now APPENDS instead of replacing.** It used to
+  overwrite the slice, silently dropping the default `insecure.NewCredentials()`
+  seeded in `newConfig` — so adding one unrelated dial option made `grpc.NewClient`
+  fail with "no transport security set", visible only as `streamWriteActor` logging
+  and poisoning itself. Same for call options.
+- **`WithConfigCallDialOptions` is deprecated in favour of `WithConfigGrpcCallOptions`**
+  — it takes `grpc.CallOption`s and has nothing to do with dialing. The old name still
+  works and forwards.
+- **`DeadLetter` gains `Owner`**, the actor whose mailbox actually rejected the
+  message. It differs from `Target` on the outbound path: `sendToCluster` builds the
+  context with the *remote* target but pushes into the local `write_stream` actor's
+  mailbox, so previously an overflow gave no way to tell which of the two was
+  saturated. The fallback WARN log now names both. Additive — existing handlers keep
+  compiling.
+- `Spawn`'s generated actor name used `strconv.Itoa(int(uuid.Generate()))`, which
+  truncates on a 32-bit build and could collide names. Now `strconv.FormatUint`.
+- `ghelper.StackTrace` rewritten on `runtime.Callers` + `CallersFrames`: the old loop
+  re-walked the stack per frame, concatenated O(n²), reported the *outer* function for
+  inlined frames, and its `"/src/"` path trim never matched in a module build (so
+  project files were logged with full absolute paths). Truncation is now marked
+  instead of silent.
+- `event_stream`'s `if actorRef == nil` was dead — `newActorRefFromAID` never returns
+  nil, it returns a ref with empty fields — so a malformed actor id was accepted
+  silently. It now validates what actually indicates a bad id.
+- Removed dead code: `config.addr` (never read or written, and the only reason `net`
+  was imported), `config.GetNodeId()`, and the unused `changed` result of
+  `getRemoteAddrCache` together with its unreachable `vCache == nil` tail (that
+  function also now uses `defer` for its lock instead of three manual unlocks).
+- Removed `WithOptsRegisterToCluster` / `WithOptsUnRegisterFromCluster`: zero call
+  sites, and **impossible to call from outside the package** — the callback took
+  `iProvider` and `*config`, both unexported, so no external closure could be written.
+  Making them a real extension point requires exporting those types first.
+
+
 ### ⚠️ Behavior changes
 - **Requires Go 1.27** (was 1.26). Declaring a generic method needs `-lang=go1.27`;
   only this module is affected, callers may stay on an older language version.

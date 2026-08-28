@@ -1,9 +1,14 @@
 package grain
 
-// iProducer actor producer
-type iProducer func() IActor
+// Producer builds a new actor instance. Spawn, SpawnNamed and WithConfigKind take
+// one; the framework calls it once per activation.
+//
+// Exported (was iProducer) because it appears in exported signatures: a func literal
+// satisfied it either way, but callers could not declare a variable of the type or
+// write a helper that returns one.
+type Producer func() IActor
 type tKind struct {
-	producer iProducer
+	producer Producer
 	opts     []KindOptFunc
 }
 

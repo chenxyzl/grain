@@ -39,7 +39,7 @@ func (r *replyRef) isCluster() bool { return false }
 func (r *replyRef) isAsk() bool     { return true }
 func (r *replyRef) askSnId() uint64 { return r.snId }
 
-func (r *replyRef) getRemoteAddrCache() (string, bool) { return "", false }
+func (r *replyRef) getRemoteAddrCache() string { return "" }
 
 func (r *replyRef) Tell(msg proto.Message) {
 	r.system.getSender().tell(r, msg)

@@ -12,7 +12,15 @@ const (
 // mailbox. It is surfaced to the DeadLetterHandler configured via
 // WithConfigDeadLetter (defaults to a WARN log).
 type DeadLetter struct {
-	Target  ActorRef
+	// Target is the message's intended recipient. For a cross-node send this is the
+	// REMOTE actor, which is not the mailbox that overflowed — see Owner.
+	Target ActorRef
+	// Owner is the actor whose mailbox actually rejected the message. It differs from
+	// Target on the outbound path: sendToCluster builds the context with the remote
+	// target but pushes into the local write_stream actor's mailbox, so an overflow
+	// there means the outbound stream is the bottleneck. Without this you could not
+	// tell which of the two was saturated.
+	Owner   ActorRef
 	Sender  ActorRef // may be nil
 	Message proto.Message
 	MsgSnId uint64

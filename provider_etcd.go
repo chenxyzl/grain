@@ -35,6 +35,16 @@ type providerEtcd struct {
 	leaseId    clientv3.LeaseID
 	cancelFunc context.CancelFunc
 
+	// stopping is set by stop() before it starts tearing etcd down. The background
+	// goroutines (keepAlive, the watches) check it to tell "we are shutting down" from
+	// "etcd failed", which they otherwise cannot distinguish — a closed keepalive
+	// channel looks identical either way.
+	//
+	// This replaces the old `x.system = nil` sentinel, which was an unsynchronized
+	// write to an interface field read by the keepAlive goroutine: a data race, and
+	// one with a real nil-call window between its check and its use.
+	stopping atomic.Bool
+
 	//
 	nodeChangeLocker sync.RWMutex
 	// localProviderVersion is bumped on every node-set change. Read lock-free via
@@ -70,9 +80,24 @@ func (x *providerEtcd) watchEventStream(prefix string, f func(op watchOp, key st
 	}
 	// anchor the watch to the snapshot revision (+1) so no change made between the
 	// Get above and the Watch below is lost; see etcd's Range+Watch atomic pattern.
-	wch := x.client.Watch(context.Background(), prefix, clientv3.WithPrefix(), clientv3.WithPrevKV(), clientv3.WithRev(rsp.Header.Revision+1))
+	wch := x.client.Watch(context.Background(), prefix, clientv3.WithPrefix(), clientv3.WithRev(rsp.Header.Revision+1))
 	go func() {
 		for v := range wch {
+			// A terminated watch (compacted revision, auth revocation, server-side
+			// cancel) arrives as one response whose Err() is set, and the channel closes
+			// right after. Returning here does not cut a live watch short — it is already
+			// dead; the plain `for range` used to fall out of the loop anyway, just
+			// without recording why, freezing the subscription view silently.
+			//
+			// Our own teardown closes the client, which surfaces the same way, so check
+			// stopping first: otherwise every clean shutdown logs a bogus ERROR.
+			if err := v.Err(); err != nil {
+				if !x.stopping.Load() {
+					x.Logger().Error("eventStream watch terminated by etcd; subscriptions are now frozen",
+						"prefix", prefix, "canceled", v.Canceled, "err", err)
+				}
+				return
+			}
 			for _, kv := range v.Events {
 				op := watchPut
 				if kv.Type == mvccpb.DELETE {
@@ -80,6 +105,10 @@ func (x *providerEtcd) watchEventStream(prefix string, f func(op watchOp, key st
 				}
 				f(op, string(kv.Kv.Key), kv.Kv.Value)
 			}
+		}
+		if !x.stopping.Load() {
+			x.Logger().Error("eventStream watch channel closed unexpectedly; subscriptions are now frozen",
+				"prefix", prefix)
 		}
 	}()
 	return nil
@@ -103,6 +132,17 @@ func (x *providerEtcd) start(systemLife iSystemLife, clusterMemberChangedListene
 		return fmt.Errorf("cannot connect to etcd:%v|err:%v", config.getClusterUrls(), err)
 	}
 	x.client = etcdClient
+	// Every failure below used to return while leaving the client open, the lease
+	// alive, the keepalive goroutine running — and, once register() had run, this
+	// node's member key published in etcd. Peers would then route real traffic for up
+	// to ttlTime to a node that never finished starting. Revoking the lease also
+	// deletes the member key, since it is written WithLease.
+	started := false
+	defer func() {
+		if !started {
+			x.releaseEtcd()
+		}
+	}()
 	//lease and keep alive
 	leaseResp, err := etcdClient.Grant(context.Background(), ttlTime)
 	if err != nil {
@@ -129,24 +169,44 @@ func (x *providerEtcd) start(systemLife iSystemLife, clusterMemberChangedListene
 	}
 	//keep
 	x.keepAlive(keepAliveChan)
+	started = true
 	return nil
 }
-func (x *providerEtcd) stop() {
-	//
-	x.system = nil // because keepAliveChan can not distinguish whether it exits normally
-	//
-	if x.leaseId != 0 {
+
+// releaseEtcd tears down whatever start() managed to acquire: the keepalive context,
+// the lease (which also removes every key bound to it, this node's member entry
+// included) and the client. Idempotent, and shared by stop() and start()'s failure
+// path.
+func (x *providerEtcd) releaseEtcd() {
+	// cancelFunc stops the keepalive goroutine's context. It was previously assigned
+	// and then never called anywhere, so the keepalive only unwound as a side effect
+	// of closing the client.
+	if x.cancelFunc != nil {
+		x.cancelFunc()
+		x.cancelFunc = nil
+	}
+	if x.client != nil && x.leaseId != 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), dialTimeoutTime)
 		defer cancel()
 		if _, err := x.client.Revoke(ctx, x.leaseId); err != nil {
-			x.Logger().Info("cluster provider etcd stopped with err.", "err", err)
+			x.Logger().Info("cluster provider etcd revoke lease err", "err", err)
 		}
+		x.leaseId = 0
 	}
 	if x.client != nil {
 		if err := x.client.Close(); err != nil {
-			x.Logger().Info("cluster provider etcd stopped with err.", "err", err)
+			x.Logger().Info("cluster provider etcd close client err", "err", err)
 		}
+		x.client = nil
 	}
+}
+
+func (x *providerEtcd) stop() {
+	// Tell the background goroutines this is a deliberate teardown BEFORE tearing
+	// anything down, so they do not mistake it for an etcd failure and try to stop the
+	// system again.
+	x.stopping.Store(true)
+	x.releaseEtcd()
 	x.Logger().Info("cluster provider etcd stopped")
 }
 func (x *providerEtcd) register(addr string) error {
@@ -168,26 +228,43 @@ func (x *providerEtcd) register(addr string) error {
 }
 
 // setTxn set Key=val if key not exist
+//
+// Returns false both when the key is already taken (a lost race, expected) and when
+// etcd itself failed. The two are indistinguishable to the caller, which is why the
+// etcd error is logged HERE: without it, a brief etcd outage during register() looks
+// exactly like "every node id from 1..1023 is in use", and the caller reports the
+// generic "register node to etcd error" with the real cause nowhere to be found.
 func (x *providerEtcd) setTxn(key string, val string) bool {
 	tx := x.client.Txn(context.Background())
 	tx.If(clientv3.Compare(clientv3.CreateRevision(key), "=", 0)).
 		Then(clientv3.OpPut(key, fmt.Sprintf("%v", val), clientv3.WithLease(x.leaseId))).
 		Else()
 	txnRes, err := tx.Commit()
-	if err != nil || !txnRes.Succeeded { //抢锁失败
+	if err != nil {
+		x.Logger().Error("setTxn failed with an etcd error (NOT a lost race)", "key", key, "err", err)
+		return false
+	}
+	if !txnRes.Succeeded { //抢锁失败: key already exists
 		return false
 	}
 	return true
 }
 
 // removeTxn remove key if getValue(key) == val
+//
+// As with setTxn, false covers both "value did not match" and "etcd failed", so the
+// etcd error is logged here to keep the real cause visible.
 func (x *providerEtcd) removeTxn(key string, val string) bool {
 	tx := x.client.Txn(context.Background())
 	tx.If(clientv3.Compare(clientv3.Value(key), "=", val)).
 		Then(clientv3.OpDelete(key)).
 		Else()
 	txnRes, err := tx.Commit()
-	if err != nil || !txnRes.Succeeded { //抢锁失败
+	if err != nil {
+		x.Logger().Error("removeTxn failed with an etcd error (NOT a value mismatch)", "key", key, "err", err)
+		return false
+	}
+	if !txnRes.Succeeded { //抢锁失败: value did not match
 		return false
 	}
 	return true
@@ -196,18 +273,19 @@ func (x *providerEtcd) removeTxn(key string, val string) bool {
 func (x *providerEtcd) keepAlive(keepAliveChan <-chan *clientv3.LeaseKeepAliveResponse) {
 	go func() {
 		for {
-			select {
-			case _, ok := <-keepAliveChan:
-				if ok {
-					//x.Logger().Info("etcd alive")
-				} else {
-					if x.system != nil {
-						x.Logger().Warn("lease expired or KeepAlive channel closed")
-						x.system.ForceStop(fmt.Errorf("cluster provider error. will stop system"))
-					}
-					return
-				}
+			_, ok := <-keepAliveChan
+			if ok {
+				//x.Logger().Info("etcd alive")
+				continue
 			}
+			// The channel closes both on a genuine lease loss and on our own teardown;
+			// `stopping` is what distinguishes them (it replaces the old, racy
+			// `x.system == nil` sentinel).
+			if !x.stopping.Load() && x.system != nil {
+				x.Logger().Warn("lease expired or KeepAlive channel closed")
+				x.system.ForceStop(fmt.Errorf("cluster provider error. will stop system"))
+			}
+			return
 		}
 	}()
 }
@@ -218,28 +296,71 @@ func (x *providerEtcd) watch() error {
 		return errors.Join(err, errors.New("first load node state err"))
 	}
 	for _, kv := range rsp.Kvs {
-		err = x.parseWatch(mvccpb.PUT, string(kv.Key), kv.Value)
-		if err != nil {
-			return err
-		}
+		x.parseWatch(mvccpb.PUT, string(kv.Key), kv.Value)
 	}
 	//real watch
 	// anchor to the snapshot revision (+1) so member changes between the Get and
 	// the Watch are not lost.
-	wch := x.client.Watch(context.Background(), x.config.getMemberPrefix(), clientv3.WithPrefix(), clientv3.WithPrevKV(), clientv3.WithRev(rsp.Header.Revision+1))
+	wch := x.client.Watch(context.Background(), x.config.getMemberPrefix(), clientv3.WithPrefix(), clientv3.WithRev(rsp.Header.Revision+1))
 	go func() {
 		for v := range wch {
+			// A terminated watch (compacted revision, auth revocation, server-side
+			// cancel) arrives as one response whose Err() is set, and the channel closes
+			// right after — so returning here does not cut a live watch short. The plain
+			// `for range` used to fall straight through, leaving this node serving on a
+			// frozen member set forever: it keeps routing cluster actors to nodes that
+			// have left and never learns of new ones, silently and with no log.
+			// Misrouting is worse than being down, so stop the system instead — the same
+			// escalation the lease-expiry path already uses.
+			//
+			// Our own teardown closes the client, which surfaces identically, so check
+			// stopping first.
+			if err := v.Err(); err != nil {
+				if !x.stopping.Load() {
+					x.Logger().Error("member watch terminated by etcd, stopping system to avoid routing on a stale member set",
+						"canceled", v.Canceled, "err", err)
+					x.stopSystemOnWatchLoss()
+				}
+				return
+			}
 			for _, kv := range v.Events {
-				_ = x.parseWatch(kv.Type, string(kv.Kv.Key), kv.Kv.Value)
+				x.parseWatch(kv.Type, string(kv.Kv.Key), kv.Kv.Value)
 			}
 			//listener
 			x.clusterMemberChangedListener()
+		}
+		if !x.stopping.Load() {
+			x.Logger().Error("member watch channel closed unexpectedly, stopping system to avoid routing on a stale member set")
+			x.stopSystemOnWatchLoss()
 		}
 	}()
 	return nil
 }
 
-func (x *providerEtcd) parseWatch(op mvccpb.Event_EventType, key string, value []byte) (err error) {
+// stopSystemOnWatchLoss escalates an unrecoverable loss of the member watch. Guarded
+// by `stopping` so a teardown-induced close does not try to stop the system again.
+//
+// TODO: re-establishing the watch (fresh Get + Watch, rebuilding nodeMap from
+// scratch so departed nodes do not linger) would be preferable to stopping. Until
+// then, failing loudly beats silently routing on a stale view.
+func (x *providerEtcd) stopSystemOnWatchLoss() {
+	if x.stopping.Load() {
+		return
+	}
+	if x.system != nil {
+		x.system.ForceStop(errors.New("cluster member watch lost. will stop system"))
+	}
+}
+
+// parseWatch applies one member-key change to nodeMap.
+//
+// It never returns an error: a malformed value is logged and the node dropped, which
+// is all a caller could do anyway. It used to return the json error *after* handling
+// it, and watch()'s initial load propagated that up through start() into a panic in
+// system.Start() — so a single garbage or legacy-format member value written by any
+// other node bricked every node that tried to join, while the live watch path
+// discarded the identical error with `_ =`.
+func (x *providerEtcd) parseWatch(op mvccpb.Event_EventType, key string, value []byte) {
 	x.nodeChangeLocker.Lock()
 	defer x.nodeChangeLocker.Unlock()
 	x.localProviderVersion.Add(1)
@@ -250,17 +371,16 @@ func (x *providerEtcd) parseWatch(op mvccpb.Event_EventType, key string, value [
 	}
 	if op == mvccpb.DELETE {
 		delete(x.nodeMap, key)
-		return nil
+		return
 	}
 	a := tNodeState{}
-	if err = json.Unmarshal(value, &a); err != nil {
+	if err := json.Unmarshal(value, &a); err != nil {
 		delete(x.nodeMap, key)
-		x.Logger().Error("watcher key changed, bug parse err, remove node", "node", key, "v", string(value), "err", err)
-	} else {
-		x.nodeMap[key] = a
-		x.Logger().Warn("watcher key changed, success", "key", key, "v", a)
+		x.Logger().Error("watcher key changed, but parse err, remove node", "node", key, "v", string(value), "err", err)
+		return
 	}
-	return err
+	x.nodeMap[key] = a
+	x.Logger().Info("watcher key changed, success", "key", key, "v", a)
 }
 
 func (x *providerEtcd) GetNodeId() uint64 { return x.config.state.NodeId }
@@ -321,12 +441,24 @@ func (x *providerEtcd) WatchNodeExtData(subKey string, f func(key, val string)) 
 	//real watch
 	// anchor to the snapshot revision (+1) so ext-data changes between the Get and
 	// the Watch are not lost.
-	wch := x.client.Watch(context.Background(), key, clientv3.WithPrefix(), clientv3.WithPrevKV(), clientv3.WithRev(rsp.Header.Revision+1))
+	wch := x.client.Watch(context.Background(), key, clientv3.WithPrefix(), clientv3.WithRev(rsp.Header.Revision+1))
 	go func() {
 		for v := range wch {
+			// Terminal for this watch; the channel closes right after. Guarded by
+			// stopping so our own teardown does not log a bogus ERROR.
+			if err := v.Err(); err != nil {
+				if !x.stopping.Load() {
+					x.Logger().Error("node ext-data watch terminated by etcd; updates are now frozen",
+						"key", key, "canceled", v.Canceled, "err", err)
+				}
+				return
+			}
 			for _, kv := range v.Events {
 				f(string(kv.Kv.Key), string(kv.Kv.Value))
 			}
+		}
+		if !x.stopping.Load() {
+			x.Logger().Error("node ext-data watch channel closed unexpectedly; updates are now frozen", "key", key)
 		}
 	}()
 	return nil

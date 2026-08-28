@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -29,23 +30,35 @@ func NewRpcServer(iRpcReceiver iRpcReceiver) *RpcService {
 }
 
 func (x *RpcService) Listen(server Remoting_ListenServer) error {
-	//save to
 	for {
 		msg, err := server.Recv()
-		switch {
-		case err == io.EOF:
-			x.Logger().Info("connection closed 1")
-			return nil
-		case status.Code(err) == codes.Canceled:
-			x.Logger().Info("connection closed 2")
-			return nil
-		case status.Code(err) > 0:
-			x.Logger().Info("connection closed 3", "cod", status.Code(err))
-		case err != nil:
-			x.Logger().Error("read failed, close connection", "err", err)
-			return err
-		default:
-			//do something left
+		// EVERY Recv error is terminal for this stream: grpc caches it and returns the
+		// same one forever, so the loop must exit. It also returns a nil message
+		// alongside the error, which must never reach the receiver. Falling through
+		// here used to spin at ~460k iterations/sec feeding nil envelopes to the
+		// receiver — one dead peer was enough to burn a core and crash the process.
+		if err != nil {
+			switch {
+			case errors.Is(err, io.EOF):
+				// peer half-closed the stream: the normal way a write stream shuts down.
+				x.Logger().Info("listen stream closed by peer")
+				return nil
+			case status.Code(err) == codes.Canceled:
+				// peer cancelled (its context died, e.g. graceful shutdown).
+				x.Logger().Info("listen stream cancelled by peer")
+				return nil
+			default:
+				// Unavailable (peer process died / TCP dropped), Unknown, etc.
+				x.Logger().Warn("listen stream closed with error",
+					"code", status.Code(err), "err", err)
+				return err
+			}
+		}
+		if msg == nil {
+			// Defensive: a nil envelope with a nil error should be impossible, but the
+			// receiver dereferences it, so never pass one on.
+			x.Logger().Error("listen got a nil envelope without an error, ignoring")
+			continue
 		}
 		x.recvEnvelope(msg)
 	}

@@ -296,6 +296,13 @@ type IterCb[K comparable, V any] func(key K, v V)
 // IterCb
 // Callback based iterator, cheapest way to read
 // all elements in a map.
+//
+// WARNING: fn runs while the shard's read lock is held, so it MUST NOT call back
+// into this map — not even a read. sync.RWMutex read locks are not reentrant once a
+// writer is queued, so a nested Get that lands on the same shard blocks behind that
+// writer while still holding the outer read lock: a permanent deadlock that also
+// wedges every later operation on the shard. If the callback needs to touch the map,
+// snapshot the entries here and act on them afterwards (see registry.rangeIt).
 func (m *ConcurrentMap[K, V]) IterCb(fn IterCb[K, V]) {
 	for idx := range m.shards {
 		shard := (m.shards)[idx]

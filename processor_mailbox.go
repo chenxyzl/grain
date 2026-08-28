@@ -58,7 +58,7 @@ type processorMailBox struct {
 var _ iProcess = (*processorMailBox)(nil)
 var _ reentryTurn = (*processorMailBox)(nil)
 
-func newProcessor(system ISystem, opts tOpts) iProcess {
+func newProcessor(system ISystem, opts tOpts) (iProcess, error) {
 	return spawnProcessor(system, opts, false)
 }
 
@@ -67,10 +67,12 @@ func newProcessor(system ISystem, opts tOpts) iProcess {
 // (write_stream / cluster kinds) that may be spawned concurrently by multiple
 // senders, where a duplicate-id panic would kill the whole process.
 func newProcessorOrGet(system ISystem, opts tOpts) iProcess {
-	return spawnProcessor(system, opts, true)
+	// getOrAdd is idempotent, so this variant cannot report a duplicate id.
+	proc, _ := spawnProcessor(system, opts, true)
+	return proc
 }
 
-func spawnProcessor(system ISystem, opts tOpts, orGet bool) iProcess {
+func spawnProcessor(system ISystem, opts tOpts, orGet bool) (iProcess, error) {
 	build := func() iProcess {
 		p := &processorMailBox{
 			tOpts:      opts,
@@ -93,7 +95,7 @@ func spawnProcessor(system ISystem, opts tOpts, orGet bool) iProcess {
 		return p
 	}
 	if orGet {
-		return system.getRegistry().getOrAdd(opts._self.GetId(), build)
+		return system.getRegistry().getOrAdd(opts._self.GetId(), build), nil
 	}
 	return system.getRegistry().add(build)
 }
@@ -128,7 +130,7 @@ func (x *processorMailBox) yieldTurn() *drainState {
 	//
 	// Because nothing drains the mailbox in that window, the actor cannot answer any
 	// incoming request either — which is why askImpl refuses an Ask unless
-	// isStarted() (errAskNotRunning), instead of letting it block here and possibly
+	// isStarted() (errAskNotRunning()), instead of letting it block here and possibly
 	// wait out askTimeout. So in practice this branch is only reached via the
 	// lower-level yieldTurn path, not through Ask.
 	//
@@ -178,6 +180,13 @@ func (x *processorMailBox) send(ctx Context) {
 // goroutine, so a panicking handler is recovered here rather than crashing an
 // arbitrary sender (consistent with invoke/start/stop).
 func (x *processorMailBox) toDeadLetter(ctx Context, reason string) {
+	// Fail a waiting Ask immediately. sendToLocal already replies errActorNotFound
+	// when the target does not exist, so an Ask into a saturated or stopped mailbox
+	// must be equally prompt — it used to get no reply at all and block for the full
+	// askTimeout, which made "actor missing" fast and "actor overloaded" slow.
+	if s := ctx.Sender(); s != nil && s.isAsk() {
+		s.Tell(message.WithErr("ask target mailbox unavailable: " + reason))
+	}
 	if h := x.system.getConfig().deadLetterHandler; h != nil {
 		defer func() {
 			if err := recover(); err != nil {
@@ -187,6 +196,7 @@ func (x *processorMailBox) toDeadLetter(ctx Context, reason string) {
 		}()
 		h(DeadLetter{
 			Target:  ctx.Target(),
+			Owner:   x.self(),
 			Sender:  ctx.Sender(),
 			Message: ctx.Message(),
 			MsgSnId: ctx.GetMsgSnId(),
@@ -195,7 +205,8 @@ func (x *processorMailBox) toDeadLetter(ctx Context, reason string) {
 		return
 	}
 	x.system.Logger().Warn("dead letter",
-		"id", x.self(), "msgName", proto.MessageName(ctx.Message()), "reason", reason)
+		"owner", x.self(), "target", ctx.Target(),
+		"msgName", proto.MessageName(ctx.Message()), "reason", reason)
 }
 
 // poison requests a stop without enqueuing into the (possibly full) mailbox:
@@ -317,7 +328,7 @@ func (x *processorMailBox) start() {
 		}
 	}()
 	if x.tOpts.registerToCluster != nil {
-		if err := x.tOpts.registerToCluster(x.system.GetProvider(), x.system.getConfig(), x.self()); err != nil {
+		if err := x.tOpts.registerToCluster(x.system.getProvider(), x.system.getConfig(), x.self()); err != nil {
 			// cluster registration failed: this actor cannot serve its kind, so
 			// stop it (logged, not panicked — a runtime failure, not a crash).
 			// life is still lifeInit, so stop() will skip PreStop.
@@ -353,14 +364,34 @@ func (x *processorMailBox) stop() {
 		atomic.StoreInt32(&x.procStatus, stopped)
 		//remove from registry
 		x.system.getRegistry().remove(x.self())
-		//wake any sender blocked pushing into this now-dead mailbox (Push returns
-		//false -> send() drops the message instead of blocking forever).
+		// Close the ring so any later Push returns PushClosed and send() dead-letters
+		// it, then dead-letter whatever is still queued.
+		//
+		// The drain is not optional. doStop only verifies the mailbox is empty BEFORE
+		// PreStop runs, and procStatus stays `running` for the whole of PreStop (it
+		// only becomes `stopped` here). In that window — which lasts as long as user
+		// PreStop code does — a sender gets PushOK but schedule()'s CAS(idle→running)
+		// fails, so nothing ever drains those messages. Close() keeps queued items
+		// poppable rather than rejecting them, so without this loop they were dropped
+		// with no dead letter and no log at all.
 		x.rb.Close()
+		for {
+			ctx, ok := x.rb.Pop()
+			if !ok {
+				break
+			}
+			x.toDeadLetter(ctx, DeadLetterReasonStopped)
+		}
 	}()
 	//unregister from cluster
 	defer func() {
 		if x.tOpts.unRegisterFromCluster != nil {
-			x.tOpts.unRegisterFromCluster(x.system.GetProvider(), x.system.getConfig(), x.self())
+			if err := x.tOpts.unRegisterFromCluster(x.system.getProvider(), x.system.getConfig(), x.self()); err != nil {
+				// Not fatal for this actor, but peers will keep routing to a stale
+				// cluster entry until the lease expires, so it must be visible.
+				x.system.Logger().Warn("unregister from cluster failed, stale routing entry may remain",
+					"id", x.self(), "err", err)
+			}
 		}
 	}()
 	// PreStop pairs with a completed Started(): skip it when the actor never
