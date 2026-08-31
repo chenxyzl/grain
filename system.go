@@ -203,7 +203,7 @@ func (x *system) sendToLocal(target ActorRef, msg proto.Message, sender ActorRef
 	}
 	if proc == nil {
 		if sender != nil && sender.isAsk() {
-			sender.Tell(errActorNotFound())
+			sender.Tell(errActorNotFound)
 		}
 		x.Logger().Error("send, get actor failed", "actor", target, "msgName", proto.MessageName(msg))
 		return

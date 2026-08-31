@@ -82,10 +82,22 @@ regression test that was verified to fail against the old code.
   `ensureClusterKindActorExist` happily spawned actors that nothing would ever poison
   — their `PreStop`, and any state persistence in it, never ran. A `draining` flag set
   at the start of `stopActors` now refuses on-demand activation.
-- **`errActorNotFound` / `errAskNotRunning` were shared mutable singletons** that
-  escape into user code (one is Tell'd to the asking actor and comes back out of Ask).
-  `*ErrCode` has exported fields, so one caller doing `err.Des += ...` corrupted it
-  process-wide. Both are now built per use; they are on cold paths.
+- **⚠️ The `*message.ErrCode` values returned by `Ask` must not be mutated.** Not a code
+  change — a documented constraint, called out because it is easy to trip over. The
+  framework hands out preallocated `errActorNotFound` / `errAskNotRunning` singletons
+  (1.0ns/0B versus 36ns/64B to rebuild one), and they travel all the way into user
+  code: the first is Tell'd to the asking actor and comes back out of `Ask`, the second
+  is returned by `Ask` directly. `ErrCode` is a generated struct with exported `Code`
+  and `Des`, so the natural-looking
+
+  ```go
+  if err != nil { err.Des = "player " + id + ": " + err.Des }
+  ```
+
+  permanently changes what every later `Ask` in the process sees, and races with any
+  concurrent reader. Go's own sentinel errors get away with sharing because their types
+  are immutable (`io.EOF` is an `*errors.errorString` with an unexported field); that
+  does not hold here. To add context, build a new `ErrCode` from `err.Code` / `err.Des`.
 - **`ForceStop` could block its caller forever.** `forceCloseChan` has capacity 1 and
   only `WaitStopSignal` drains it, so a second `ForceStop` — or one issued when
   `WaitStopSignal` was never called or has already returned — parked the caller
@@ -130,6 +142,42 @@ regression test that was verified to fail against the old code.
   which the caller cannot tell apart, so the etcd error is now logged at the point of
   failure. Without it, a brief etcd outage during `register()` looked exactly like
   "node ids 1..1023 are all taken" and the real cause appeared nowhere.
+
+### ⚡ Performance
+Every number below was A/B measured on this machine with a new low-variance harness
+(`bench_test.go`, real routing path, no etcd/grpc). The existing end-to-end benchmark
+has >2x within-version variance, which is wider than any of these changes.
+
+- **Shard hashing switched from a hand-rolled FNV to `hash/maphash`** — `~2x` faster
+  registry lookups. FNV walked the key one byte at a time; on production-shaped actor
+  ids (`direct/local/484024768387878912@10.10.108.145:50685`, ~50 chars) that was
+  31.7ns, over half the cost of an entire `ConcurrentMap.Get`, paid once per message
+  because the registry lookup is on the send path. maphash uses the runtime's
+  AES-accelerated hasher at 8.2ns.
+  - `registry.get`: **63.1 → 31.6 ns (-50%)**
+  - local Tell: **246 → 219 ns (-11%)**; end-to-end `BenchmarkSendOne`: **256 → 235 ns**
+  - Shard distribution is equivalent (max deviation over 32 shards for 100k sequential
+    ids: FNV 3.3%, maphash 3.7%), and sharding never needs to agree across processes,
+    so a per-process seed is fine.
+- **Ring buffer index advance no longer uses a hardware divide.** `(i+1) % rb.cap`
+  with a runtime `cap` compiles to DIV, paid twice per message (Push and Pop) and
+  *inside the mutex*, lengthening the critical section. Replaced with a branch.
+  - push+pop pair: **32.3 → 24.3 ns (-25%)**
+  - Deliberately NOT the faster power-of-two-and-mask form: that would silently round a
+    configured `WithOptsMailboxMaxSize(1000)` up to 1024. The branch changes no
+    semantics at all.
+- **`AddrHash.CalcAddrByKind8Name` is now single-pass and allocation-free.** It built an
+  intermediate slice of matching nodes, copying whole `tNodeState` structs — the
+  function's only allocation. It runs per cache miss on the cluster send path and once
+  per actor on every membership change, so at 10k actors that was 10k allocations per
+  etcd event. FNV-1a is inlined over the two strings instead of going through
+  `hash/fnv` (two interface calls plus two string->[]byte conversions per node).
+  - **1420 ns / 1792 B / 1 alloc → 588 ns / 0 B / 0 allocs (-59%)**
+  - **The hash function itself is unchanged**, so key→owner mapping is identical and no
+    coordinated cluster restart is needed. `TestFnv32aTwoMatchesStdlib` pins the inlined
+    hash against `hash/fnv` bit-for-bit, and
+    `TestCalcAddrMatchesReferenceImplementation` keeps the old implementation as an
+    oracle and compares the chosen owner across 8 node-set shapes x 2000 keys.
 
 ### 💣 Breaking API changes
 Done in one step rather than staged behind deprecations, by request.

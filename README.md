@@ -33,6 +33,11 @@
 > All request/reply errors are returned as `*message.ErrCode` (nil = success),
 > never panicked; runtime failures (timeout / remote error / type mismatch) are
 > classified there.
+>
+> ⚠️ **Do not mutate the returned `*message.ErrCode`.** Framework errors such as
+> "actor not found" are shared preallocated values, and `ErrCode` has exported
+> fields — writing to `err.Des` corrupts it for every later `Ask` in the process.
+> To add context, build a new `ErrCode` from `err.Code` / `err.Des`.
 
 > ⚠️ **`x.Ask` is only allowed while the actor is running** — from a normal handler.
 > From `Started()` or `PreStop()` it sends nothing and returns

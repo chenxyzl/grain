@@ -30,6 +30,10 @@
 
 > 所有请求/应答的错误都以 `*message.ErrCode` 返回(nil 表示成功),不 panic;
 > 运行期失败(超时 / 远端错误 / 类型不符)都在此归类。
+>
+> ⚠️ **不要修改返回的 `*message.ErrCode`。** 「actor not found」这类框架错误是共享的
+> 预分配值,而 `ErrCode` 的字段是导出的 —— 写 `err.Des` 会污染全进程后续所有 `Ask`。
+> 需要补充上下文请用 `err.Code` / `err.Des` 新建一个 `ErrCode`。
 
 > ⚠️ **`x.Ask` 只允许在 actor「运行中」时调用** —— 即普通 handler 里。在 `Started()`
 > 或 `PreStop()` 里调用会什么都不发送、立即返回 `message.CodeAskNotRunning` 错误。

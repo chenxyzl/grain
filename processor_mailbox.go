@@ -130,7 +130,7 @@ func (x *processorMailBox) yieldTurn() *drainState {
 	//
 	// Because nothing drains the mailbox in that window, the actor cannot answer any
 	// incoming request either — which is why askImpl refuses an Ask unless
-	// isStarted() (errAskNotRunning()), instead of letting it block here and possibly
+	// isStarted() (errAskNotRunning), instead of letting it block here and possibly
 	// wait out askTimeout. So in practice this branch is only reached via the
 	// lower-level yieldTurn path, not through Ask.
 	//

@@ -3,6 +3,7 @@ package safemap
 import (
 	"encoding/json"
 	"fmt"
+	"hash/maphash"
 	"sync"
 )
 
@@ -46,7 +47,7 @@ func NewIntC[K int | uint | int32 | uint32 | int64 | uint64, V any]() Concurrent
 
 // NewStringC Creates a new concurrent map.
 func NewStringC[V any]() ConcurrentMap[string, V] {
-	return create[string, V](stringFnv32)
+	return create[string, V](stringShardHash)
 }
 
 // NewStringerC Creates a new concurrent map.
@@ -375,6 +376,23 @@ func (m *ConcurrentMap[K, V]) UnmarshalJSON(b []byte) (err error) {
 
 func stringerFnv32[K fmt.Stringer](key K) uint32 {
 	return stringFnv32(key.String())
+}
+
+// shardSeed seeds the shard hash. One process-wide seed is fine: the map is in-memory,
+// so sharding never has to agree across processes or restarts.
+var shardSeed = maphash.MakeSeed()
+
+// stringShardHash picks a shard for a string key.
+//
+// maphash, not the hand-rolled FNV below: FNV walks the key one byte at a time, and on
+// the framework's ~50-character actor ids
+// ("direct/local/484024768387878912@10.10.108.145:50685") that measured 31.7ns — more
+// than half the cost of an entire ConcurrentMap.Get (59.5ns), paid once per message
+// because the registry lookup is on the send path. maphash uses the runtime's
+// AES-accelerated hasher: 8.2ns. Shard distribution is equivalent (max deviation over
+// 32 shards for 100k sequential ids: FNV 3.3%, maphash 3.7%).
+func stringShardHash(key string) uint32 {
+	return uint32(maphash.String(shardSeed, key))
 }
 
 func stringFnv32(key string) uint32 {

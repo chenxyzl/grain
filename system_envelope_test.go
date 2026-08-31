@@ -26,7 +26,10 @@ func (f *fakeProvider) GetNodesVersion() int64          { return 1 }
 // newTestSystem builds a real *system wired to a fakeProvider, so the envelope and
 // routing paths (which are methods on *system, not on the fakeSys stub) can be
 // driven without etcd or grpc.
-func newTestSystem(t *testing.T) *system {
+func newTestSystem(t *testing.T) *system { return newTestSystemTB(t) }
+
+// newTestSystemTB is the testing.TB form, so benchmarks can use it too.
+func newTestSystemTB(t testing.TB) *system {
 	t.Helper()
 	// Production does this in providerEtcd.register -> system.init(nodeId); Spawn's
 	// generated names come from the uuid generator, so it must be seeded first.
@@ -34,7 +37,7 @@ func newTestSystem(t *testing.T) *system {
 	sys := &system{
 		config:   newConfig("test", "0.0.1", []string{"127.0.0.1:2379"}),
 		logger:   slog.Default(),
-		addr:     "testaddr",
+		addr:     "10.10.108.145:50685",
 		pending:  safemap.NewIntC[uint64, chan proto.Message](),
 		addrHash: newAddrHash(),
 	}

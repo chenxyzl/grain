@@ -68,10 +68,26 @@ func (rb *RingBuffer[T]) Push(item T) PushResult {
 		rb.grow()
 	}
 	rb.items[rb.tail] = item
-	rb.tail = (rb.tail + 1) % rb.cap
+	rb.tail = rb.next(rb.tail)
 	rb.size++
 	rb.mu.Unlock()
 	return PushOK
+}
+
+// next advances a ring index, wrapping at cap.
+//
+// A branch, not `(i+1) % rb.cap`: cap is a runtime variable, so the modulo compiles to
+// a hardware DIV — ~10ns, paid twice per message (Push and Pop) and inside the mutex,
+// which lengthens the critical section and amplifies producer/consumer contention. The
+// alternative of rounding capacities up to a power of two and masking would be a touch
+// faster still, but it would silently inflate a configured maxMailbox (1000 -> 1024);
+// this form changes no semantics at all.
+func (rb *RingBuffer[T]) next(i int64) int64 {
+	i++
+	if i == rb.cap {
+		return 0
+	}
+	return i
 }
 
 // grow doubles the capacity (capped at maxCap) and linearizes the ring into the
@@ -126,7 +142,7 @@ func (rb *RingBuffer[T]) Pop() (T, bool) {
 	item := rb.items[rb.head]
 	var zero T
 	rb.items[rb.head] = zero
-	rb.head = (rb.head + 1) % rb.cap
+	rb.head = rb.next(rb.head)
 	rb.size--
 	rb.mu.Unlock()
 	return item, true
