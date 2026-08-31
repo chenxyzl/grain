@@ -52,6 +52,91 @@ regression test that was verified to fail against the old code.
   cancel racing with the callback no longer leaves the timer armed for one more
   interval after `Stop()`.
 
+### ⚠️ uuid epoch moved to 2025-01-01 UTC (BREAKING for persisted ids)
+`epoch` is the origin of the id's timestamp field, so re-basing it re-bases every id.
+`1672502400000` (2023) -> `1735689600000` (2025-01-01T00:00:00Z).
+
+- **Ordering breaks across the upgrade.** A later epoch makes `(now - epoch)` smaller, so
+  ids minted after the change are numerically SMALLER than ids minted before it at the
+  same wall-clock instant — measured 54.6% smaller. If an id was ever persisted as an
+  actor name, a primary key or a sort key, cross-upgrade ordering is no longer
+  meaningful. Free if the deployment has no persisted ids; a data migration concern
+  otherwise.
+- What it buys is small: the 42-bit millisecond field spans 139.4 years, so the
+  exhaustion point moves from 2162-05 to 2164-05.
+- **Also fixes a latent timezone trap.** The old constant was commented
+  "2023-01-01:00:00:00 GMT" but actually evaluated to 2022-12-31T16:00:00Z — i.e.
+  2023-01-01 in UTC+8. Anyone "correcting" the value to match its own comment would have
+  shifted every id by 8 hours. The new constant is true UTC and says so.
+- One consequence to be aware of: the pre-epoch floor now catches any clock before 2025
+  rather than before 2023, so a host stuck in 2024 has its ids collapsed to
+  `epoch + uptime` — still unique and ordered, but no longer meaningful as timestamps.
+- `TestEpochIsPinned` and `TestClockBeforeEpochIsFloored` pin both the value and the
+  behaviour, so a future silent change fails loudly.
+
+### 🕐 Clock and host-address faults
+All three were reproduced with a test before fixing; each fix ships with a regression
+test verified to fail against the old code.
+
+- **The id clock now advances monotonically, so a rollback cannot affect it at all.**
+  `Generate` read `time.Now().UnixMilli()` on every call — the wall clock, which NTP
+  steps, manual clock changes and RTC jumps can move backwards, hence all the defensive
+  rollback handling below. It now samples the wall clock ONCE at construction and advances
+  with elapsed monotonic time (`baseWall + time.Since(baseMono)`). The monotonic clock
+  never goes backwards, so the "clock moved back, ids repeat" class of bugs is gone at the
+  source rather than compensated for.
+  - Combined with removing the busy-wait, `Generate` goes from **244.3 to 31.9 ns/op serial (7.6x)** and **244.0 to 105.2 ns/op under 16-way parallelism (2.3x)**. Sustained throughput measured over a 300ms window: **4103 -> 30753 ids/ms (7.5x)**. The 4103 figure is not a coincidence — the busy-wait pinned throughput to the per-millisecond sequence space (`stepMax+1 = 4096`), a hard ceiling that no amount of CPU could raise, which is why the old version scored identically serial and parallel. Of that win, removing the busy-wait accounts for 244 -> 46 ns and the monotonic clock for 46 -> 32 ns.
+  - The monotonic clock alone is **faster**: 33.3 vs 48.3 ns/op serial, 104 vs 129 ns/op under
+    16-way parallelism (**-19%**). `time.Since` has a fast path for arguments carrying a
+    monotonic reading — it reads only `runtimeNano()` and skips the wall-clock read
+    entirely (measured in isolation: 22.2 vs 36.1 ns).
+  - **Trade-off:** the monotonic clock does not follow NTP's gradual slew, so over a long
+    uptime the derived time drifts from true wall time (typically milliseconds per day).
+    Ids only need to be unique and roughly ordered, so this does not matter for them, but
+    `ParseTime` carries the drift. A restart re-samples the base and resets it.
+  - The lower clamp inside `Generate` is kept, but it now guards only the borrow-the-next-
+    millisecond path (where the logical timestamp legitimately runs ahead of the current
+    millisecond), not clock rollback.
+- **A clock before 2023-01-01 produced out-of-range ids.** The id layout encodes
+  `(now - epoch)` and that subtraction is `uint64`, so a pre-epoch clock wrapped it.
+  Measured: a 2020 clock yields `18049687768967155712` where a normal id is
+  `~485046263180431360` — 37x larger. It breaks `ParseSortVal` ordering and aliases with
+  ids real nodes will emit ~133 years out. Triggered by an unsynced container clock, an
+  NTP step back, or a dead RTC. `baseWall` is now floored at `epoch` in the constructor (once is enough, since the clock only advances from there): a node whose clock is
+  that wrong is misconfigured, and a valid-but-squashed id beats an out-of-range one.
+- **A clock rollback stalled every id generation in the process.** When the 12-bit
+  sequence wrapped, `Generate` busy-waited for the wall clock — *while holding its
+  mutex*. After a rollback the logical timestamp leads the wall clock, so one call spun
+  for the whole rollback duration and every other `Generate` queued behind the mutex:
+  measured, a 300ms rollback blocked a concurrent `Generate` for **295ms** while burning
+  a core. Since `Spawn` calls `Generate`, that stalls actor creation system-wide. It now
+  borrows the next millisecond instead of waiting — `(timestamp+1, step=0)` is
+  necessarily a fresh combination because `timestamp` was the highest already used, so
+  ids stay unique and strictly increasing, and the clock catches up on its own.
+  - **Trade-off worth knowing:** the logical timestamp now leads the wall clock while the
+    id rate exceeds 4096/ms, and the lead is unbounded under sustained overload (the old
+    blocking form never drifted). `ParseTime` then reports a slightly future time. Not
+    reachable in practice — 4096/ms is 4.1M ids/sec and one `Spawn` consumes one — and
+    the 42-bit millisecond field has ~139 years of headroom from epoch.
+  - Regression tests cover uniqueness and ordering across several sequence wraps, under 16
+    concurrent goroutines, and with a rollback and repeated wraps combined (the only
+    shape in which borrowing could collide).
+- **A node could advertise `127.0.0.1` to the cluster forever.** `al/gonet` enumerated
+  interfaces in `init()`, freezing the answer before `main`: a host that acquires its
+  address later — DHCP lease pending, container network attaching, VPN coming up — kept
+  an empty list, so `GetTopInnerIP` returned nil and the rpc server fell back to
+  loopback. Peers could never dial it, with no error logged anywhere. Enumeration now
+  happens on first use — i.e. at `RpcService.Start()` — instead of at package load.
+  - **A failed enumeration is not cached.** Memoising an empty result (as
+    `sync.OnceValue` does) would recreate the same freeze one step later: `GetTopInnerIP`
+    is exported, so a caller invoking it before the network is up would poison the cache
+    for the subsequent `Start()`. Only a non-empty answer is memoised.
+- **Link-local (APIPA) addresses are no longer advertised.** `169.254.0.0/16` is what a
+  host self-assigns when it fails to get a DHCP lease and no peer can route to it, but
+  it passed the filter — so a lease-less host advertised one. Loopback, unspecified and
+  multicast are now rejected too. The filter/sort step was split into `selectInnerIPs`
+  so it is testable without real network interfaces.
+
 ### 🐞 Correctness fixes from the same audit
 - **A remote `Tell` gave you a non-nil but empty `ctx.Sender()`.** `stream_write`
   writes `""` when there is no sender, and `newActorRefFromAID("")` returns a NON-nil
@@ -144,6 +229,30 @@ regression test that was verified to fail against the old code.
   "node ids 1..1023 are all taken" and the real cause appeared nowhere.
 
 ### ⚡ Performance
+Every number below was A/B measured on this machine with a low-variance harness
+(`bench_test.go`, real routing path, no etcd/grpc). The existing end-to-end benchmark has
+>2x within-version variance, wider than most of these changes.
+
+**Spawn path: 4187 -> 2213 ns/op (-47%), 3868 -> 1300 B/op (-66%), 23 -> 16 allocs.**
+
+- **The per-actor logger is built on first use, not at spawn.** `BaseActor._init` called
+  `slog.With("actor", self)` unconditionally: ~680ns / 360B / 7 allocs, which is ~16% of
+  a spawn — and the 360B is retained for the actor's whole lifetime, so a million actors
+  meant ~360MB permanently on the GC-scanned heap. Most actors never log, and now pay
+  nothing. Stored in an `atomic.Pointer` rather than a plain field: actor code is
+  single-threaded via the turn, but users do spawn goroutines from handlers and may log
+  from them, and an unsynchronized lazy write there would be a real data race.
+- **`defaultMailboxInitSize` lowered from 128 to 8**, saving 2304 -> 128 bytes eagerly
+  allocated and zeroed per actor (~2.2KB each, ~220MB at 100k actors).
+  - The old value was justified in a comment on throughput grounds — "captures nearly all
+    of the steady-state send throughput". That was true of the pre-v1.2.2 FIXED-capacity
+    blocking mailbox, and **is not true of a growable one**: measured across init = 1, 4,
+    8, 16, 32, 128 and 512, local Tell throughput is identical within noise (204-223
+    ns/op, 0% overflow at every size), because the ring just doubles on demand and
+    steady-state queue depth is 0-1. The stale claim is corrected in the source.
+  - The cost falls only on actors that genuinely queue deeply: growing 8 -> 128 costs
+    ~1us and 4 extra allocations, once. A mailbox is a burst buffer, so most never do.
+  - `WithOptsMailboxSize` still pre-reserves for kinds known to arrive in bursts.
 Every number below was A/B measured on this machine with a new low-variance harness
 (`bench_test.go`, real routing path, no etcd/grpc). The existing end-to-end benchmark
 has >2x within-version variance, which is wider than any of these changes.

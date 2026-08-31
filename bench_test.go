@@ -136,3 +136,20 @@ func BenchmarkAskLocal(b *testing.B) {
 		}
 	}
 }
+
+// BenchmarkSpawn puts uuid.Generate's cost in context: Spawn is its only caller on any
+// hot-ish path (one id per actor).
+//
+// Measured ~4.2us / 3.9KB / 23 allocs per spawn, against uuid.Generate at 47.8ns — i.e.
+// the id generator is ~1% of a spawn, and the mutex inside it ~0.2%. Replacing that lock
+// with a CAS loop measured 41.5ns (-13%), which is ~0.15% of a spawn: not worth
+// rewriting the clock-rollback and uniqueness logic in a lock-free setting. Recorded here
+// so the question does not have to be re-litigated from intuition.
+func BenchmarkSpawn(b *testing.B) {
+	sys := newTestSystemTB(b)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		sys.Spawn(func() IActor { return &sink{} })
+	}
+}

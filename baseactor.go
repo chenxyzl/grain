@@ -2,6 +2,7 @@ package grain
 
 import (
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/chenxyzl/grain/message"
@@ -28,7 +29,16 @@ type BaseActor struct {
 	// system is cached from self at _init: every helper needs it, and this avoids an
 	// interface hop through self.GetSystem() each time.
 	system ISystem
-	logger *slog.Logger
+	// logger is built on FIRST USE, not at _init: slog.With measured ~680ns / 360B /
+	// 7 allocs, which was ~16% of a spawn's 4.2us and 360B retained for the actor's
+	// whole lifetime — 360MB at a million actors, all permanently GC-scanned. Most
+	// actors never log, so most now pay nothing.
+	//
+	// atomic.Pointer rather than a plain field: actor code is single-threaded via the
+	// turn, but users do spawn goroutines from handlers and may log from them, and an
+	// unsynchronized lazy write there would be a genuine data race. Two racers may both
+	// build a logger; they are equivalent, so last-writer-wins is fine. The load is ~1ns.
+	logger atomic.Pointer[slog.Logger]
 	turn   reentryTurn // owning processor's turn controller, for reentrant Ask
 }
 
@@ -39,7 +49,7 @@ type BaseActor struct {
 func (x *BaseActor) _init(self ActorRef) {
 	x.self = self
 	x.system = self.GetSystem()
-	x.logger = slog.With("actor", self) //warning: slog.With performance too slow
+	// logger is deliberately NOT built here — see the field comment.
 }
 func (x *BaseActor) _bindTurn(t reentryTurn) { x.turn = t }
 
@@ -68,7 +78,12 @@ func (x *BaseActor) GetSystem() ISystem {
 
 func (x *BaseActor) Logger() *slog.Logger {
 	x.mustInited()
-	return x.logger
+	if l := x.logger.Load(); l != nil {
+		return l
+	}
+	l := slog.With("actor", x.self)
+	x.logger.Store(l)
+	return l
 }
 
 // Ask sends msg to target and blocks for a reply of type T. It is reentrant:
