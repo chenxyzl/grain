@@ -47,7 +47,7 @@ func NewUUID(node uint64) (*UUID, error) {
 	}
 	base := time.Now()
 	// epoch 下限保护: id 布局编码的是 (ms - epoch), 且该减法是 uint64 运算。若构造
-	// 时系统时钟早于 2023-01-01 (容器时钟未同步 / RTC 掉电), 减法会下溢成一个巨大
+	// 时系统时钟早于 epoch (2025-01-01, 容器时钟未同步 / RTC 掉电), 减法会下溢成一个巨大
 	// 的值 —— 实测 2020 年的时钟产出 18049687768967155712, 而正常 id 是
 	// 485046263180431360, 大 37 倍: 既破坏 ParseSortVal 的排序, 又会和真实节点约
 	// 133 年后产出的 id 相撞。钳到 epoch 后 id 仍然合法且单调, 好过越界。
@@ -80,6 +80,9 @@ func NewUUID(node uint64) (*UUID, error) {
 // 时间会与真实墙上时间产生漂移(量级取决于本机时钟漂移率, 典型每天毫秒级)。id 只
 // 要求唯一且大致时序, 所以无影响; 但 ParseTime 解出的时间会带上这份漂移。进程重启
 // 会重新采样基准, 漂移随之归零。
+//
+// 注意这份漂移与 id 的时间戳字段是两件事: Generate 在 step 用尽时会等待, 因此
+// n.timestamp 永不超过本函数的返回值(见 TestTimestampNeverLeadsRealClock)。
 func (n *UUID) nowMs() int64 {
 	return n.baseWall + time.Since(n.baseMono).Milliseconds()
 }
@@ -91,9 +94,11 @@ func (n *UUID) Generate() uint64 {
 	// 单调时钟推进的当前毫秒, 见 nowMs。已保证 >= epoch 且不会回退。
 	now := n.nowMs()
 
-	// 这里仍需要下界钳制, 但**不再是为了防时钟回拨**(nowMs 已经不会回退了), 而是
-	// 为了下面"借用下一毫秒"的场景: step 用尽时 n.timestamp 会被推到墙上时钟之前,
-	// 之后若干次调用的 now 都会小于它, 必须沿用 n.timestamp 继续递增 step。
+	// 下界钳制。在当前设计下这一步**正常永远不会触发**: nowMs 走单调时钟因而单调
+	// 不减, 而 n.timestamp 只会被赋为过去某次 nowMs 的返回值, 所以 now >= n.timestamp
+	// 恒成立。保留它是纯防御 —— 万一 nowMs 的单调性被破坏(例如有人给 baseMono 加了
+	// .UTC()/.Round() 把 monotonic reading 剥掉, 见 nowMs 注释与
+	// TestBaseMonoCarriesMonotonicReading), 这里是阻止发出重复 id 的最后一道闸。
 	if now < n.timestamp {
 		now = n.timestamp
 	}
@@ -101,9 +106,19 @@ func (n *UUID) Generate() uint64 {
 	if n.timestamp == now {
 		n.step = (n.step + 1) & stepMax
 
-		// 当前 step 用完: 等下一毫秒
+		// 当前 step 用完: 等本毫秒结束。
+		//
+		// 为什么是"等待"而不是"借用下一毫秒"(后者试过并回退了): 借用快约 7.5 倍
+		// (30753 vs 4103 ids/ms), 但会让逻辑时间戳跑到真实时钟之前, 实测每 1ms 真实
+		// 时间积累 6.5ms 领先。而**进程重启会重新以墙上时钟为基准**, 于是新进程从
+		// 一个早已用过的时间戳继续发号 —— 实测重启后前 5000 个 id 与重启前 100%
+		// 碰撞。等待则保证 timestamp <= 真实时钟, 重启最多只会落回**当前这一毫秒**。
+		//
+		// 这个等待和旧实现的关键差别在于**有界**: 旧实现读墙上时钟, 时钟回拨后
+		// n.timestamp 会领先墙上时钟, 于是一次调用要等满整个回拨时长(实测回拨 300ms
+		// 时阻塞 295ms, 且持锁烧一个核)。nowMs 走单调时钟后不存在回拨, 这里最多只
+		// 等到下一个毫秒边界 —— 实测 12288 个 id 里最慢的一次是 651us。
 		if n.step == 0 {
-			// 等待本毫秒结束
 			for now <= n.timestamp {
 				now = n.nowMs()
 			}

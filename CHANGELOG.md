@@ -78,49 +78,63 @@ regression test that was verified to fail against the old code.
 All three were reproduced with a test before fixing; each fix ships with a regression
 test verified to fail against the old code.
 
-- **The id clock now advances monotonically, so a rollback cannot affect it at all.**
-  `Generate` read `time.Now().UnixMilli()` on every call — the wall clock, which NTP
-  steps, manual clock changes and RTC jumps can move backwards, hence all the defensive
-  rollback handling below. It now samples the wall clock ONCE at construction and advances
-  with elapsed monotonic time (`baseWall + time.Since(baseMono)`). The monotonic clock
-  never goes backwards, so the "clock moved back, ids repeat" class of bugs is gone at the
-  source rather than compensated for.
-  - Combined with removing the busy-wait, `Generate` goes from **244.3 to 31.9 ns/op serial (7.6x)** and **244.0 to 105.2 ns/op under 16-way parallelism (2.3x)**. Sustained throughput measured over a 300ms window: **4103 -> 30753 ids/ms (7.5x)**. The 4103 figure is not a coincidence — the busy-wait pinned throughput to the per-millisecond sequence space (`stepMax+1 = 4096`), a hard ceiling that no amount of CPU could raise, which is why the old version scored identically serial and parallel. Of that win, removing the busy-wait accounts for 244 -> 46 ns and the monotonic clock for 46 -> 32 ns.
-  - The monotonic clock alone is **faster**: 33.3 vs 48.3 ns/op serial, 104 vs 129 ns/op under
-    16-way parallelism (**-19%**). `time.Since` has a fast path for arguments carrying a
-    monotonic reading — it reads only `runtimeNano()` and skips the wall-clock read
-    entirely (measured in isolation: 22.2 vs 36.1 ns).
+- **The id clock now advances monotonically, so a clock rollback cannot affect it at all.**
+  `Generate` read `time.Now().UnixMilli()` on every call — the wall clock, which NTP steps,
+  manual clock changes and RTC jumps move backwards. It now samples the wall clock ONCE at
+  construction and advances with elapsed monotonic time (`baseWall + time.Since(baseMono)`).
+  The monotonic clock never goes backwards, so the "clock moved back, ids repeat" class is
+  gone at the source rather than compensated for after the fact.
+  - **This is what fixes the process-wide stall.** When the 12-bit sequence is exhausted
+    within a millisecond, `Generate` waits for the next millisecond *while holding its
+    mutex*. That is intentional (see the next bullet), but reading the WALL clock made the
+    wait unbounded: after a rollback the logical timestamp led the wall clock, so one call
+    spun for the entire rollback duration and every other `Generate` queued behind the
+    mutex — measured, a 300ms rollback blocked a concurrent `Generate` for **295ms** while
+    burning a core. Since `Spawn` calls `Generate`, that stalled actor creation
+    system-wide. With a monotonic base there is no rollback to wait out, so the wait is
+    bounded by the millisecond boundary: measured, the slowest single `Generate` across
+    12288 ids (3 full sequence wraps) is **651µs**.
+  - It is also **faster**: 33.3 vs 48.3 ns/op serial, 104 vs 129 ns/op under 16-way
+    parallelism. `time.Since` has a fast path for arguments carrying a monotonic reading —
+    it calls `runtimeNano()` and skips the wall-clock read entirely, where
+    `time.Now().UnixMilli()` reads both (measured in isolation: 22.2 vs 36.1 ns).
   - **Trade-off:** the monotonic clock does not follow NTP's gradual slew, so over a long
     uptime the derived time drifts from true wall time (typically milliseconds per day).
-    Ids only need to be unique and roughly ordered, so this does not matter for them, but
+    Ids only need to be unique and roughly ordered, so this does not affect them, but
     `ParseTime` carries the drift. A restart re-samples the base and resets it.
-  - The lower clamp inside `Generate` is kept, but it now guards only the borrow-the-next-
-    millisecond path (where the logical timestamp legitimately runs ahead of the current
-    millisecond), not clock rollback.
-- **A clock before 2023-01-01 produced out-of-range ids.** The id layout encodes
-  `(now - epoch)` and that subtraction is `uint64`, so a pre-epoch clock wrapped it.
+  - The whole scheme rests on `baseMono` keeping its monotonic reading. `.UTC()`,
+    `.Local()`, `.Round()`, `.Truncate()` and a round-trip through `time.Unix` all strip
+    it, after which `time.Since` **silently** falls back to `Now().Sub(t)` — losing both
+    the speed and, far worse, the rollback immunity.
+    `TestBaseMonoCarriesMonotonicReading` pins it.
+- **Waiting on sequence exhaustion was kept deliberately, not merely left alone.**
+  Borrowing the next millisecond instead (`timestamp+1, step=0`) was implemented,
+  measured and reverted. It was ~7.5x faster — **30753 vs 4103 ids/ms** sustained, because
+  waiting pins throughput to the per-millisecond sequence space (`stepMax+1 = 4096`), a
+  hard ceiling no amount of CPU can raise (which is why the waiting version scores
+  identically serial and parallel). But it let the logical timestamp run ahead of the real
+  clock at **~6.5ms of lead per 1ms of real time**, and since a restarted process
+  re-anchors to the wall clock it would resume from timestamps already issued: measured,
+  **5000 of the first 5000 post-restart ids collided** with pre-restart ones. Uniqueness
+  across restarts is worth more than the throughput here, so `Generate` waits.
+  - Residual window, inherent to snowflake without persistence: a restart landing inside
+    the *same millisecond* can still reuse `(timestamp, step)`. That is 1ms of exposure
+    versus seconds under borrowing, and a real restart (grpc listen plus etcd
+    registration) takes orders of magnitude longer.
+  - `TestTimestampNeverLeadsRealClock` and `TestNoCollisionAfterRestart` pin the
+    invariant, `TestStepExhaustionWaitIsBounded` pins the bound, and uniqueness/ordering
+    is covered across several sequence wraps and under 16 concurrent goroutines.
+  - The lower clamp inside `Generate` can no longer trigger (a monotonic `nowMs` is never
+    below a timestamp derived from it) and is kept purely as a last line of defence should
+    that monotonicity ever be broken.
+- **A clock before `epoch` produced out-of-range ids.** The id layout encodes
+  `(now - epoch)` and the subtraction is `uint64`, so a pre-epoch clock wrapped it.
   Measured: a 2020 clock yields `18049687768967155712` where a normal id is
   `~485046263180431360` — 37x larger. It breaks `ParseSortVal` ordering and aliases with
-  ids real nodes will emit ~133 years out. Triggered by an unsynced container clock, an
-  NTP step back, or a dead RTC. `baseWall` is now floored at `epoch` in the constructor (once is enough, since the clock only advances from there): a node whose clock is
-  that wrong is misconfigured, and a valid-but-squashed id beats an out-of-range one.
-- **A clock rollback stalled every id generation in the process.** When the 12-bit
-  sequence wrapped, `Generate` busy-waited for the wall clock — *while holding its
-  mutex*. After a rollback the logical timestamp leads the wall clock, so one call spun
-  for the whole rollback duration and every other `Generate` queued behind the mutex:
-  measured, a 300ms rollback blocked a concurrent `Generate` for **295ms** while burning
-  a core. Since `Spawn` calls `Generate`, that stalls actor creation system-wide. It now
-  borrows the next millisecond instead of waiting — `(timestamp+1, step=0)` is
-  necessarily a fresh combination because `timestamp` was the highest already used, so
-  ids stay unique and strictly increasing, and the clock catches up on its own.
-  - **Trade-off worth knowing:** the logical timestamp now leads the wall clock while the
-    id rate exceeds 4096/ms, and the lead is unbounded under sustained overload (the old
-    blocking form never drifted). `ParseTime` then reports a slightly future time. Not
-    reachable in practice — 4096/ms is 4.1M ids/sec and one `Spawn` consumes one — and
-    the 42-bit millisecond field has ~139 years of headroom from epoch.
-  - Regression tests cover uniqueness and ordering across several sequence wraps, under 16
-    concurrent goroutines, and with a rollback and repeated wraps combined (the only
-    shape in which borrowing could collide).
+  ids real nodes will emit ~133 years out. Triggered by an unsynced container clock, an NTP
+  step back, or a dead RTC. `baseWall` is now floored at `epoch` in the constructor — once
+  is enough, since the clock only advances from there. A node whose clock is that wrong is
+  misconfigured, and a valid-but-squashed id beats an out-of-range one.
 - **A node could advertise `127.0.0.1` to the cluster forever.** `al/gonet` enumerated
   interfaces in `init()`, freezing the answer before `main`: a host that acquires its
   address later — DHCP lease pending, container network attaching, VPN coming up — kept

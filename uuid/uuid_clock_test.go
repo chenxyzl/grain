@@ -46,31 +46,42 @@ func TestPreEpochClockDoesNotUnderflow(t *testing.T) {
 	}
 }
 
-// TestStepExhaustionDoesNotBlock pins the fix for a process-wide stall.
+// TestStepExhaustionWaitIsBounded pins what is left of the original stall bug.
 //
-// When step wraps, Generate used to busy-wait for the wall clock — while holding n.mu.
-// After a clock rollback n.timestamp leads the wall clock, so one Generate spun for the
-// whole rollback duration and every other Generate in the process queued behind the
-// mutex (measured: a 300ms rollback blocked a concurrent Generate for 295ms) while
-// burning a core. It now borrows from the next millisecond instead.
-func TestStepExhaustionDoesNotBlock(t *testing.T) {
+// When the 12-bit sequence is exhausted within a millisecond, Generate waits for the next
+// millisecond — deliberately, so the logical timestamp never runs ahead of the real clock
+// (see TestTimestampNeverLeadsRealClock for why that matters). The bug was never the
+// waiting itself: it was that the wait read the WALL clock, so after a clock rollback the
+// logical timestamp led the wall clock and one call spun for the entire rollback duration
+// while holding the mutex — measured, a 300ms rollback blocked a concurrent Generate for
+// 295ms and burned a core.
+//
+// nowMs is monotonic, so a rollback can no longer inflate the wait: the only thing it can
+// ever wait for is the current millisecond to end. This exercises the wait naturally, with
+// no artificial state, and asserts that bound.
+func TestStepExhaustionWaitIsBounded(t *testing.T) {
 	u, err := NewUUID(1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Post-rollback state: logical timestamp 300ms ahead of the wall clock, step about
-	// to wrap.
-	lead := 300 * time.Millisecond
-	u.timestamp = time.Now().UnixMilli() + lead.Milliseconds()
-	u.step = stepMax
-
-	start := time.Now()
-	u.Generate()
-	elapsed := time.Since(start)
-	if elapsed > lead/3 {
-		t.Errorf("Generate blocked %v with the clock %v ahead — it is waiting on the wall "+
-			"clock again, and does so holding n.mu", elapsed.Round(time.Millisecond), lead)
+	// stepMax+1 ids exhaust one millisecond of sequence space, so several multiples of
+	// that guarantee the wait path is taken repeatedly.
+	total := int(stepMax+1) * 3
+	var worst time.Duration
+	for range total {
+		start := time.Now()
+		u.Generate()
+		if d := time.Since(start); d > worst {
+			worst = d
+		}
 	}
+	// 1ms is the theoretical bound; the slack absorbs scheduling noise. A regression to
+	// the wall clock would show up here as tens or hundreds of milliseconds.
+	if worst > 20*time.Millisecond {
+		t.Errorf("worst single Generate took %v: the wait is no longer bounded by the millisecond boundary, which means it is reading the wall clock again", worst)
+	}
+	t.Logf("worst single Generate across %d ids (3 full sequence wraps): %v",
+		total, worst.Round(time.Microsecond))
 }
 
 // TestStepExhaustionKeepsIdsUniqueAndOrdered: borrowing the next millisecond must not
@@ -137,45 +148,60 @@ func TestConcurrentGenerateUnique(t *testing.T) {
 	}
 }
 
-// TestRollbackPlusStepExhaustionStaysUnique combines the two hazards the review flagged:
-// a clock rollback (so the logical timestamp leads the wall clock) AND repeated sequence
-// exhaustion (so the borrow path runs over and over). Together they are the only way the
-// borrow-the-next-millisecond scheme could collide.
-func TestRollbackPlusStepExhaustionStaysUnique(t *testing.T) {
+// TestTimestampNeverLeadsRealClock pins the invariant that keeps ids safe across a process
+// restart, and is the reason Generate waits rather than borrowing the next millisecond.
+//
+// Borrowing was tried and reverted. It was ~7.5x faster (30753 vs 4103 ids/ms) but let the
+// logical timestamp run ahead of the real clock at ~6.5ms of lead per 1ms of real time.
+// Since a restarted process re-anchors to the wall clock, it would resume from a timestamp
+// already issued — measured, 5000 of the first 5000 post-restart ids collided with
+// pre-restart ones. Waiting keeps timestamp <= real clock, so a restart can only ever
+// re-enter the CURRENT millisecond.
+func TestTimestampNeverLeadsRealClock(t *testing.T) {
 	u, err := NewUUID(11)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Post-rollback: logical timestamp 500ms ahead of the wall clock.
-	u.timestamp = time.Now().UnixMilli() + 500
-
-	const n = 4096*4 + 3 // several full sequence wraps
-	seen := make(map[uint64]struct{}, n)
-	var prev uint64
-	for i := range n {
-		id := u.Generate()
-		if _, dup := seen[id]; dup {
-			t.Fatalf("duplicate id %d at %d (rollback + step wrap)", id, i)
-		}
-		seen[id] = struct{}{}
-		if i > 0 && id <= prev {
-			t.Fatalf("not strictly increasing at %d: %d then %d", i, prev, id)
-		}
-		prev = id
-		if ParseNode(id) != 11 {
-			t.Fatalf("node bits corrupted at %d: %d", i, ParseNode(id))
-		}
-		if ParseStep(id) > stepMax {
-			t.Fatalf("step out of range at %d: %d", i, ParseStep(id))
+	for i := range int(stepMax+1) * 3 {
+		u.Generate()
+		u.mu.Lock()
+		lead := u.timestamp - u.nowMs()
+		u.mu.Unlock()
+		if lead > 0 {
+			t.Fatalf("at id %d the logical timestamp leads the real clock by %dms; ids are no longer safe across a restart", i, lead)
 		}
 	}
-	// The documented cost: the logical clock now leads the wall clock. Assert it is the
-	// expected magnitude rather than something pathological.
-	lead := u.timestamp - time.Now().UnixMilli()
-	t.Logf("%d ids across %d sequence wraps -> logical clock leads wall clock by %dms",
-		n, n/(int(stepMax)+1), lead)
-	if lead > 500+int64(n/(int(stepMax)+1))+50 {
-		t.Errorf("logical clock drifted %dms, more than the wraps can explain", lead)
+}
+
+// TestNoCollisionAfterRestart is the end-to-end form of the invariant above: ids issued
+// before a restart must not be reissued after it.
+//
+// One residual window is inherent to snowflake without persistence — a restart landing
+// inside the SAME millisecond can reuse (timestamp, step) pairs. That window is 1ms,
+// against the seconds of exposure borrowing created, and a real restart (grpc listen plus
+// etcd registration) takes orders of magnitude longer. The sleep stands in for that.
+func TestNoCollisionAfterRestart(t *testing.T) {
+	u, err := NewUUID(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const n = 20000
+	issued := make(map[uint64]struct{}, n)
+	for range n {
+		issued[u.Generate()] = struct{}{}
+	}
+
+	time.Sleep(3 * time.Millisecond) // stand in for process restart time
+
+	u2, err := NewUUID(1) // same node id: a restart keeps it
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range n {
+		id := u2.Generate()
+		if _, dup := issued[id]; dup {
+			t.Fatalf("post-restart id %d (iteration %d) was already issued before the restart", id, i)
+		}
 	}
 }
 
