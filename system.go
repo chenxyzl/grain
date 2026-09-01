@@ -47,8 +47,11 @@ func NewSystem(clusterName string, version string, clusterUrls []string, opts ..
 	sys := &system{}
 	sys.config = newConfig(clusterName, version, clusterUrls, opts...)
 	//
-	sys.logger = slog.Default()
-	sys.registry = newRegistry(sys.Logger())
+	// Deliberately left nil when no logger was configured: Logger() then resolves the
+	// process default per call, which is what keeps an InitLog issued between NewSystem
+	// and Start working. Capturing slog.Default() here would freeze it too early.
+	sys.logger = sys.config.logger
+	sys.registry = newRegistry()
 	sys.clusterProvider = &providerEtcd{}
 	sys.forceCloseChan = make(chan bool, 1)
 	sys.timerSchedule = newTimerSchedule(sys)
@@ -83,7 +86,22 @@ func (x *system) WatchNodeExtData(subKey string, f func(key, val string)) error 
 	return x.clusterProvider.WatchNodeExtData(subKey, f)
 }
 
-func (x *system) Logger() *slog.Logger { return x.logger }
+// Logger returns the system logger. Start() tags it with system=<addr> and init() adds
+// node=<id>; every actor logger derives from it (BaseActor.Logger).
+//
+// Until Start() builds it, and only when WithConfigLogger was not used, this resolves
+// slog.Default() PER CALL rather than returning something captured in NewSystem. That is
+// what keeps an InitLog issued between NewSystem and Start working — capturing the global
+// early would freeze the bootstrap default in place.
+//
+// Nothing rebuilds it after Start()/init(), so a slog.SetDefault issued later does NOT
+// reach the framework. WithConfigLogger removes that ordering rule entirely.
+func (x *system) Logger() *slog.Logger {
+	if x.logger != nil {
+		return x.logger
+	}
+	return slog.Default()
+}
 
 // ErrNameExists is returned by SpawnNamed when an actor with that name is already
 // registered on this node. Compare with errors.Is.

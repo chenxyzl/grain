@@ -2,7 +2,6 @@ package grain
 
 import (
 	"fmt"
-	"log/slog"
 	"sync"
 
 	"github.com/chenxyzl/grain/al/safemap"
@@ -11,13 +10,15 @@ import (
 type registry struct {
 	lookup   safemap.ConcurrentMap[string, iProcess]
 	createMu sync.Mutex // serializes getOrAdd so the loser never builds a processor
-	logger   *slog.Logger
 }
 
-func newRegistry(logger *slog.Logger) *registry {
+// newRegistry takes no logger: the registry never logged. It used to be handed one at
+// NewSystem time and store it unread, which made it look like a third place the logger
+// had to be threaded through — and one that captured slog.Default() before InitLog could
+// plausibly have run.
+func newRegistry() *registry {
 	return &registry{
 		lookup: safemap.NewStringC[iProcess](),
-		logger: logger,
 	}
 }
 

@@ -2,7 +2,6 @@ package grain
 
 import (
 	"errors"
-	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -23,9 +22,9 @@ func (x *system) Start() {
 	//cache the (now-fixed) listen address so getAddr() is a field read
 	x.addr = x.rpcService.Addr()
 	//init logger
-	x.logger = slog.With("system", x.rpcService.Addr())
+	x.logger = x.Logger().With("system", x.rpcService.Addr())
 	//register to cluster
-	if err := x.clusterProvider.start(x, x.clusterMemberChanged, x.getAddr(), x.config, x.logger); err != nil {
+	if err := x.clusterProvider.start(x, x.clusterMemberChanged, x.getAddr(), x.config, x.Logger()); err != nil {
 		panic(errors.Join(err, errors.New("cluster provider start failed")))
 	}
 }
@@ -40,8 +39,10 @@ func (x *system) init(nodeId uint64) {
 	x.askId = uuid.GetAskStartId()
 	x.Logger().Warn("uuid init success", "nodeId", nodeId)
 
-	//overwrite logger
-	x.logger = slog.With("system", x.getAddr(), "node", x.config.state.NodeId)
+	//add the node id to the logger Start() already tagged with the address. init() is
+	//only ever reached from Start() -> clusterProvider.start() -> register(), so
+	//"system" is already on it — appending just "node" avoids repeating it.
+	x.logger = x.Logger().With("node", x.config.state.NodeId)
 
 	//init eventStream
 	eventStreamRef, err := x.SpawnNamed(func() IActor {
@@ -91,9 +92,9 @@ func (x *system) WaitStopSignal(beforeQuit func(), afterQuit func()) {
 
 func (x *system) ForceStop(err error) {
 	if err != nil {
-		x.logger.Error("system forceStop", "err", err)
+		x.Logger().Error("system forceStop", "err", err)
 	} else {
-		x.logger.Warn("system forceStop")
+		x.Logger().Warn("system forceStop")
 	}
 	// Non-blocking: forceCloseChan has capacity 1 and only WaitStopSignal drains it,
 	// so a plain send wedges the caller forever on a second ForceStop, or if
@@ -103,7 +104,7 @@ func (x *system) ForceStop(err error) {
 	select {
 	case x.forceCloseChan <- true:
 	default:
-		x.logger.Warn("system forceStop already requested, ignoring")
+		x.Logger().Warn("system forceStop already requested, ignoring")
 	}
 }
 

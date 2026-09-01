@@ -18,5 +18,16 @@
 
   设计 / 运维
   11. concurrentmap.go 约 200/396 行死代码
-  13. 无 WithConfigLogger，InitLog 改全局 slog 默认值且顺序敏感
-  14. 无转发跳数上限，rebalance 期间 envelope 可能在节点间乒乓（SUSPECTED，我未验证）
+  14. 【已验证：乒乓不会发生】score = fnv32a(name, addr) 只依赖 (name,地址)、与节点视图无关，
+      且每个节点必然能看到自己（register 的 put 先于 watch 的 Get），所以每一跳在 (score,-addr)
+      上严格单调 → 不可能成环；20 万次随机成员视图穷举 0 环，最长 5 跳（12 节点）。
+      Envelope 里确实没有 hop/TTL 字段，但这个不变量目前没有任何测试或注释保护 ——
+      一旦 hash 改成带权重或依赖视图，就没有兜底了。
+  14b.【新，高优先级 bug】grain 注册锁会被抢锁失败的一方删掉，导致同一 grain 真的双活：
+      registerToCluster 存的 value 是 ref.GetDirectAddr()，而 cluster ref 的 id 是
+      "cluster/kind/name"（无 @addr）→ value 恒为 ""。抢锁失败的 B 在 start() 里走 stop()，
+      stop() 的 defer 无条件调 unRegisterFromCluster → removeTxn(key, "") 比对 value=="" 恒成立
+      → 删掉 A 正在持有的锁。此后任何节点再激活都会成功 → 两个实例同时存在、各自落盘。
+      注意 setTxn 在 etcd 报错时也返回 false（provider_etcd.go:244），所以 B 只要 etcd 抖一下
+      就会误删 A 的锁。修法：value 写节点地址（config.state.Address）而非 GetDirectAddr()，
+      并且只在「本次注册确实成功」时才 unregister。

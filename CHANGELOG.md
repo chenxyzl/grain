@@ -515,6 +515,33 @@ Done in one step rather than staged behind deprecations, by request.
     with a message that never mentions the option.
   - `remote.NewRpcServer` takes the listen address as a second argument
     (`""` → `":0"`). Framework-internal; the only call site is `system.Start`.
+- **`WithConfigLogger(*slog.Logger)` + `NewLogger(name, level)`** — logging without
+  global state. Previously the only way in was `InitLog`, which calls
+  `slog.SetDefault`, and the system read that global when it built its logger. That made
+  the whole thing order-sensitive with nothing enforcing the order, and the failure mode
+  is nasty: call `InitLog` after `Start()` and *your own* slog lines move to the new
+  handler while the framework's silently do not.
+  - `NewLogger` builds the framework's standard handler (rotating file tee'd to stdout,
+    source trimmed to the base filename) and returns it without touching any global;
+    `InitLog` is now just `slog.SetDefault(NewLogger(...))`.
+  - `WithConfigLogger` is used regardless of the global default or when it changes, so
+    the ordering rule disappears. It covers the system logger, the cluster provider's,
+    and — since actor loggers now derive from the system logger — every actor's.
+  - `system.Logger()` now does the resolving: it returns the built logger once there is
+    one, and otherwise reads `slog.Default()` **per call**. `NewSystem` deliberately
+    leaves `x.logger` nil when no logger was configured — capturing the global there
+    would freeze the bootstrap default, which is exactly what breaks
+    `InitLog`-before-`Start`. (The old code got this right by accident, via
+    `slog.With(...)`; it is explicit now.)
+  - `Start()` tags it with `system=<addr>` and `init()` now appends only `node=<id>`
+    instead of rebuilding with both. `init()` is only ever reached from `Start()`, so the
+    address is already on the logger; re-adding it emitted `system=` twice per line.
+  - `ForceStop` logs through `Logger()` rather than the raw field, since that field is
+    now nil until `Start()` — a `ForceStop` before `Start()` used to nil-panic.
+    `TestForceStopBeforeStartDoesNotPanic` covers it (verified to panic without the fix).
+  - `newRegistry` no longer takes a logger. The registry stored one and never read it —
+    a third place the logger appeared to be threaded through, capturing
+    `slog.Default()` earlier than anything could plausibly have configured it.
 
 ### ⛔ `Ask` is now restricted to the actor's running phase
 **Behavior change — code that Asks from `Started()` or `PreStop()` starts failing.**

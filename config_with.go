@@ -1,6 +1,7 @@
 package grain
 
 import (
+	"log/slog"
 	"strconv"
 	"time"
 
@@ -116,6 +117,30 @@ func WithConfigKind(kindName string, producer Producer, opts ...KindOptFunc) Con
 			panic("duplicate kind name " + kindName)
 		}
 		config.kinds[kindName] = tKind{producer: producer, opts: opts}
+	}
+}
+
+// WithConfigLogger sets the logger this system derives all of its own loggers from —
+// the system logger, the cluster provider's, and (via BaseActor.Logger) every actor's.
+//
+// This is the way to log without depending on global state. Left unset, the system reads
+// slog.Default() when it builds its logger in Start(), which means InitLog (or any other
+// slog.SetDefault) has to happen BEFORE Start() or none of the framework's output goes
+// to it — an ordering rule nothing enforces and that is easy to get wrong, because the
+// caller's own slog lines DO switch over while the framework's silently do not.
+//
+// Passing a logger here removes the ordering rule entirely: it is used regardless of what
+// the global default is or when it changes. It does not touch slog.Default(), so the rest
+// of the process is unaffected.
+//
+//	system := grain.NewSystem(name, ver, urls,
+//	    grain.WithConfigLogger(grain.NewLogger("./game.log", slog.LevelInfo)))
+//
+// The system adds system=<addr> and node=<id> to whatever is passed; actors add
+// actor=<ref> on top of that. A nil logger is ignored (the default applies).
+func WithConfigLogger(l *slog.Logger) ConfigOptFunc {
+	return func(config *config) {
+		config.logger = l
 	}
 }
 

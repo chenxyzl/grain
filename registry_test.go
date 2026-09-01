@@ -1,7 +1,6 @@
 package grain
 
 import (
-	"log/slog"
 	"testing"
 	"time"
 )
@@ -30,7 +29,7 @@ func (s *stubProc) poison()          { s.poisoned = true }
 //
 // rangeIt now snapshots first and calls back outside the lock, so re-entry is safe.
 func TestRangeItCallbackMayReenterRegistry(t *testing.T) {
-	reg := newRegistry(slog.Default())
+	reg := newRegistry()
 	ref := newClusterActorRef("player", "p1", nil)
 	reg.lookup.Set(ref.GetId(), &stubProc{ref: ref})
 
@@ -64,7 +63,7 @@ func TestRangeItCallbackMayReenterRegistry(t *testing.T) {
 // TestRangeItVisitsEverything guards the snapshot itself: it must not drop or
 // duplicate entries.
 func TestRangeItVisitsEverything(t *testing.T) {
-	reg := newRegistry(slog.Default())
+	reg := newRegistry()
 	want := map[string]bool{}
 	for _, name := range []string{"a", "b", "c", "d", "e", "f", "g", "h"} {
 		ref := newClusterActorRef("player", name, nil)

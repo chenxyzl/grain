@@ -59,7 +59,14 @@
 | `WithConfigEtcdDialTimeout(d)` | `10s` | etcd 首次连接、以及关停时 revoke lease 的超时 |
 | `WithConfigGrpcDialOptions(...)` | insecure creds | **追加**对外 peer 流的 dial 选项 |
 | `WithConfigGrpcCallOptions(...)` | — | 追加对外 peer 流的 call 选项 |
+| `WithConfigLogger(l)` | `slog.Default()`,在 `Start()` 时读取 | system、cluster provider 和所有 actor 的日志都由它派生。用它可以摆脱 `InitLog` 的顺序要求 —— 见下 |
 | `WithConfigDeadLetter(h)` | WARN 日志 | 无法投递消息(mailbox 溢出、发给已停止的 actor)的处理器。跑在发送方 goroutine 上,必须快 |
+
+> ⚠️ **`InitLog` 对调用顺序敏感,`WithConfigLogger` 不敏感。** `InitLog` 调的是
+> `slog.SetDefault`,而 system 是在 `Start()` 里读这个全局值来构造自己的 logger 的。
+> 如果在 `Start()` **之后**才调 `InitLog`,你自己打的 slog 日志会切到新 handler,而框架
+> 的日志会静默地继续走旧的。要么在 `Start()` 之前调 `InitLog`,要么干脆不碰全局:
+> `grain.WithConfigLogger(grain.NewLogger("./game.log", slog.LevelInfo))`。
 
 > NAT 后面或做了容器端口映射的节点,`WithConfigGrpcListenAddr` 覆盖不了 —— 真正可达的
 > 地址进程自己看不到。单独的 advertise 地址目前还没有。

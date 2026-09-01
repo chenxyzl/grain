@@ -41,7 +41,7 @@ func newTestSystemTB(t testing.TB) *system {
 		pending:  safemap.NewIntC[uint64, chan proto.Message](),
 		addrHash: newAddrHash(),
 	}
-	sys.registry = newRegistry(sys.Logger())
+	sys.registry = newRegistry()
 	sys.clusterProvider = &fakeProvider{
 		nodes: []tNodeState{{NodeId: 1, Address: sys.addr, Kinds: []string{"player"}}},
 	}

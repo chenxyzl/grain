@@ -2,6 +2,7 @@ package grain
 
 import (
 	"fmt"
+	"log/slog"
 	"sync/atomic"
 	"time"
 
@@ -65,6 +66,9 @@ type config struct {
 	kinds              map[string]tKind
 	state              tNodeState
 	deadLetterHandler  DeadLetterHandler
+	//logger, when non-nil, is what the system derives all of its own loggers from
+	//instead of reading the slog default. See WithConfigLogger.
+	logger *slog.Logger
 }
 
 func newConfig(clusterName string, version string, clusterUrls []string, opts ...ConfigOptFunc) *config {

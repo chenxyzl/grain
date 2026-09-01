@@ -64,7 +64,15 @@ Passed to `NewSystem(clusterName, version, clusterUrls, opts...)`.
 | `WithConfigEtcdDialTimeout(d)` | `10s` | bounds the initial etcd connect and the lease revoke on shutdown |
 | `WithConfigGrpcDialOptions(...)` | insecure creds | **appends** dial options for outbound peer streams |
 | `WithConfigGrpcCallOptions(...)` | — | appends call options for outbound peer streams |
+| `WithConfigLogger(l)` | `slog.Default()`, read at `Start()` | the logger the system, the cluster provider and every actor derive from. Use it to avoid the ordering rule `InitLog` imposes — see below |
 | `WithConfigDeadLetter(h)` | log at WARN | handler for undeliverable messages (mailbox overflow, send to a stopped actor). Runs on the sender's goroutine — keep it fast |
+
+> ⚠️ **`InitLog` is order-sensitive; `WithConfigLogger` is not.** `InitLog` calls
+> `slog.SetDefault`, and the system reads that global when it builds its logger in
+> `Start()`. Call `InitLog` *after* `Start()` and your own slog lines move to the new
+> handler while the framework's silently keep going to the old one. Either call `InitLog`
+> before `Start()`, or skip the global entirely:
+> `grain.WithConfigLogger(grain.NewLogger("./game.log", slog.LevelInfo))`.
 
 > A node behind NAT or a container port mapping is not covered by
 > `WithConfigGrpcListenAddr`: the reachable address is not one the process can observe.

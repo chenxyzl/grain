@@ -30,7 +30,7 @@ type fakeSys struct {
 func newFakeSys() *fakeSys {
 	_ = uuid.Init(1) // reply-processor ids use the global uuid generator
 	return &fakeSys{
-		reg:     newRegistry(slog.Default()),
+		reg:     newRegistry(),
 		cfg:     &config{askTimeout: 5 * time.Second}, // empty Kinds => register/unregister no-op
 		logger:  slog.Default(),
 		pending: safemap.NewIntC[uint64, chan proto.Message](),
