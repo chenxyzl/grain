@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/chenxyzl/grain/uuid"
 	"go.etcd.io/etcd/api/v3/mvccpb"
@@ -17,9 +16,6 @@ import (
 )
 
 var _ iProvider = (*providerEtcd)(nil)
-
-const dialTimeoutTime = time.Second * 10
-const ttlTime = 10
 
 type providerEtcd struct {
 	//
@@ -127,7 +123,7 @@ func (x *providerEtcd) start(systemLife iSystemLife, clusterMemberChangedListene
 	x.clusterMemberChangedListener = clusterMemberChangedListener
 	x.config = config
 	//etcdClient
-	etcdClient, err := clientv3.New(clientv3.Config{Endpoints: config.getClusterUrls(), DialTimeout: dialTimeoutTime})
+	etcdClient, err := clientv3.New(clientv3.Config{Endpoints: config.getClusterUrls(), DialTimeout: config.etcdDialTimeout})
 	if err != nil {
 		return fmt.Errorf("cannot connect to etcd:%v|err:%v", config.getClusterUrls(), err)
 	}
@@ -135,7 +131,7 @@ func (x *providerEtcd) start(systemLife iSystemLife, clusterMemberChangedListene
 	// Every failure below used to return while leaving the client open, the lease
 	// alive, the keepalive goroutine running — and, once register() had run, this
 	// node's member key published in etcd. Peers would then route real traffic for up
-	// to ttlTime to a node that never finished starting. Revoking the lease also
+	// to the lease TTL to a node that never finished starting. Revoking the lease also
 	// deletes the member key, since it is written WithLease.
 	started := false
 	defer func() {
@@ -144,7 +140,7 @@ func (x *providerEtcd) start(systemLife iSystemLife, clusterMemberChangedListene
 		}
 	}()
 	//lease and keep alive
-	leaseResp, err := etcdClient.Grant(context.Background(), ttlTime)
+	leaseResp, err := etcdClient.Grant(context.Background(), x.config.etcdLeaseTTLSecond)
 	if err != nil {
 		return err
 	}
@@ -186,7 +182,7 @@ func (x *providerEtcd) releaseEtcd() {
 		x.cancelFunc = nil
 	}
 	if x.client != nil && x.leaseId != 0 {
-		ctx, cancel := context.WithTimeout(context.Background(), dialTimeoutTime)
+		ctx, cancel := context.WithTimeout(context.Background(), x.config.etcdDialTimeout)
 		defer cancel()
 		if _, err := x.client.Revoke(ctx, x.leaseId); err != nil {
 			x.Logger().Info("cluster provider etcd revoke lease err", "err", err)

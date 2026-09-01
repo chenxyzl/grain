@@ -91,7 +91,7 @@ func spawnProcessor(system ISystem, opts tOpts, orGet bool) (iProcess, error) {
 		p.receiver = p.producer()
 		p.receiver._init(p.self())
 		p.receiver._bindTurn(p)
-		p.rb.Push(newContext(p.self(), p.self(), initialize, system.nextSnId(), system.getSender()))
+		p.rb.Push(newContext(p.self(), p.self(), msgInitialize, system.nextSnId(), system.getSender()))
 		return p
 	}
 	if orGet {

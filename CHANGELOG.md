@@ -51,6 +51,18 @@ regression test that was verified to fail against the old code.
   Now an `atomic.LoadInt32`. The callback also re-checks before `t.Reset`, so a
   cancel racing with the callback no longer leaves the timer armed for one more
   interval after `Stop()`.
+- **Crash: `RpcService.Start()` immediately followed by `Stop()` killed the process.**
+  `Start` spawned a goroutine that read the `x.gs` *field* and called `Serve` on it,
+  while `Stop` set that same field to `nil`. A `Stop` landing before the goroutine was
+  scheduled made it call `Serve` on a nil `*grpc.Server` — a panic raised inside grpc,
+  on a goroutine nothing recovers. (It was also a plain data race on `x.gs`, and on
+  `Start`'s `err`, which the goroutine assigned.) The mirror case: a `Stop` landing just
+  *after* `Serve` began makes `Serve` return `grpc.ErrServerStopped`, which the
+  goroutine treated as fatal and panicked on.
+  - The server and the error are now captured in locals, and `ErrServerStopped` is
+    recognised as a clean shutdown.
+  - `TestStartThenImmediateStop` reproduces it (it crashes the test binary against the
+    old code).
 
 ### ⚠️ uuid epoch moved to 2025-01-01 UTC (BREAKING for persisted ids)
 `epoch` is the origin of the id's timestamp field, so re-basing it re-bases every id.
@@ -397,6 +409,22 @@ Done in one step rather than staged behind deprecations, by request.
   sites, and **impossible to call from outside the package** — the callback took
   `iProvider` and `*config`, both unexported, so no external closure could be written.
   Making them a real extension point requires exporting those types first.
+- **The shared framework message singletons are now `msgPoison` / `msgInitialize`**
+  (were `poison` / `initialize`). `poison` alone read exactly like `iProcess.poison()`,
+  the method that stops a process *without going through the mailbox at all* — so
+  `v.poison()` and `x.tell(ref, poison)` are two different mechanisms that shared a
+  name. Internal only; no exported symbol changed.
+- **The scheduled-message aliasing contract is now documented** on `IScheduler`,
+  `ScheduleOnce`/`ScheduleRepeated`, `ScheduleSelfOnce`/`ScheduleSelfRepeated` and both
+  READMEs. `ScheduleRepeated` delivers the *same* `proto.Message` instance on every
+  tick — no copy — so it is aliased between the caller, the timer goroutine and the
+  receiving actor for the life of the schedule: a field the handler writes is still set
+  on the next tick, and for a **remote** target a concurrent write races with
+  `proto.Marshal` on the write-stream goroutine. Documented rather than fixed, because a
+  copy per tick would allocate on every tick of every schedule; the safe patterns are a
+  fieldless trigger message, or `proto.Clone` before mutating.
+  `TestScheduleRepeatedDeliversTheSameInstance` pins the behaviour so a later "optimisation"
+  to per-tick cloning fails the test instead of silently staling the docs.
 
 
 ### ⚠️ Behavior changes
@@ -415,6 +443,14 @@ Done in one step rather than staged behind deprecations, by request.
 
   `x.Ask[proto.Message](...)` reproduces the old signature, but see the fix below
   before relying on it.
+- **Actor log lines change shape: `BaseActor.Logger()` now derives from the SYSTEM
+  logger** instead of `slog.Default()`, so every actor line also carries the
+  `system=<addr>` and `node=<id>` attributes the system logger was built with. Previously
+  an actor line carried only `actor=...`, which does not identify the node — a cluster
+  actor ref is the same string on whichever node currently holds the grain — so with
+  several nodes writing to one collector there was no way to tell them apart. Anything
+  parsing actor log lines positionally needs updating. Still built lazily on first use
+  and cached, so the cost profile is unchanged.
 
 ### 🐞 Correctness fixes
 - **`Ask` no longer reports a failure reply as success** (the headline fix).
@@ -446,6 +482,39 @@ Done in one step rather than staged behind deprecations, by request.
 ### ✨ Additions
 - **`safemap.RWMap.GetOrCreate(key, create)`** — check-and-insert under one write
   lock, returning the same value to all concurrent callers.
+- **`errors.Is` now works on `*message.ErrCode`.** Testing for a specific failure used
+  to mean `err.Code == int32(message.CodeActorNotFound)` — no unwrapping, and the
+  `int32` conversion leaked into every call site.
+  - `ErrCode.Is` matches by **code only**, ignoring `Des`, so
+    `errors.Is(err, message.CodeActorNotFound)` works and follows wrapping.
+  - `Code` itself is now an `error`, which is what makes it usable as the `errors.Is`
+    target. Exporting shared `*ErrCode` sentinels would have been the obvious
+    alternative, but `ErrCode` has exported fields and the mutation hazard above
+    applies; a `Code` is an immutable `int32`, the same reason `syscall.Errno` is a
+    value type.
+  - **`message.CodeOf(err) (Code, bool)`** pulls the code out of an error chain, for
+    switching over several codes at once.
+- **Three hardcoded constants are now config options**, with the old values as
+  defaults. Tuning any of them previously meant forking the framework.
+  - **`WithConfigGrpcListenAddr(addr)`** (was a literal `":0"` in
+    `remote/stream_server.go`). The address a node *advertises* is derived from it: an
+    explicit host is advertised as given — having asked to bind one NIC you do not want
+    peers pointed at whichever one `GetTopInnerIP` sorts highest — while a wildcard or
+    empty host keeps the old inner-IP substitution. Port `0` still works with an
+    explicit host; the kernel-assigned port is read back from the listener. Does **not**
+    cover NAT / container port mapping, where the reachable address is not one the
+    process can observe; that needs a separate advertise address, which does not exist
+    yet.
+  - **`WithConfigEtcdLeaseTTLSecond(n)`** (was `ttlTime = 10`) — the worst-case window
+    in which peers keep routing to a node that died without unregistering.
+  - **`WithConfigEtcdDialTimeout(d)`** (was `dialTimeoutTime = 10s`) — bounds the
+    initial etcd connect and the lease revoke on shutdown.
+  - Each rejects its degenerate value at config time with a panic that names the
+    option. A zero `DialTimeout` means "no timeout" to `clientv3`, so a wrong endpoint
+    would hang forever instead of failing; a zero TTL is rejected by etcd's `Grant`
+    with a message that never mentions the option.
+  - `remote.NewRpcServer` takes the listen address as a second argument
+    (`""` → `":0"`). Framework-internal; the only call site is `system.Start`.
 
 ### ⛔ `Ask` is now restricted to the actor's running phase
 **Behavior change — code that Asks from `Started()` or `PreStop()` starts failing.**

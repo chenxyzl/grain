@@ -38,6 +38,10 @@
 > "actor not found" are shared preallocated values, and `ErrCode` has exported
 > fields — writing to `err.Des` corrupts it for every later `Ask` in the process.
 > To add context, build a new `ErrCode` from `err.Code` / `err.Des`.
+>
+> To test for a specific failure, use `errors.Is(err, message.CodeActorNotFound)` —
+> matching is by code, so the description is ignored and wrapping is followed. To
+> branch over several codes, `switch code, _ := message.CodeOf(err); code`.
 
 > ⚠️ **`x.Ask` is only allowed while the actor is running** — from a normal handler.
 > From `Started()` or `PreStop()` it sends nothing and returns
@@ -46,6 +50,25 @@
 > incoming requests; in `PreStop()` blocking would re-enter the stop path. To Ask at
 > startup, self-`Tell` from `Started()` and Ask when handling that message. `Tell` is
 > unrestricted in every phase. See docs/reentrancy.md §九.
+
+# Config options
+Passed to `NewSystem(clusterName, version, clusterUrls, opts...)`.
+
+| option | default | what it controls |
+| --- | --- | --- |
+| `WithConfigKind(name, producer, opts...)` | — | registers a cluster actor kind |
+| `WithConfigAskTimeout(d)` | `3s` | how long a blocking `Ask` waits for its reply |
+| `WithConfigStopWaitTimeSecond(n)` | `3` | seconds to wait for actors to drain on shutdown |
+| `WithConfigGrpcListenAddr(addr)` | `":0"` | host:port the node's grpc server binds. Also decides what peers are told to dial: a specific host is advertised as given, a wildcard is advertised as the top inner IP (loopback if there is none). Default means kernel-assigned port, so two nodes can share a host |
+| `WithConfigEtcdLeaseTTLSecond(n)` | `10` | TTL of the lease this node's member key hangs off — the worst-case window in which peers keep routing to a node that died without unregistering |
+| `WithConfigEtcdDialTimeout(d)` | `10s` | bounds the initial etcd connect and the lease revoke on shutdown |
+| `WithConfigGrpcDialOptions(...)` | insecure creds | **appends** dial options for outbound peer streams |
+| `WithConfigGrpcCallOptions(...)` | — | appends call options for outbound peer streams |
+| `WithConfigDeadLetter(h)` | log at WARN | handler for undeliverable messages (mailbox overflow, send to a stopped actor). Runs on the sender's goroutine — keep it fast |
+
+> A node behind NAT or a container port mapping is not covered by
+> `WithConfigGrpcListenAddr`: the reachable address is not one the process can observe.
+> A separate advertise address does not exist yet.
 
 # Example:
 
@@ -245,6 +268,13 @@ $actor.ScheduleSelfRepeated(delay time.Duration, interval time.Duration, msg pro
 $system.GetScheduler().ScheduleRepeated($actorRef, `/*more params like above*/`)
 - cancel schedule  
 CancelScheduleFunc()
+
+> ⚠️ **The scheduled message is delivered as-is, never copied.** `ScheduleRepeated`
+> hands the target the *same* instance on every tick, and the caller keeps its own
+> reference — so a field your handler writes is still set on the next tick, and for a
+> **remote** target a concurrent write races with the marshal on the write-stream
+> goroutine. Either schedule a fieldless trigger and build the real message in the
+> handler, or `proto.Clone` before mutating.
 
 
 ## More examples

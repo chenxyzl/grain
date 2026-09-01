@@ -71,7 +71,7 @@ func TestAskErrCodeNotSwallowedByInterfaceT(t *testing.T) {
 // pushes the poison sentinel into every waiting reply channel so Ask returns
 // immediately instead of waiting out askTimeout.
 func TestAskPoisonReplyIsReturnedAsError(t *testing.T) {
-	_, p := newReplierProcessor(t, func() proto.Message { return poison })
+	_, p := newReplierProcessor(t, func() proto.Message { return msgPoison })
 
 	v, err := NoReentryAsk[*message.Unsubscribe](p.self(), &message.Subscribe{EventName: "x"})
 	if err == nil {

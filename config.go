@@ -14,6 +14,18 @@ type ConfigOptFunc func(*config)
 const (
 	defaultAskTimeout         = time.Second * 3
 	defaultStopWaitTimeSecond = 3
+	//defaultEtcdDialTimeout bounds the initial clientv3 connect and the lease Revoke
+	//on shutdown.
+	defaultEtcdDialTimeout = time.Second * 10
+	//defaultEtcdLeaseTTLSecond is the TTL of the etcd lease that this node's member
+	//key (and every event-stream subscription) hangs off. It is the worst-case window
+	//in which peers keep routing to a node that died without unregistering, so
+	//lowering it shortens misrouting after a crash at the cost of more keepalive
+	//traffic. etcd counts lease TTLs in whole seconds, hence the unit.
+	defaultEtcdLeaseTTLSecond = 10
+	//defaultGrpcListenAddr: every interface, kernel-assigned port. A fixed port is
+	//opt-in because two nodes on one host would otherwise fail to start.
+	defaultGrpcListenAddr = ":0"
 	//actor type
 	defaultActDirect  = "direct"
 	defaultActCluster = "cluster"
@@ -36,17 +48,23 @@ type tNodeState struct {
 }
 
 type config struct {
-	running              int32
-	clusterName          string
-	version              string
-	clusterUrls          []string
-	askTimeout           time.Duration
-	stopWaitTimeSecond   int
-	dialOptions          []grpc.DialOption
-	callOptions          []grpc.CallOption
-	kinds                map[string]tKind
-	state                tNodeState
-	deadLetterHandler    DeadLetterHandler
+	running            int32
+	clusterName        string
+	version            string
+	clusterUrls        []string
+	askTimeout         time.Duration
+	stopWaitTimeSecond int
+	//etcdDialTimeout / etcdLeaseTTLSecond / grpcListenAddr used to be file-level
+	//constants in provider_etcd.go and remote/stream_server.go, so tuning any of them
+	//meant forking the framework.
+	etcdDialTimeout    time.Duration
+	etcdLeaseTTLSecond int64
+	grpcListenAddr     string
+	dialOptions        []grpc.DialOption
+	callOptions        []grpc.CallOption
+	kinds              map[string]tKind
+	state              tNodeState
+	deadLetterHandler  DeadLetterHandler
 }
 
 func newConfig(clusterName string, version string, clusterUrls []string, opts ...ConfigOptFunc) *config {
@@ -56,6 +74,9 @@ func newConfig(clusterName string, version string, clusterUrls []string, opts ..
 		clusterUrls:        clusterUrls,
 		askTimeout:         defaultAskTimeout,
 		stopWaitTimeSecond: defaultStopWaitTimeSecond,
+		etcdDialTimeout:    defaultEtcdDialTimeout,
+		etcdLeaseTTLSecond: defaultEtcdLeaseTTLSecond,
+		grpcListenAddr:     defaultGrpcListenAddr,
 		kinds:              make(map[string]tKind),
 		dialOptions:        []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())},
 	}

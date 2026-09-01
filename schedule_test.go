@@ -4,6 +4,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/chenxyzl/grain/message"
+	"google.golang.org/protobuf/proto"
 )
 
 // TestStartTimerCancelIsRaceFree pins the fix for a data race at schedule.go:25:
@@ -53,4 +56,66 @@ func TestStartTimerCancelTwice(t *testing.T) {
 	cancel := startTimer(time.Hour, time.Hour, func() {})
 	cancel()
 	cancel() // must not panic
+}
+
+// collector records the identity of every message it receives, so a test can tell
+// "same instance again" from "a fresh copy".
+type collector struct {
+	BaseActor
+	got chan proto.Message
+}
+
+func (a *collector) Started() {}
+func (a *collector) PreStop() {}
+func (a *collector) Receive(ctx Context) {
+	if _, ok := ctx.Message().(*message.Subscribe); ok {
+		select {
+		case a.got <- ctx.Message():
+		default:
+		}
+	}
+}
+
+// TestScheduleRepeatedDeliversTheSameInstance pins the aliasing that IScheduler
+// documents: every tick hands the target the identical pointer, shared with the caller.
+// It is pinned rather than fixed because per-tick cloning would allocate on every tick of
+// every schedule — but it is exactly the kind of contract that gets "optimised" away
+// later, so if someone does introduce a copy this test fails and points at the docs that
+// must change with it.
+func TestScheduleRepeatedDeliversTheSameInstance(t *testing.T) {
+	sys := newFakeSys()
+	act := &collector{got: make(chan proto.Message, 8)}
+	p := newTestProcessor(sys, act, 8)
+	p.init()
+
+	msg := &message.Subscribe{EventName: "tick"}
+	cancel := newTimerSchedule(sys).sendRepeatedly(p.self(), time.Millisecond, 5*time.Millisecond, msg)
+	defer cancel()
+
+	for i := range 3 {
+		select {
+		case got := <-act.got:
+			// pointer identity, not proto.Equal: the point is that it is not a copy
+			if got != proto.Message(msg) {
+				t.Fatalf("tick %d delivered a different instance (%p) than the one scheduled (%p); "+
+					"if this is now a per-tick copy, IScheduler's aliasing warning is stale",
+					i, got, msg)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("only %d of 3 ticks arrived", i)
+		}
+	}
+
+	// And the consequence users have to know about: a field the handler (or the caller)
+	// writes is still set on the next tick, because there is nothing to reset it.
+	msg.EventName = "mutated by the handler"
+	select {
+	case got := <-act.got:
+		if got.(*message.Subscribe).EventName != "mutated by the handler" {
+			t.Errorf("a mutation must be visible on the next tick, got %q",
+				got.(*message.Subscribe).EventName)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no further tick arrived")
+	}
 }

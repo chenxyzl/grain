@@ -76,12 +76,25 @@ func (x *BaseActor) GetSystem() ISystem {
 	return x.system
 }
 
+// Logger returns a logger tagged with this actor's reference, derived from the SYSTEM
+// logger — so every actor line also carries the system address and node id the system
+// logger was built with (system_life.go). It used to derive from slog.Default(), which
+// left actor logs with no way to tell which node they came from once several nodes wrote
+// to the same collector; the actor ref alone does not say, since a cluster ref is the
+// same string on whichever node holds the grain.
+//
+// Output format changes accordingly: actor lines gain system=... node=... attributes.
 func (x *BaseActor) Logger() *slog.Logger {
 	x.mustInited()
 	if l := x.logger.Load(); l != nil {
 		return l
 	}
-	l := slog.With("actor", x.self)
+	// x.system.Logger() rather than slog.Default(): resolved on FIRST USE, which is
+	// after system.init() replaced the bootstrap logger with the one carrying
+	// system+node. (An actor spawned before Start() would fall back to the bootstrap
+	// slog.Default() — but such an actor has an empty address and is unroutable
+	// anyway.)
+	l := x.system.Logger().With("actor", x.self)
 	x.logger.Store(l)
 	return l
 }
@@ -109,15 +122,24 @@ func (x *BaseActor) Logger() *slog.Logger {
 // Returns the typed reply, or an *message.ErrCode on failure (called outside the
 // running phase, nil target, timeout, actor not found, remote error, reply type
 // mismatch, or shutdown while waiting). Runtime failures are returned, not
-// panicked.
+// panicked. Test for a specific cause with errors.Is against a message.Code —
+// errors.Is(err, message.CodeActorNotFound) — or switch on message.CodeOf(err).
 func (x *BaseActor) Ask[T proto.Message](target ActorRef, msg proto.Message) (T, *message.ErrCode) {
 	return askImpl[T](x.Self(), target, msg, x.turn)
 }
 
+// ScheduleSelfOnce Tells this actor msg after delay. msg is delivered as-is, so do not
+// mutate it in the meantime — see IScheduler.
 func (x *BaseActor) ScheduleSelfOnce(delay time.Duration, msg proto.Message) CancelScheduleFunc {
 	return x.GetSystem().GetScheduler().ScheduleOnce(x.Self(), delay, msg)
 }
 
+// ScheduleSelfRepeated Tells this actor msg after delay, then every interval until the
+// returned func is called.
+//
+// ⚠️ Every tick delivers the SAME msg instance, so a field this actor writes while
+// handling one tick is still set on the next. Schedule a fieldless trigger and build the
+// real message in the handler, or proto.Clone before mutating — see IScheduler.
 func (x *BaseActor) ScheduleSelfRepeated(delay time.Duration, interval time.Duration, msg proto.Message) CancelScheduleFunc {
 	return x.GetSystem().GetScheduler().ScheduleRepeated(x.Self(), delay, interval, msg)
 }

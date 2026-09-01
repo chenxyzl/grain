@@ -1,6 +1,7 @@
 package grain
 
 import (
+	"strconv"
 	"time"
 
 	"google.golang.org/grpc"
@@ -15,6 +16,62 @@ func WithConfigAskTimeout(d time.Duration) ConfigOptFunc {
 func WithConfigStopWaitTimeSecond(t int) ConfigOptFunc {
 	return func(config *config) {
 		config.stopWaitTimeSecond = t
+	}
+}
+
+// WithConfigEtcdDialTimeout bounds the initial etcd connect and the lease Revoke on
+// shutdown. Default 10s.
+//
+// It panics on a non-positive value: clientv3 treats a zero DialTimeout as "no
+// timeout", so a mistake here turns a wrong etcd endpoint from a startup error into an
+// indefinite hang, which is far harder to diagnose than a panic at config time.
+func WithConfigEtcdDialTimeout(d time.Duration) ConfigOptFunc {
+	return func(config *config) {
+		if d <= 0 {
+			panic("grain: WithConfigEtcdDialTimeout needs a positive duration, got " + d.String())
+		}
+		config.etcdDialTimeout = d
+	}
+}
+
+// WithConfigEtcdLeaseTTLSecond sets the TTL of the etcd lease this node's member key
+// and event-stream subscriptions hang off. Default 10s.
+//
+// It is the worst case window in which peers keep routing to a node that died without
+// unregistering: lower it to shorten misrouting after a crash, at the cost of more
+// keepalive traffic. The unit is seconds because that is what etcd's Grant takes.
+//
+// It panics on a non-positive value rather than letting etcd reject the Grant at
+// startup with a message that does not mention this option.
+func WithConfigEtcdLeaseTTLSecond(seconds int64) ConfigOptFunc {
+	return func(config *config) {
+		if seconds <= 0 {
+			panic("grain: WithConfigEtcdLeaseTTLSecond needs a positive number of seconds, got " +
+				strconv.FormatInt(seconds, 10))
+		}
+		config.etcdLeaseTTLSecond = seconds
+	}
+}
+
+// WithConfigGrpcListenAddr sets the host:port the node's grpc server binds. Default
+// ":0" — every interface, kernel-assigned port — because a fixed port would stop two
+// nodes on one host from both starting.
+//
+// The address a node ADVERTISES to its peers is derived from this: a specific host is
+// advertised as given, while a wildcard or empty host (":9000", "0.0.0.0:9000") is
+// advertised as the top inner IP, falling back to 127.0.0.1 when the machine has no
+// inner NIC. So binding one NIC also pins what peers dial. Port 0 stays usable with an
+// explicit host ("10.0.0.7:0"): the kernel-assigned port is read back from the listener.
+//
+// Not sufficient for a node behind NAT or a container port mapping, where the reachable
+// address is not one this process can see — that needs a separate advertise address,
+// which the framework does not have yet.
+func WithConfigGrpcListenAddr(addr string) ConfigOptFunc {
+	return func(config *config) {
+		if addr == "" {
+			panic(`grain: WithConfigGrpcListenAddr needs a host:port, got "" (use ":0" for the default)`)
+		}
+		config.grpcListenAddr = addr
 	}
 }
 

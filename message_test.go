@@ -1,9 +1,11 @@
 package grain
 
 import (
+	"errors"
 	"sync"
 	"testing"
 
+	"github.com/chenxyzl/grain/message"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -15,8 +17,8 @@ func TestConcurrentMarshalOfSharedSingletons(t *testing.T) {
 	for name, msg := range map[string]proto.Message{
 		"errActorNotFound": errActorNotFound,
 		"errAskNotRunning": errAskNotRunning,
-		"poison":           poison,
-		"initialize":       initialize,
+		"msgPoison":        msgPoison,
+		"msgInitialize":    msgInitialize,
 	} {
 		t.Run(name, func(t *testing.T) {
 			var wg sync.WaitGroup
@@ -53,4 +55,29 @@ func TestConcurrentReadOfSharedErrCode(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+// The two ErrCode values that escape into user code must be matchable by code through
+// errors.Is. Before ErrCode.Is existed, the only way to tell "actor not found" from
+// "timeout" was err.Code == int32(message.CodeActorNotFound), so this pins the
+// ergonomic contract as well as the codes themselves.
+func TestFrameworkSentinelsMatchTheirCodes(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		code message.Code
+	}{
+		{"errActorNotFound", errActorNotFound, message.CodeActorNotFound},
+		{"errAskNotRunning", errAskNotRunning, message.CodeAskNotRunning},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if !errors.Is(tc.err, tc.code) {
+				t.Errorf("errors.Is(%s, %v) = false, want true", tc.name, tc.code)
+			}
+			// and it must not match a code it is not
+			if errors.Is(tc.err, message.CodeErr) {
+				t.Errorf("%s must not match the generic CodeErr", tc.name)
+			}
+		})
+	}
 }

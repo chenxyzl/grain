@@ -21,12 +21,21 @@ type RpcService struct {
 	iRpcReceiver iRpcReceiver
 	//
 	logger *slog.Logger
-	addr   string
-	gs     *grpc.Server
+	//listenAddr is what Start() binds; addr is what peers are told to dial. They are
+	//deliberately not the same string — see Start().
+	listenAddr string
+	addr       string
+	gs         *grpc.Server
 }
 
-func NewRpcServer(iRpcReceiver iRpcReceiver) *RpcService {
-	return &RpcService{iRpcReceiver: iRpcReceiver}
+// NewRpcServer builds the node's inbound grpc server. listenAddr is the host:port to
+// bind; "" means ":0" — every interface, kernel-assigned port — which is what this used
+// to hardcode.
+func NewRpcServer(iRpcReceiver iRpcReceiver, listenAddr string) *RpcService {
+	if listenAddr == "" {
+		listenAddr = ":0"
+	}
+	return &RpcService{iRpcReceiver: iRpcReceiver, listenAddr: listenAddr}
 }
 
 func (x *RpcService) Listen(server Remoting_ListenServer) error {
@@ -69,34 +78,63 @@ func (x *RpcService) mustEmbedUnimplementedRemotingServer() {
 }
 
 func (x *RpcService) Start() error {
-	lis, err := net.Listen("tcp", ":0")
+	lis, err := net.Listen("tcp", x.listenAddr)
 	if err != nil {
-		return err
-	}
-	// advertise a reachable inner IP instead of the wildcard "[::]" the listener
-	// reports, otherwise other cluster nodes cannot dial this one. Fall back to
-	// loopback when no inner NIC exists (single-machine / container / CI), so the
-	// node still starts (only reachable locally, which is fine for that case).
-	host := "127.0.0.1"
-	if innerIP := gonet.GetTopInnerIP(); innerIP != nil {
-		host = innerIP.String()
+		return fmt.Errorf("grpc listen on %q err: %w", x.listenAddr, err)
 	}
 	_, port, err := net.SplitHostPort(lis.Addr().String())
 	if err != nil {
 		_ = lis.Close()
 		return fmt.Errorf("parse listen addr err: %w", err)
 	}
-	x.addr = net.JoinHostPort(host, port)
+	x.addr = net.JoinHostPort(x.advertiseHost(), port)
 	x.logger = slog.With("rpcService", x.addr)
-	x.gs = grpc.NewServer()
-	RegisterRemotingServer(x.gs, x)
+	// gs is captured in a LOCAL, and so is the goroutine's err. Reading x.gs (and
+	// assigning the outer err) from inside the goroutine was an unsynchronized access to
+	// a field Stop() writes: a Start immediately followed by Stop had the goroutine read
+	// x.gs *after* Stop set it to nil and call Serve on a nil *grpc.Server, which panics
+	// inside grpc on a goroutine nothing recovers — the whole process died. Pinned by
+	// TestStartThenImmediateStop.
+	gs := grpc.NewServer()
+	x.gs = gs
+	RegisterRemotingServer(gs, x)
 	go func() {
-		if err = x.gs.Serve(lis); err != nil && err != io.EOF {
+		// ErrServerStopped is the OTHER half of the same race: Stop() landing before
+		// Serve() makes Serve return it immediately, and panicking on a deliberate
+		// shutdown would be just as fatal.
+		if err := gs.Serve(lis); err != nil && !errors.Is(err, grpc.ErrServerStopped) && err != io.EOF {
 			panic(err)
 		}
 	}()
-	x.Logger().Info("RpcService Started ...")
+	x.Logger().Info("RpcService Started ...", "listen", x.listenAddr)
 	return nil
+}
+
+// advertiseHost picks the host other cluster nodes are told to dial.
+//
+// A bound wildcard cannot be advertised: the listener reports "[::]", which no peer can
+// connect to, so a reachable inner IP is substituted (falling back to loopback when the
+// machine has no inner NIC — single-machine / container / CI, where the node still
+// starts and is reachable locally, which is fine for that case).
+//
+// A host the caller named explicitly is advertised as given: having asked to bind one
+// NIC, they do not then want peers pointed at a different one that happens to sort
+// higher in GetTopInnerIP.
+//
+// Neither branch helps a node behind NAT or a container port mapping, where the
+// reachable address is not one this process can observe at all. That needs a separate
+// advertise-address option, which does not exist yet.
+func (x *RpcService) advertiseHost() string {
+	switch host, _, err := net.SplitHostPort(x.listenAddr); {
+	case err != nil:
+		// unreachable in practice: net.Listen already accepted this string.
+	case host != "" && host != "0.0.0.0" && host != "::":
+		return host
+	}
+	if innerIP := gonet.GetTopInnerIP(); innerIP != nil {
+		return innerIP.String()
+	}
+	return "127.0.0.1"
 }
 
 func (x *RpcService) Stop() error {

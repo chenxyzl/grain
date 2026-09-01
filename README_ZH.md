@@ -34,6 +34,10 @@
 > ⚠️ **不要修改返回的 `*message.ErrCode`。** 「actor not found」这类框架错误是共享的
 > 预分配值,而 `ErrCode` 的字段是导出的 —— 写 `err.Des` 会污染全进程后续所有 `Ask`。
 > 需要补充上下文请用 `err.Code` / `err.Des` 新建一个 `ErrCode`。
+>
+> 判断具体是哪种失败用 `errors.Is(err, message.CodeActorNotFound)` —— 只比较 code,
+> 忽略描述文字,并且能穿透 wrap。要按多个 code 分支则用
+> `switch code, _ := message.CodeOf(err); code`。
 
 > ⚠️ **`x.Ask` 只允许在 actor「运行中」时调用** —— 即普通 handler 里。在 `Started()`
 > 或 `PreStop()` 里调用会什么都不发送、立即返回 `message.CodeAskNotRunning` 错误。
@@ -41,6 +45,24 @@
 > 回应任何进来的请求;`PreStop()` 里阻塞会重入停止流程。若想启动即发起 Ask,请在
 > `Started()` 里自投递一条消息,在处理该消息时再 Ask。`Tell` 在所有阶段都不受限制。
 > 详见 docs/reentrancy.md §九。
+
+# 配置项
+传给 `NewSystem(clusterName, version, clusterUrls, opts...)`。
+
+| 配置项 | 默认值 | 作用 |
+| --- | --- | --- |
+| `WithConfigKind(name, producer, opts...)` | — | 注册一个集群 actor kind |
+| `WithConfigAskTimeout(d)` | `3s` | 阻塞式 `Ask` 等待应答的时长 |
+| `WithConfigStopWaitTimeSecond(n)` | `3` | 关停时等待 actor 排空的秒数 |
+| `WithConfigGrpcListenAddr(addr)` | `":0"` | 本节点 grpc 监听的 host:port。同时决定对端来连的地址: 显式指定的 host 原样对外公布,通配则公布首个内网 IP(没有内网网卡时回落到回环)。默认值表示端口由内核分配,因此同机可以起多个节点 |
+| `WithConfigEtcdLeaseTTLSecond(n)` | `10` | 本节点 member key 所挂 lease 的 TTL —— 即节点崩溃(来不及注销)后对端仍会往这里路由的最坏时间窗 |
+| `WithConfigEtcdDialTimeout(d)` | `10s` | etcd 首次连接、以及关停时 revoke lease 的超时 |
+| `WithConfigGrpcDialOptions(...)` | insecure creds | **追加**对外 peer 流的 dial 选项 |
+| `WithConfigGrpcCallOptions(...)` | — | 追加对外 peer 流的 call 选项 |
+| `WithConfigDeadLetter(h)` | WARN 日志 | 无法投递消息(mailbox 溢出、发给已停止的 actor)的处理器。跑在发送方 goroutine 上,必须快 |
+
+> NAT 后面或做了容器端口映射的节点,`WithConfigGrpcListenAddr` 覆盖不了 —— 真正可达的
+> 地址进程自己看不到。单独的 advertise 地址目前还没有。
 
 # 例子:
 
@@ -239,6 +261,12 @@ $actor.ScheduleSelfRepeated(delay time.Duration, interval time.Duration, msg pro
 $system.GetScheduler().ScheduleRepeated($actorRef, `/*more params like above*/`)
 - 取消延时调用
 CancelScheduleFunc()
+
+> ⚠️ **调度的消息是原样投递的,框架不会复制。** `ScheduleRepeated` 每次 tick 交给目标的
+> 都是**同一个**实例,调用方自己也还持有它 —— 所以 handler 里写进去的字段下一个 tick
+> 依然在;若目标是**远端** actor,并发写还会和 write-stream goroutine 上的 marshal
+> 形成 data race。要么调度一个无字段的触发消息、在 handler 里再构造真正的消息,要么
+> 修改前先 `proto.Clone`。
 
 
 ## 更多例子

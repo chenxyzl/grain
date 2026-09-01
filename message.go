@@ -10,12 +10,12 @@ import (
 // versus 36ns/64B for constructing one, and given how often the framework needs them,
 // preallocating is the right call.
 //
-// ⚠️ NONE of them may be mutated. That is not merely style: initialize and poison are
-// fieldless so there is nothing to write, but *message.ErrCode is a generated struct
-// with EXPORTED Code and Des fields, and both error values escape all the way into
-// user code — errActorNotFound is Tell'd to the asking actor and comes back out of
-// Ask, errAskNotRunning is returned by Ask directly. So a caller doing the natural
-// thing:
+// ⚠️ NONE of them may be mutated. That is not merely style: msgInitialize and
+// msgPoison are fieldless so there is nothing to write, but *message.ErrCode is a
+// generated struct with EXPORTED Code and Des fields, and both error values escape all
+// the way into user code — errActorNotFound is Tell'd to the asking actor and comes
+// back out of Ask, errAskNotRunning is returned by Ask directly. So a caller doing the
+// natural thing:
 //
 //	reply, err := x.Ask[*pb.Reply](ref, req)
 //	if err != nil {
@@ -29,8 +29,13 @@ import (
 //
 // If you need to add context, build your own ErrCode from err.Code / err.Des.
 var (
-	initialize = &message.Initialize{}
-	poison     = &message.Poison{}
+	// msgInitialize / msgPoison carry the `msg` prefix on purpose: `poison` alone read
+	// exactly like iProcess.poison(), the method that stops a process without going
+	// through the mailbox at all. One is a control signal, the other a message — at the
+	// call site `v.poison()` and `x.tell(ref, poison)` are two different mechanisms, and
+	// sharing a name hid that.
+	msgInitialize = &message.Initialize{}
+	msgPoison     = &message.Poison{}
 
 	// errActorNotFound is replied to an Ask whose target actor does not exist.
 	errActorNotFound = message.WithErrCode(message.CodeActorNotFound, "actor not found")

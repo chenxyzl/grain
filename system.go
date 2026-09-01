@@ -235,7 +235,7 @@ func (x *system) Poison(ref ActorRef) {
 		proc.poison()
 		return
 	}
-	x.tell(ref, poison)
+	x.tell(ref, msgPoison)
 }
 
 // registerAsk allocates a correlation channel for an in-flight Ask and stores it

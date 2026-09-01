@@ -59,6 +59,8 @@ func newTimerSchedule(sender iSender) *timerSchedule {
 	return s
 }
 
+// sendOnce tells message to target once, after delay. message is captured by the
+// closure and delivered as-is; the caller still holds it in the meantime.
 func (s *timerSchedule) sendOnce(target ActorRef, delay time.Duration, message proto.Message) CancelScheduleFunc {
 	t := time.AfterFunc(delay, func() {
 		s.sender.tell(target, message)
@@ -67,6 +69,18 @@ func (s *timerSchedule) sendOnce(target ActorRef, delay time.Duration, message p
 	return func() { t.Stop() }
 }
 
+// sendRepeatedly tells message to target every interval, starting after initial.
+//
+// The closure captures ONE message pointer and hands that same pointer to tell() on
+// every tick — no copy is made. So the instance is aliased three ways for the life of
+// the schedule: the caller that supplied it, this timer goroutine, and the receiving
+// actor (or, for a remote target, the write-stream actor that marshals it). Writing to it
+// from any of them is visible to the others; concurrently with a remote marshal it is a
+// data race. IScheduler documents this and the two safe patterns.
+//
+// Cloning per tick would remove the hazard but cost an allocation on every tick of every
+// schedule, and would silently break anyone deliberately reusing the instance — so the
+// contract is documented rather than enforced.
 func (s *timerSchedule) sendRepeatedly(target ActorRef, initial, interval time.Duration, message proto.Message) CancelScheduleFunc {
 	return startTimer(initial, interval, func() {
 		s.sender.tell(target, message)

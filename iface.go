@@ -111,6 +111,30 @@ type CancelScheduleFunc func()
 // IScheduler schedules delayed and repeated message deliveries. Exported because
 // ISystem.GetScheduler returns it — an exported method must not return an unexported
 // type, or callers cannot declare a variable, write a helper, or mock it.
+//
+// ⚠️ The msg pointer is DELIVERED AS-IS, never copied. Treat it as immutable — owned by
+// the scheduler — from the moment it is handed over:
+//
+//   - ScheduleRepeated delivers the SAME instance on every tick, so the target actor and
+//     the timer goroutine both hold it for the schedule's whole life. A field the handler
+//     writes is still there on the next tick, which makes ticks stateful in a way nothing
+//     at the call site suggests.
+//   - The caller keeps its own reference too, so mutating msg after the call changes what
+//     the next tick delivers, from a goroutine the actor knows nothing about.
+//   - For a REMOTE target this is a genuine data race, not just surprising aliasing: the
+//     write-stream actor marshals msg on its own goroutine, concurrently with any handler
+//     or caller writing to it. proto.Marshal on a struct being mutated can emit torn
+//     bytes.
+//
+// Nothing here is enforced, because a copy per tick would cost an allocation on a path
+// that exists precisely to be cheap. The two safe patterns:
+//
+//	// 1. schedule a fieldless trigger and build the real message in the handler
+//	x.ScheduleSelfRepeated(0, time.Minute, &pb.Tick{})
+//
+//	// 2. if the handler must mutate, clone first
+//	m := proto.Clone(ctx.Message()).(*pb.Save)
+//	m.At = timestamppb.Now()
 type IScheduler interface {
 	ScheduleOnce(target ActorRef, delay time.Duration, msg proto.Message) CancelScheduleFunc
 	ScheduleRepeated(target ActorRef, delay time.Duration, interval time.Duration, msg proto.Message) CancelScheduleFunc

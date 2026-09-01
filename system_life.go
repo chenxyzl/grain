@@ -15,7 +15,7 @@ import (
 
 func (x *system) Start() {
 	//start grpc_server
-	x.rpcService = remote.NewRpcServer(x.RecvEnvelope)
+	x.rpcService = remote.NewRpcServer(x.RecvEnvelope, x.config.grpcListenAddr)
 	//start grpc
 	if err := x.rpcService.Start(); err != nil {
 		panic(errors.Join(err, errors.New("grpc server start failed")))
@@ -132,7 +132,7 @@ func (x *system) stopActors() {
 func (x *system) wakePendingAsks() {
 	x.pending.IterCb(func(_ uint64, ch chan proto.Message) {
 		select {
-		case ch <- poison:
+		case ch <- msgPoison:
 		default:
 		}
 	})

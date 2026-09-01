@@ -14,7 +14,9 @@ import (
 // actor handler (use BaseActor.Ask[T] there, which is reentrant). It is the entry
 // point for non-actor code: main, tests, http handlers.
 //
-// A nil *message.ErrCode means success.
+// A nil *message.ErrCode means success. On failure, match the cause with errors.Is
+// against a message.Code — errors.Is(err, message.CodeActorNotFound) — or switch on
+// message.CodeOf(err).
 func NoReentryAsk[T proto.Message](target ActorRef, req proto.Message) (T, *message.ErrCode) {
 	return askImpl[T](nil, target, req, nil)
 }

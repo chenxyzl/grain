@@ -1,6 +1,7 @@
 package grain
 
 import (
+	"errors"
 	"log/slog"
 	"sync/atomic"
 	"testing"
@@ -93,7 +94,7 @@ func newTestProcessor(sys *fakeSys, r IActor, mailbox int) *processorMailBox {
 	p.receiver._bindTurn(p)
 	// mirror build(): enqueue initialize so Started() runs (started=true) and
 	// PreStop pairs correctly on stop.
-	p.rb.Push(newContext(self, self, initialize, sys.nextSnId(), nil))
+	p.rb.Push(newContext(self, self, msgInitialize, sys.nextSnId(), nil))
 	sys.reg.lookup.Set(self.GetId(), p)
 	return p
 }
@@ -353,7 +354,7 @@ func TestRemotePoisonWaitsInflight(t *testing.T) {
 	<-act.blockedAt
 
 	// Deliver Poison as a normal message (remote path) while the handler is blocked.
-	p.send(newContext(p.self(), nil, poison, sys.nextSnId(), nil))
+	p.send(newContext(p.self(), nil, msgPoison, sys.nextSnId(), nil))
 
 	time.Sleep(100 * time.Millisecond)
 	if act.stopped.Load() {
@@ -468,7 +469,7 @@ func TestWakePendingAsks(t *testing.T) {
 	// simulate shutdown wakeup
 	sys.pending.IterCb(func(_ uint64, c chan proto.Message) {
 		select {
-		case c <- poison:
+		case c <- msgPoison:
 		default:
 		}
 	})
@@ -550,7 +551,7 @@ func TestAskFromStartedIsRejected(t *testing.T) {
 		if err == nil {
 			t.Fatal("an Ask from Started() must be rejected, but it succeeded")
 		}
-		if err.Code != int32(message.CodeAskNotRunning) {
+		if !errors.Is(err, message.CodeAskNotRunning) {
 			t.Errorf("want CodeAskNotRunning (%d), got code %d: %q",
 				message.CodeAskNotRunning, err.Code, err.Des)
 		}
@@ -615,7 +616,7 @@ func TestAskFromPreStopIsRejected(t *testing.T) {
 		if err == nil {
 			t.Fatal("an Ask from PreStop() must be rejected, but it succeeded")
 		}
-		if err.Code != int32(message.CodeAskNotRunning) {
+		if !errors.Is(err, message.CodeAskNotRunning) {
 			t.Errorf("want CodeAskNotRunning (%d), got code %d: %q",
 				message.CodeAskNotRunning, err.Code, err.Des)
 		}
