@@ -306,6 +306,46 @@ test verified to fail against the old code.
   "node ids 1..1023 are all taken" and the real cause appeared nowhere.
 
 ### ⚡ Performance
+- **Rendezvous hashing gained murmur3's `fmix32` finalizer, evening out grain ownership.**
+  Rendezvous hashing takes the ARGMAX over per-candidate scores, so it needs well-mixed high
+  bits — and FNV-1a's last step is only `h ^= c; h *= prime`, which leaves the top bits weakly
+  avalanched and correlated across inputs sharing a prefix. Every candidate shares the same
+  `name` and differs only in the address appended after it, i.e. the worst case. Deviation
+  from an even share over 1M keys:
+
+  | nodes | fnv32a alone | + fmix32 |
+  | --- | --- | --- |
+  | 10 | +11.2% / −16.5% | +0.3% / −0.4% |
+  | 50 | +14.6% / −8.9% | +1.3% / −2.0% |
+  | 200 | +23.1% / −15.3% | +3.9% / −3.9% |
+
+  fmix32 is also a bijection, so it relabels scores without merging any — it cannot add ties to
+  the argmax (verified collision-free over 2^22 inputs).
+  - **BREAKING for a live cluster:** this changes which node owns which key, so nodes running
+    with and without it disagree about every owner. It cannot be rolled out node-by-node.
+    Landed pre-release, with nothing live to coordinate with.
+  - `TestOwnershipIsEvenlySpread` pins the distribution. It deliberately uses few nodes: spread
+    has to be measured with many keys PER node or sampling noise swamps it (at 200 nodes / 200k
+    keys each node gets ~1000 keys, so ~3% is pure noise and says nothing about the hash).
+  - `TestFmix32MatchesMurmur3` pins the constants and shifts against a published vector
+    (`MurmurHash3_x86_32("", seed=1)` = `0x514E28B7`, which for an empty key reduces to
+    `fmix32(1)`). Necessary because a typo'd constant is otherwise invisible — it still looks
+    random and still distributes evenly, so the spread test passes; it just silently assigns
+    every key differently from every other build. Checked: with `0x85ebca6b` mistyped, the
+    spread test does pass and only the vector test fails.
+- **`CalcAddrByKind8Name` hashes the name once instead of per candidate: 551 → 325 ns/op**
+  over 20 candidates (5784 → 3232 at 200), still zero-alloc — so routing is ~40% faster than
+  before `fmix32` was added, not just even. FNV-1a is a streaming hash whose state is the
+  accumulator, so `fnv32aAdd(fnv32aStart(name), addr)` is bit-identical to
+  `fnv32aTwo(name, addr)`; the score, and therefore every key's owner, is unchanged. That
+  identity is what `TestCalcAddrMatchesReferenceImplementation` already checks, comparing
+  against a naive `hash/fnv` implementation over 8 node-set shapes × 2000 names.
+- **A member entry with an empty `Address` is no longer selectable.** `parseWatch` rejects
+  values that fail to parse as JSON, not ones that parse to an empty `Address`, so a corrupted
+  or legacy entry could win the rendezvous for ~1/N of keys and be returned as the owner — and
+  every caller reads `""` as "this kind is hosted nowhere", silently dropping those messages.
+  Skipping it also stops `maxAddr == ""` meaning two things at once ("nothing chosen yet" vs
+  "chose a node with an empty address"), which is what makes a legitimate score of 0 selectable.
 - **Node-id registration: from N etcd round-trips per node to one Txn, and the member set is
   loaded before the node publishes itself.** `register()` walked `id = 1, 2, 3 ...` issuing a
   create-only Txn per candidate, so the Nth node to join paid N round-trips — bringing up 200

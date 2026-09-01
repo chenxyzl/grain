@@ -38,6 +38,26 @@
 
   13. WithConfigLogger + NewLogger（详见 CHANGELOG）。
 
+  6. addr_hash 加了 murmur3 的 fmix32 终结器。rendezvous 取 argmax，所以需要高位混得开，
+     而 FNV-1a 最后一步只有 `h ^= c; h *= prime`，高位雪崩弱、且对共享前缀的输入相关 ——
+     这里所有候选共享同一个 name、只有后面的地址不同，正是最坏情况。
+     1M key 偏离均值：10 节点 ±11/16% → ±0.3/0.4%；50 节点 → ±1.3/2.0%；200 节点 → ±3.9%。
+     代价约 3%（BenchmarkCalcAddr 537 → 551 ns/op，仍 0 alloc）。
+     ⚠️ 改了 key→owner 映射，不能灰度 —— 两种版本混跑会对每个 key 的 owner 都不一致。趁上线前做掉。
+     TestOwnershipIsEvenlySpread 钉住分布；节点数故意取小，因为每节点 key 数太少时采样噪声会盖掉信号
+     （200 节点 / 20 万 key 每节点只有 1000 个，±3% 纯属噪声）。
+     TestFmix32MatchesMurmur3 钉常数和位移（对照公开向量 MurmurHash3_x86_32("",seed=1)=0x514E28B7）——
+     常数打错的话输出照样"看起来随机"、分布照样均匀，分布测试根本抓不到，只会静默地把 key 全换个 owner。
+     顺带 review 出两处（同属 addr_hash 内部）：
+     (a) name 的 hash 原来每个候选都重算一遍。FNV-1a 是流式的，所以
+         fnv32aAdd(fnv32aStart(name), addr) 与 fnv32aTwo(name, addr) **位级相同**，
+         提到循环外：551 → 325 ns/op（200 节点 5784 → 3232），owner 映射不变。
+         位级相同这点本来就被 TestCalcAddrMatchesReferenceImplementation 盯着（对照 hash/fnv 的朴素实现，
+         8 种节点集形态 × 2000 个 name）。
+     (b) Address 为空的成员不再参与选举。parseWatch 只丢 JSON 解析失败的值，不丢解析出空 Address 的，
+         这种条目原来会赢下 ~1/N 的 key 并被当成 owner 返回，而调用方把 "" 读成"这个 kind 没人承载"
+         → 静默丢消息。跳过它也让 maxAddr=="" 只剩一个含义（还没选过），score 为 0 才能正常胜出。
+
   14 的保护. 「不会乒乓」这个不变量原来没有任何测试/注释守着，现在由
      TestForwardingCannotLoop（2 万次随机成员视图穷举）+ TestScoreIsIndependentOfTheMemberView 守着。
      注意测试守的是**选择结果**而非原始 score：注入的视图依赖只有大到能改变 argmax 才会成环，
@@ -50,6 +70,17 @@
      ⇒ 单次 (N-1) 秒，而它被调用两次(first/latter)。另：draining 只拦
      ensureClusterKindActorExist 的按需激活，不拦发给已存在 actor 的消息，所以这 4 秒里消息
      照常投递进正在停止的 mailbox → 丢弃/dead letter。
+
+  7. Envelope 池化 —— **grpc 明确禁止,不能做**。grpc@v1.82.1/stream.go 里
+     ClientStream.SendMsg 的契约原文:"It is not safe to modify the message after calling
+     SendMsg. Tracing libraries and stats handlers may use the message lazily."
+     复用 Envelope 就是在下一条消息里改它;MarshalAppend 复用 buffer 也一样,因为
+     Envelope.Content 指向那个 buffer。只要可能有 stats handler 还在读上一条消息就不安全 ——
+     而 WithConfigGrpcDialOptions 允许用户装任意 handler,框架无法保证"我们不用 stats handler"。
+     alloc 数据留档（供以后 grpc 契约变化时重新评估）:
+       remote Tell (sender nil)      166 ns/op  2 allocs  168 B —— Marshal content 24B + Envelope 结构体 144B
+       remote Ask  (replyRef sender) 263 ns/op  4 allocs  232 B —— 多出 replyRef.GetId() 的 FormatUint + 五段拼接
+     string(proto.MessageName(msg)) 是 0 alloc（FullName 本身就是 string）。
 
   9. 保持 slog，不换库。代码侧已确认没有"过滤前就求值参数"的调用点拖累它
      （5 处 ghelper.StackTrace() 全在 Error 级 panic 恢复路径上，Error 基本不会被过滤）。
@@ -68,30 +99,22 @@
      前置条件成立：rb.Len() 确实要拿 mutex（ringbuffer.go:120-123），而 idle/running 的重新武装
      （process():268）和 doStop():311 都靠它。11.3% CPU 这个数字我没复现。
 
-  4. Ask future 池化（−3 allocs / −176B / −150ns）。核对补充：回收条件的推理是对的，而且比原文更具体 ——
-     cancelAsk 现在调的是 Remove（system.go），**没有返回值，压根无法知道是不是自己赢的**，
-     池化前必须先改成 Pop。
+  4. Ask future 池化。试做过一版（7→5 allocs / 353→225 B / 1357→1259 ns/op），本次回退了，
+     但结论留下：
+     (a) cancelAsk 现在调的是 Remove（system.go），**没有返回值、压根无法知道是不是自己赢的**，
+         池化前必须先改成 Pop —— 这一点原文说对了；
+     (b) **但光有这条不够**：sender 有两个，deliverReply 会 Pop，而 wakePendingAsks 只发不 Pop。
+         不变量必须是「所有 sender 发送前都先 Pop」才成立，所以 wakePendingAsks 也得改成
+         collect-then-Pop（不能在 IterCb 里 Pop：IterCb 持分片读锁而 Pop 要同一分片写锁 → 死锁）；
+     (c) 有了独占性，回收点只有两处：awaitReply **收到值**时（常见路径，池化的收益全在这里）、
+         cancelAsk **自己 Pop 成功**时。reply 与 timeout 打平时两者都不成立，channel 交给 GC。
+     写错的形态很危险：一个 Ask 会拿到别人的回复。做的时候必须配一个"每个 Ask 校验拿到的是
+     自己的回声"的并发测试 —— 我验证过，对"timeout 分支也回收"这种写法它会立刻报出
+     `Ask for "w7/4" got a reply for "w6/4"`。
 
   5. turn 改为每批 drain 收放一次（−35ns/消息）。turn 确实每消息 acquire/release
      （processor_mailbox.go 的 run 循环）。漏掉的风险：doStop 也拿 turn，
      yieldTurn/resumeTurn 的 handoff 协议假定"每消息持有"，批量化要连协议一起改，不只是挪两行。
-
-  6. addr_hash 负载不均。a203a96 只是把 hash/fnv 内联，算法仍是 fnv32a，测量未过期。
-     1M key 实测偏离均值：
-       10 节点 +11.2%/-16.5% → 加 fmix32 后 +0.3%/-0.4%
-       50 节点 +14.6%/-8.9%  → 加 fmix32 后 +1.3%/-2.0%
-      200 节点 +23.1%/-15.3% → 加 fmix32 后 +3.9%/-3.9%
-     即：不均随节点数变差（200 节点 max/min 差 45%）；原文的 "<1%" 只在 ~10 节点成立，200 节点约 ±4%。
-     "改 key→owner 映射、需全集群协调重启" 无误。另：addr_hash.go 的
-     TestCalcAddrMatchesReferenceImplementation 钉死了与 hash/fnv.New32a 位级一致，改 hash 要同步改它。
-
-  7. 远端发送 allocs。**不是 3，分两种路径**（复刻 stream_write.go 的表达式、用接口调用强制
-     Envelope 逃逸，与交给 grpc Send 一致）：
-       remote Tell (sender nil)      166 ns/op  2 allocs  168 B —— Marshal content 24B + Envelope 结构体 144B
-       remote Ask  (replyRef sender) 263 ns/op  4 allocs  232 B —— 多出 replyRef.GetId() 的 FormatUint + 五段拼接
-     string(proto.MessageName(msg)) 是 0 alloc（FullName 本身就是 string）。
-     Envelope 结构体 144B 比 payload 还大，是这条路径最大的一块。
-     复用 Envelope 前须确认 grpc stream.Send 返回后不再持有它；MarshalAppend 需配 per-actor buffer。
 
   设计 / 运维
   14. Envelope 仍然没有 hop/TTL 字段。目前靠上面那个单调性不变量兜底，已加测试。

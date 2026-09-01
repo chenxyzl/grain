@@ -31,7 +31,7 @@ func calcAddrReference(clusterNodes []tNodeState, kind string, name string) stri
 		h := fnv.New32a()
 		_, _ = h.Write(keyBytes)
 		_, _ = h.Write([]byte(node.Address))
-		score := h.Sum32()
+		score := fmix32(h.Sum32())
 		if score > maxScore || (score == maxScore && (maxAddr == "" || node.Address < maxAddr)) {
 			maxScore = score
 			maxAddr = node.Address
@@ -264,10 +264,11 @@ func TestScoreIsIndependentOfTheMemberView(t *testing.T) {
 	other := tNodeState{Address: "10.0.0.1:5001", Kinds: []string{kind}}
 	third := tNodeState{Address: "10.0.0.2:5002", Kinds: []string{kind}}
 
-	// fnv32aTwo IS the score; assert it does not see the view at all by checking that the
-	// winner among a subset is unchanged by adding lower-scoring peers.
+	// score(name, addr) sees only those two things; assert that by checking it is unchanged
+	// as peers are added to the view, and that the selection still equals the max score.
+	score := func(name, addr string) uint32 { return fmix32(fnv32aTwo(name, addr)) }
 	for _, name := range []string{"a", "player/1", "player/999999", "zzz"} {
-		want := fnv32aTwo(name, target.Address)
+		want := score(name, target.Address)
 		for _, view := range [][]tNodeState{
 			{target},
 			{target, other},
@@ -275,7 +276,7 @@ func TestScoreIsIndependentOfTheMemberView(t *testing.T) {
 			{other, target, third},
 			{third, other, target},
 		} {
-			if got := fnv32aTwo(name, target.Address); got != want {
+			if got := score(name, target.Address); got != want {
 				t.Fatalf("score for %q@%s changed with the view: %d != %d",
 					name, target.Address, got, want)
 			}
@@ -285,7 +286,7 @@ func TestScoreIsIndependentOfTheMemberView(t *testing.T) {
 			var bestAddr string
 			var bestScore uint32
 			for _, n := range view {
-				if s := fnv32aTwo(name, n.Address); s > bestScore ||
+				if s := score(name, n.Address); s > bestScore ||
 					(s == bestScore && (bestAddr == "" || n.Address < bestAddr)) {
 					bestScore, bestAddr = s, n.Address
 				}
@@ -295,5 +296,97 @@ func TestScoreIsIndependentOfTheMemberView(t *testing.T) {
 					owner, bestAddr, name)
 			}
 		}
+	}
+}
+
+// TestOwnershipIsEvenlySpread is the property fmix32 buys: rendezvous hashing takes the
+// argmax over per-candidate scores, and FNV-1a alone leaves its high bits weakly avalanched
+// and correlated across inputs sharing a prefix — which every candidate here does, since they
+// differ only in the address appended after the same name. The result was a measurable pile-up
+// on some nodes (worst node +11% / -16% at 10 nodes).
+//
+// Node count is deliberately small. Spread has to be measured with many keys PER NODE or
+// sampling noise swamps the signal: at 200 nodes and 200k keys each node gets ~1000 keys, so
+// ~3% is pure noise and the number says nothing about the hash. 10 nodes gives 20k keys each.
+func TestOwnershipIsEvenlySpread(t *testing.T) {
+	const (
+		nodeCount = 10
+		keys      = 200000
+		// With fmix32 this configuration measures 0.31%; without it, 4.3%. (The gap is
+		// wider still with scattered addresses — 16.5% was measured over a random /16 —
+		// but these fixed addresses keep the test deterministic.) The bound sits an order
+		// of magnitude above the good case and well below the bad one.
+		maxDeviationPct = 3.0
+	)
+	nodes := make([]tNodeState, nodeCount)
+	for i := range nodes {
+		nodes[i] = tNodeState{
+			NodeId:  uint64(i + 1),
+			Address: "10.10.0." + strconv.Itoa(i) + ":" + strconv.Itoa(50000+i),
+			Kinds:   []string{"player"},
+		}
+	}
+
+	hash := newAddrHash()
+	count := make(map[string]int, nodeCount)
+	for k := range keys {
+		count[hash.CalcAddrByKind8Name(nodes, "player", "player/"+strconv.Itoa(k))]++
+	}
+
+	mean := float64(keys) / float64(nodeCount)
+	worst := 0.0
+	for _, n := range nodes {
+		dev := (float64(count[n.Address])/mean - 1) * 100
+		if dev < 0 {
+			dev = -dev
+		}
+		if dev > worst {
+			worst = dev
+		}
+		if dev > maxDeviationPct {
+			t.Errorf("node %s holds %d keys, %.1f%% off an even share of %.0f — ownership is "+
+				"skewed, which means the score's high bits are not avalanching (is fmix32 "+
+				"still applied?)", n.Address, count[n.Address], dev, mean)
+		}
+	}
+	t.Logf("%d nodes / %d keys: worst node is %.2f%% off an even share", nodeCount, keys, worst)
+}
+
+// TestFmix32MatchesMurmur3 pins the finalizer's constants and shift amounts against a
+// published murmur3 vector: MurmurHash3_x86_32("", seed=1) is 0x514E28B7, and for an empty key
+// that reduces to fmix32(seed ^ len) == fmix32(1).
+//
+// Worth pinning because a typo'd constant is invisible otherwise — the output would still look
+// random and still distribute evenly, so TestOwnershipIsEvenlySpread would pass. It would just
+// assign every key to a different node than any other build, i.e. re-shard the cluster.
+func TestFmix32MatchesMurmur3(t *testing.T) {
+	if got := fmix32(1); got != 0x514e28b7 {
+		t.Errorf("fmix32(1) = %#x, want 0x514e28b7 (MurmurHash3_x86_32(\"\", seed=1)) — a "+
+			"constant or shift in the finalizer is wrong", got)
+	}
+	// 0 is a fixed point: every step of the finalizer maps 0 to 0.
+	if got := fmix32(0); got != 0 {
+		t.Errorf("fmix32(0) = %#x, want 0", got)
+	}
+}
+
+// A node whose Address is empty must not be selected: it is unroutable, and admitting it would
+// overload the maxAddr == "" sentinel. A member value can hold one — parseWatch only drops
+// values that fail JSON parsing, not ones that parse to an empty Address.
+func TestEmptyAddressIsNeverSelected(t *testing.T) {
+	h := newAddrHash()
+	nodes := []tNodeState{
+		{NodeId: 1, Address: "", Kinds: []string{"player"}},
+		{NodeId: 2, Address: "10.0.0.2:5000", Kinds: []string{"player"}},
+	}
+	for i := range 2000 {
+		if got := h.CalcAddrByKind8Name(nodes, "player", strconv.Itoa(i)); got != "10.0.0.2:5000" {
+			t.Fatalf("name=%d selected %q; an empty address is unroutable, and returning it "+
+				"reads to callers as \"kind hosted nowhere\"", i, got)
+		}
+	}
+	// and with ONLY an empty-address node there is genuinely no owner
+	if got := h.CalcAddrByKind8Name(nodes[:1], "player", "x"); got != "" {
+		t.Errorf("want no owner, got %q", got)
 	}
 }
