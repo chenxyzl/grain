@@ -2,7 +2,6 @@ package grain
 
 import (
 	"errors"
-	"log/slog"
 	"testing"
 	"time"
 
@@ -36,11 +35,12 @@ func newTestSystemTB(t testing.TB) *system {
 	_ = uuid.Init(1)
 	sys := &system{
 		config:   newConfig("test", "0.0.1", []string{"127.0.0.1:2379"}),
-		logger:   slog.Default(),
 		addr:     "10.10.108.145:50685",
 		pending:  safemap.NewIntC[uint64, chan proto.Message](),
 		addrHash: newAddrHash(),
 	}
+	// left unset, so Logger() falls back to slog.Default() exactly as it does before
+	// Start() builds one
 	sys.registry = newRegistry()
 	sys.clusterProvider = &fakeProvider{
 		nodes: []tNodeState{{NodeId: 1, Address: sys.addr, Kinds: []string{"player"}}},

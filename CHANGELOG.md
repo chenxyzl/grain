@@ -193,6 +193,28 @@ test verified to fail against the old code.
   so it is testable without real network interfaces.
 
 ### 🐞 Correctness fixes from the same audit
+- **An `Ask` to a cluster kind no node hosts blocked for the full `askTimeout`.**
+  `tellWithSender`'s `cacheAddr == ""` arm logged and returned, replying nothing. Every
+  other undeliverable path already answers a waiting Ask — `sendToLocal` replies
+  `errActorNotFound` for a missing actor, `toDeadLetter` does the same for a saturated or
+  stopped mailbox — so this was the one place where a *statically decidable* failure was the
+  slowest one in the system. Reachable from a typo'd kind name, from a kind whose hosting
+  nodes have all left, and from a send during the startup window before the member set has
+  loaded (`providerEtcd.start` registers before it watches, so `nodeMap` is briefly empty
+  while grpc is already accepting).
+  - New `errKindNotInCluster`: same `CodeActorNotFound` code, so one `errors.Is` still
+    covers both, but a description that names this cause — the fix is a missing
+    `WithConfigKind`, not an inactive grain.
+- **`streamWriteActor` misreported a protocol violation as a normal close, and two of its
+  branches were dead.** `status.Code(nil)` is `codes.OK`, so `err == nil` — the peer sending
+  on a stream that only ever carries our writes — matched the `codes.OK` arm and was logged
+  as "closed"; the branch written specifically for it was unreachable. `case err != nil` was
+  dead for the mirror reason: a non-nil error never carries code OK, so the code-based arms
+  always won. The enclosing `for` ended in an unconditional `return` (staticcheck SA4004).
+  This is the same bug class as the `status.Code(err) > 0` fall-through fixed in
+  `remote/stream_server.go`'s `Listen` — the other side of that same conversation.
+  Cosmetic in effect (every arm poisons the actor either way), so the fix is just the branch
+  order, with a comment on why `err == nil` has to be tested first.
 - **A remote `Tell` gave you a non-nil but empty `ctx.Sender()`.** `stream_write`
   writes `""` when there is no sender, and `newActorRefFromAID("")` returns a NON-nil
   ref whose kind/name/addr are all empty. So `if ctx.Sender() != nil` — used by the
@@ -284,6 +306,39 @@ test verified to fail against the old code.
   "node ids 1..1023 are all taken" and the real cause appeared nowhere.
 
 ### ⚡ Performance
+- **Node-id registration: from N etcd round-trips per node to one Txn, and the member set is
+  loaded before the node publishes itself.** `register()` walked `id = 1, 2, 3 ...` issuing a
+  create-only Txn per candidate, so the Nth node to join paid N round-trips — bringing up 200
+  nodes cost `sum(1..200)` = **20,100 transactions**. Separately, the old order was
+  `register()` then `watch()`, and `watch()` did its own Get: between publishing this node's
+  member key and that Get landing, `nodeMap` was empty *while grpc was already accepting*
+  (`Start` listens before it registers), so any cluster envelope arriving in that window
+  resolved to no owner and was dropped.
+  - There is now a single `loadMembers()` Get up front. It fills `nodeMap`, tells `register()`
+    which ids are free, and returns the revision the watch anchors at — one Get where there
+    were two, and no window where the member set is empty.
+  - The snapshot is only a HINT: correctness still rests entirely on the create-only compare,
+    so a stale or racing view costs another round, never a duplicate id.
+  - The candidate is chosen at **random** among the free ids, not lowest-free. This matters
+    more than it looks: nodes booting together read near-identical snapshots, so lowest-free
+    aims them all at the same id and the retry chain is O(N) rounds — exactly the growth the
+    change removes.
+  - After a winning Txn the node adds itself to `nodeMap` immediately instead of waiting for
+    its own watch event, because `CalcAddrByKind8Name` has to see it among its own candidates
+    or it briefly routes its own grains to peers.
+  - "The cluster is full" is now its own error (uuid's node field is 10 bits, so 1023 ids)
+    rather than the same generic failure as a lost race. `TestClaimableNodeIdsAreAcceptedByUuid`
+    checks the claim range stays inside what `uuid.Init` accepts, so a node cannot publish an
+    id it will then panic on.
+- **`system.askId` no longer false-shares a cache line with `addr` and `logger`.** `askId`
+  takes an `atomic.AddUint64` on every send (`nextSnId`) while `addr` and `logger` are READ
+  on every send, and all three sat in one 64-byte line (askId@96, addr@104) — so each
+  sender's read-modify-write took the line exclusive and invalidated it for every core
+  reading the others. Measured on a 16-core i7-10700KF with all cores doing nothing but the
+  increment plus a read: **24.1 ns/op → 14.2 ns/op**, ~10ns per send at full contention. One
+  `system` per process, so the 128 bytes of padding cost nothing.
+  `TestSystemHotFieldsAreOnSeparateCacheLines` asserts the property rather than the offsets,
+  because adding one field above `askId` would silently shift the tail back together.
 Every number below was A/B measured on this machine with a low-variance harness
 (`bench_test.go`, real routing path, no etcd/grpc). The existing end-to-end benchmark has
 >2x within-version variance, wider than most of these changes.
@@ -438,6 +493,24 @@ Done in one step rather than staged behind deprecations, by request.
   sites, and **impossible to call from outside the package** — the callback took
   `iProvider` and `*config`, both unexported, so no external closure could be written.
   Making them a real extension point requires exporting those types first.
+- **`system.logger` is an `atomic.Pointer`.** `Start()` and `init()` both build it while the
+  grpc server is ALREADY accepting (Start listens before it registers with etcd), so
+  `RecvEnvelope`'s `Logger()` read raced with those writes. Narrow to trigger — it needs a
+  peer that already knows this node's address, which a fixed `WithConfigGrpcListenAddr` plus
+  a stale peer cache supplies — and invisible to `-race` because no test drove inbound
+  traffic during startup. `TestSystemLoggerIsRaceFree` reproduces the shape and reports
+  `WARNING: DATA RACE` against a plain field.
+- **The loop-free-forwarding invariant is now pinned by a test.** A cluster envelope arriving
+  at a node that does not host the target is re-forwarded using that node's own view of the
+  member set, and `remote.Envelope` has **no hop or TTL field** — so in principle A could
+  forward to B while B forwards back to A. It cannot, because the rendezvous score is a pure
+  function of `(name, node address)` (view-independent) and a node always appears in its own
+  view, making `(score, -address)` strictly monotone along the chain. Nothing guarded either
+  half. `TestForwardingCannotLoop` brute-forces 20,000 trials over arbitrarily divergent
+  views; `TestScoreIsIndependentOfTheMemberView` pins the stricter property directly. Both
+  were checked to fail when view-dependence is injected — and the test comment records which
+  injections do and do not move the selection, since only a term large enough to change the
+  argmax can actually cause a loop.
 - **The shared framework message singletons are now `msgPoison` / `msgInitialize`**
   (were `poison` / `initialize`). `poison` alone read exactly like `iProcess.poison()`,
   the method that stops a process *without going through the mailbox at all* — so

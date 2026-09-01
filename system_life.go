@@ -22,7 +22,7 @@ func (x *system) Start() {
 	//cache the (now-fixed) listen address so getAddr() is a field read
 	x.addr = x.rpcService.Addr()
 	//init logger
-	x.logger = x.Logger().With("system", x.rpcService.Addr())
+	x.logger.Store(x.Logger().With("system", x.rpcService.Addr()))
 	//register to cluster
 	if err := x.clusterProvider.start(x, x.clusterMemberChanged, x.getAddr(), x.config, x.Logger()); err != nil {
 		panic(errors.Join(err, errors.New("cluster provider start failed")))
@@ -42,7 +42,7 @@ func (x *system) init(nodeId uint64) {
 	//add the node id to the logger Start() already tagged with the address. init() is
 	//only ever reached from Start() -> clusterProvider.start() -> register(), so
 	//"system" is already on it — appending just "node" avoids repeating it.
-	x.logger = x.Logger().With("node", x.config.state.NodeId)
+	x.logger.Store(x.Logger().With("node", x.config.state.NodeId))
 
 	//init eventStream
 	eventStreamRef, err := x.SpawnNamed(func() IActor {

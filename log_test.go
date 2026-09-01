@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -33,14 +34,14 @@ func TestWithConfigLoggerWins(t *testing.T) {
 
 	sys := &system{config: newConfig("c", "v", nil,
 		WithConfigLogger(newBufLogger(&configured, "configured")))}
-	sys.logger = sys.config.logger // NewSystem
+	sys.logger.Store(sys.config.logger) // NewSystem
 
 	// mirror the two tagging sites (system_life.go Start / init) without needing etcd
 	sys.addr = "1.2.3.4:9000"
-	sys.logger = sys.Logger().With("system", sys.addr)
+	sys.logger.Store(sys.Logger().With("system", sys.addr))
 	sys.Logger().Info("from start")
 	sys.config.state.NodeId = 7
-	sys.logger = sys.Logger().With("node", sys.config.state.NodeId)
+	sys.logger.Store(sys.Logger().With("node", sys.config.state.NodeId))
 	sys.Logger().Info("from init")
 
 	if global.Len() != 0 {
@@ -68,14 +69,14 @@ func TestNoConfigLoggerResolvesDefaultLate(t *testing.T) {
 	var early, late bytes.Buffer
 	setDefaultForTest(t, newBufLogger(&early, "early"))
 
-	sys := &system{config: newConfig("c", "v", nil)}
-	sys.logger = sys.config.logger // NewSystem: stays nil, which is the mechanism
+	sys := &system{config: newConfig("c", "v", nil)} // NewSystem: logger stays nil, which
+	// is the mechanism
 
 	// InitLog-equivalent, AFTER NewSystem
 	setDefaultForTest(t, newBufLogger(&late, "late"))
 
 	sys.addr = "1.2.3.4:9000"
-	sys.logger = sys.Logger().With("system", sys.addr) // Start()
+	sys.logger.Store(sys.Logger().With("system", sys.addr)) // Start()
 	sys.Logger().Info("after start")
 
 	if !strings.Contains(late.String(), "after start") {
@@ -91,7 +92,6 @@ func TestWithConfigLoggerNilIsIgnored(t *testing.T) {
 	setDefaultForTest(t, newBufLogger(&global, "global"))
 
 	sys := &system{config: newConfig("c", "v", nil, WithConfigLogger(nil))}
-	sys.logger = sys.config.logger
 	sys.Logger().Info("hello") // must not panic
 
 	if !strings.Contains(global.String(), "hello") {
@@ -130,7 +130,7 @@ func TestForceStopBeforeStartDoesNotPanic(t *testing.T) {
 	setDefaultForTest(t, newBufLogger(&global, "global"))
 
 	sys := NewSystem("c", "v", nil).(*system)
-	if sys.logger != nil {
+	if sys.logger.Load() != nil {
 		t.Fatal("with no WithConfigLogger, NewSystem must leave the logger unbuilt so " +
 			"Logger() can resolve slog.Default() late")
 	}
@@ -139,4 +139,35 @@ func TestForceStopBeforeStartDoesNotPanic(t *testing.T) {
 	if !strings.Contains(global.String(), "forceStop") {
 		t.Errorf("ForceStop should have logged through the process default, got %q", global.String())
 	}
+}
+
+// TestSystemLoggerIsRaceFree reproduces the shape of a real data race: Start() and init()
+// both build x.logger while the grpc server is already accepting, so RecvEnvelope's
+// Logger() read runs concurrently with those writes. As a plain field that was a race the
+// test suite could never surface, because nothing drives inbound traffic during startup.
+// Run under -race.
+func TestSystemLoggerIsRaceFree(t *testing.T) {
+	sys := &system{config: newConfig("c", "v", nil)}
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	for range 4 { // readers: grpc handler goroutines
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					_ = sys.Logger()
+				}
+			}
+		}()
+	}
+	for range 200 { // writers: Start() then init()
+		sys.logger.Store(sys.Logger().With("system", "1.2.3.4:9000"))
+	}
+	close(stop)
+	wg.Wait()
 }

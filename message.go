@@ -40,6 +40,15 @@ var (
 	// errActorNotFound is replied to an Ask whose target actor does not exist.
 	errActorNotFound = message.WithErrCode(message.CodeActorNotFound, "actor not found")
 
+	// errKindNotInCluster is replied to an Ask whose target is a cluster kind that no
+	// node in the cluster hosts. Same code as errActorNotFound — from the caller's side
+	// it is the same "your target does not exist" answer, so errors.Is against
+	// message.CodeActorNotFound matches either — but a distinct Des, because the causes
+	// need different fixes: a missing WithConfigKind, versus a grain that is simply not
+	// activated.
+	errKindNotInCluster = message.WithErrCode(message.CodeActorNotFound,
+		"actor kind is not hosted by any node in the cluster")
+
 	// errAskNotRunning is the reply for a blocking Ask attempted outside the actor's
 	// running phase (from Started() or PreStop()).
 	errAskNotRunning = message.WithErrCode(message.CodeAskNotRunning,

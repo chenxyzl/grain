@@ -56,25 +56,29 @@ func (x *streamWriteActor) Started() {
 	}
 	x.conn = conn
 	x.remote = stream
+	// One Recv, then stop: this stream is write-only, so any return from Recv is terminal —
+	// either the stream died or the peer sent something it never should have. (The old
+	// enclosing `for` ended in an unconditional return, i.e. staticcheck SA4004.)
 	go func() {
-		for {
-			unknownMsg, err := stream.Recv()
-			switch {
-			case errors.Is(err, io.EOF):
-				x.Logger().Info("streamWriteActor closed 1", "address", x.address)
-			case status.Code(err) == codes.Canceled || status.Code(err) == codes.OK || status.Code(err) == codes.Unavailable:
-				x.Logger().Info("streamWriteActor closed 2", "address", x.address, "cod", status.Code(err))
-			case status.Code(err) > 0:
-				x.Logger().Warn("streamWriteActor closed 3", "address", x.address, "cod", status.Code(err))
-			case err != nil:
-				x.Logger().Warn("streamWriteActor lost connection with err", "address", x.address, "error", err)
-			default:
-				x.Logger().Warn("streamWriteActor got a msg form remote, but this stream only for write", "address", x.address, "msg", unknownMsg)
-			}
-			//only can send, not allowed Recv
-			x.GetSystem().Poison(x.Self())
-			return
+		unknownMsg, err := stream.Recv()
+		switch {
+		// err == nil must come FIRST: status.Code(nil) is codes.OK, so the arm below used
+		// to swallow it and log a peer that violated the protocol as a routine close,
+		// leaving this branch unreachable.
+		case err == nil:
+			x.Logger().Warn("streamWriteActor got a msg from remote, but this stream is write-only",
+				"address", x.address, "unexpectedMsg", unknownMsg)
+		case errors.Is(err, io.EOF):
+			x.Logger().Info("streamWriteActor stream closed by peer", "address", x.address)
+		case status.Code(err) == codes.Canceled || status.Code(err) == codes.Unavailable:
+			x.Logger().Info("streamWriteActor stream closed", "address", x.address,
+				"code", status.Code(err))
+		default:
+			x.Logger().Warn("streamWriteActor stream failed", "address", x.address,
+				"code", status.Code(err), "err", err)
 		}
+		//only can send, not allowed Recv
+		x.GetSystem().Poison(x.Self())
 	}()
 }
 

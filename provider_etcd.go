@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -153,13 +155,22 @@ func (x *providerEtcd) start(systemLife iSystemLife, clusterMemberChangedListene
 	if err != nil {
 		return err
 	}
+	// Load the member set FIRST, then register, then start the watch. The old order was
+	// register -> watch, and watch did its own Get, so between publishing our member key
+	// and that Get landing, nodeMap was empty while grpc was already accepting (Start
+	// listens before it calls us). Any cluster envelope arriving in that window resolved to
+	// no owner and was dropped. Doing the Get up front also means there is only one.
+	rev, err := x.loadMembers()
+	if err != nil {
+		return err
+	}
 	//register self
 	err = x.register(addr)
 	if err != nil {
 		return err
 	}
 	//watcher nodes
-	err = x.watch()
+	err = x.watchMembers(rev)
 	if err != nil {
 		return err
 	}
@@ -205,22 +216,73 @@ func (x *providerEtcd) stop() {
 	x.releaseEtcd()
 	x.Logger().Info("cluster provider etcd stopped")
 }
+
+// registerRounds bounds the claim retries in register(); a round is only consumed by
+// genuinely losing a race.
+const registerRounds = 16
+
+// register claims a node id with one create-only Txn on a free id, retrying (after
+// refreshing the member set) if it loses.
+//
+// It used to walk id = 1, 2, 3 ... with a Txn per candidate, so the Nth node to join paid N
+// round-trips — 200 nodes cost sum(1..200) ~ 20,100 transactions. loadMembers() has already
+// told us what is free, so the common case is one Txn.
+//
+// Two things worth knowing: that snapshot is only a HINT (correctness rests entirely on
+// setTxn's create-only compare, so a stale view costs a round, never a duplicate id), and
+// the candidate is RANDOM rather than lowest-free — nodes booting together read
+// near-identical snapshots, so lowest-free aims them all at the same id and the retry chain
+// is O(N) rounds all over again.
 func (x *providerEtcd) register(addr string) error {
-	for id := uint64(1); id <= uuid.MaxNodeMax(); id++ {
+	for round := 0; round < registerRounds; round++ {
+		free := x.freeNodeIds()
+		if len(free) == 0 {
+			// Distinguished from a lost race on purpose: "the cluster is full" is an
+			// operational limit (uuid's node field is 10 bits), not a transient failure, and
+			// the old code reported both as the same generic error.
+			return fmt.Errorf("register node to etcd error: all %d node ids are in use",
+				uuid.MaxNodeMax())
+		}
+		id := free[rand.IntN(len(free))]
 		key := x.config.getMemberPath(id)
 		s, _ := json.Marshal(x.config.init(addr, id))
 		state := string(s)
-		//
 		if !x.setTxn(key, state) {
+			// Lost the race, or etcd errored (setTxn cannot tell the caller which, but it
+			// logs the etcd case). Either way our view is stale now, so refresh it.
+			if _, err := x.loadMembers(); err != nil {
+				return err
+			}
 			continue
 		}
+		// Add ourselves to nodeMap now instead of waiting for our own watch event:
+		// CalcAddrByKind8Name must see this node among its own candidates, or until that
+		// round-trip lands we route our own grains to peers.
+		x.parseWatch(mvccpb.PUT, key, s)
 		x.logger = x.logger.With("node", id)
 		x.system.init(id)
 		//
-		x.Logger().Info("register node to etcd success", "key", key, "val", state)
+		x.Logger().Info("register node to etcd success", "key", key, "val", state,
+			"rounds", round+1)
 		return nil
 	}
-	return errors.New("register node to etcd error")
+	return fmt.Errorf("register node to etcd error: lost the id race %d times running",
+		registerRounds)
+}
+
+// freeNodeIds lists the ids in 1..MaxNodeMax that nodeMap does not show as taken. nodeMap is
+// already keyed by the id (parseWatch keeps the last path segment), so nothing needs parsing.
+func (x *providerEtcd) freeNodeIds() []uint64 {
+	x.nodeChangeLocker.RLock()
+	defer x.nodeChangeLocker.RUnlock()
+
+	free := make([]uint64, 0, uuid.MaxNodeMax())
+	for id := uint64(1); id <= uuid.MaxNodeMax(); id++ {
+		if _, taken := x.nodeMap[strconv.FormatUint(id, 10)]; !taken {
+			free = append(free, id)
+		}
+	}
+	return free
 }
 
 // setTxn set Key=val if key not exist
@@ -285,19 +347,25 @@ func (x *providerEtcd) keepAlive(keepAliveChan <-chan *clientv3.LeaseKeepAliveRe
 		}
 	}()
 }
-func (x *providerEtcd) watch() error {
-	//first
+
+// loadMembers does the one Get of the member prefix that both the free-id search and the
+// watch are built on, filling nodeMap from it. Returns the snapshot revision so the watch
+// can anchor at rev+1 and miss nothing in between.
+func (x *providerEtcd) loadMembers() (int64, error) {
 	rsp, err := x.client.Get(context.Background(), x.config.getMemberPrefix(), clientv3.WithPrefix())
 	if err != nil {
-		return errors.Join(err, errors.New("first load node state err"))
+		return 0, errors.Join(err, errors.New("first load node state err"))
 	}
 	for _, kv := range rsp.Kvs {
 		x.parseWatch(mvccpb.PUT, string(kv.Key), kv.Value)
 	}
-	//real watch
-	// anchor to the snapshot revision (+1) so member changes between the Get and
-	// the Watch are not lost.
-	wch := x.client.Watch(context.Background(), x.config.getMemberPrefix(), clientv3.WithPrefix(), clientv3.WithRev(rsp.Header.Revision+1))
+	return rsp.Header.Revision, nil
+}
+
+// watchMembers starts the member watch at rev+1, where rev is the loadMembers() snapshot —
+// so a change made between the two is delivered rather than lost.
+func (x *providerEtcd) watchMembers(rev int64) error {
+	wch := x.client.Watch(context.Background(), x.config.getMemberPrefix(), clientv3.WithPrefix(), clientv3.WithRev(rev+1))
 	go func() {
 		for v := range wch {
 			// A terminated watch (compacted revision, auth revocation, server-side

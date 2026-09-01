@@ -23,9 +23,25 @@ type system struct {
 
 	//
 	forceCloseChan chan bool
-	logger         *slog.Logger
-	eventStream    ActorRef
-	askId          uint64
+	// logger is atomic because Start() and init() both build it while the grpc server is
+	// ALREADY serving (Start listens before it registers with etcd), so an inbound
+	// envelope's RecvEnvelope -> Logger() can read it concurrently with those writes. As a
+	// plain field that was a data race — narrow (it needs a peer that already knows this
+	// node's address, which a fixed WithConfigGrpcListenAddr plus a stale peer cache
+	// supplies) but real, and invisible to -race because no test drives inbound traffic
+	// during startup. A nil value means "not built yet"; see Logger().
+	logger      atomic.Pointer[slog.Logger]
+	eventStream ActorRef
+
+	// askId takes an atomic.AddUint64 per send (nextSnId) while addr and logger are READ
+	// per send, and all three used to share one 64-byte line — false sharing. Padded out to
+	// its own line: 24.1 -> 14.2 ns/op with 16 cores doing nothing else. One system per
+	// process, so the 128 bytes are free. Layout guarded by
+	// TestSystemHotFieldsAreOnSeparateCacheLines, since adding a field above askId would
+	// silently undo it.
+	_     [64]byte
+	askId uint64
+	_     [56]byte
 	// addr caches rpcService.Addr() after Start(); it is immutable once the grpc
 	// server is listening, so the per-Send getAddr() avoids an interface dispatch.
 	addr string
@@ -50,7 +66,9 @@ func NewSystem(clusterName string, version string, clusterUrls []string, opts ..
 	// Deliberately left nil when no logger was configured: Logger() then resolves the
 	// process default per call, which is what keeps an InitLog issued between NewSystem
 	// and Start working. Capturing slog.Default() here would freeze it too early.
-	sys.logger = sys.config.logger
+	if l := sys.config.logger; l != nil {
+		sys.logger.Store(l)
+	}
 	sys.registry = newRegistry()
 	sys.clusterProvider = &providerEtcd{}
 	sys.forceCloseChan = make(chan bool, 1)
@@ -97,8 +115,8 @@ func (x *system) WatchNodeExtData(subKey string, f func(key, val string)) error 
 // Nothing rebuilds it after Start()/init(), so a slog.SetDefault issued later does NOT
 // reach the framework. WithConfigLogger removes that ordering rule entirely.
 func (x *system) Logger() *slog.Logger {
-	if x.logger != nil {
-		return x.logger
+	if l := x.logger.Load(); l != nil {
+		return l
 	}
 	return slog.Default()
 }
@@ -174,7 +192,17 @@ func (x *system) tellWithSender(target ActorRef, msg proto.Message, sender Actor
 			//cluster actor
 			cacheAddr := target.getRemoteAddrCache()
 			if cacheAddr == "" {
-				x.Logger().Error("actor kind not in cluster")
+				// Fail a waiting Ask NOW instead of letting it wait out askTimeout.
+				// sendToLocal already does this for an actor that does not exist, and
+				// toDeadLetter for a saturated or stopped mailbox; "no node hosts this
+				// kind" is just as decidable here, but used to return silently — so a
+				// typo'd kind, or a send during the startup window before the member set
+				// has loaded, was the SLOWEST possible failure rather than the fastest.
+				if sender != nil && sender.isAsk() {
+					sender.Tell(errKindNotInCluster)
+				}
+				x.Logger().Error("actor kind not in cluster",
+					"actor", target, "msgName", proto.MessageName(msg))
 				return
 			}
 			//
@@ -278,4 +306,3 @@ func (x *system) deliverReply(snId uint64, msg proto.Message) {
 func (x *system) cancelAsk(snId uint64) {
 	x.pending.Remove(snId)
 }
-
