@@ -31,6 +31,29 @@ const (
 	defaultRegisterTimes  = 3
 )
 
+// The grain registration key is the cluster's single-activation lock: setTxn is
+// create-only, so of two nodes racing to activate the same cluster actor exactly one
+// wins and the loser's start() stops it before Started() ever runs.
+//
+// The VALUE is the owning node's address, and that is load-bearing rather than
+// informational — removeTxn is a compare-and-delete against it, so it is what makes
+// "delete only the lock I hold" true.
+//
+// It used to be ref.GetDirectAddr(), which for a CLUSTER ref is the empty string: a
+// cluster id is "cluster/kind/name" with no "@addr" for parseCache to split off. So every
+// node wrote "" and every node's removeTxn("", ...) compared "" against "" and matched —
+// the lock carried no owner identity at all, and the compare-and-delete degenerated into
+// an unconditional delete. Combined with stop() unregistering even when registration had
+// FAILED, the node that lost the race deleted the winner's lock on its way out, leaving
+// the grain unlocked while the winner still hosted it — so the next activation anywhere
+// succeeded and the same grain ran twice, each copy persisting its own state. A brief etcd
+// error was enough to trigger it, since setTxn also returns false on a transport failure.
+//
+// GetDirectAddr() presumably meant "this node's address", which is what it evaluates to
+// for a direct ref; config.state.Address is that value for every ref kind. As a bonus this
+// is safe against un-upgraded peers in a rolling deploy: an old node writes "" and a new
+// one writes an address, and neither value matches the other, so neither can delete the
+// other's lock.
 var (
 	defaultRegisterToCluster = func(clusterProvider iProvider, config *config, ref ActorRef) error {
 		//register to cluster
@@ -43,7 +66,7 @@ var (
 				if i > 0 {
 					time.Sleep(time.Millisecond * 100 * (1 << (i - 1)))
 				}
-				if clusterProvider.setTxn(config.getActorRegisterName(ref), ref.GetDirectAddr()) {
+				if clusterProvider.setTxn(config.getActorRegisterName(ref), config.state.Address) {
 					return nil
 				}
 			}
@@ -58,7 +81,7 @@ var (
 			// `if removeTxn(...) {}`): a failed de-registration leaves a stale cluster
 			// routing entry pointing at an actor that no longer exists, so peers keep
 			// sending to it. The caller logs it.
-			if !clusterProvider.removeTxn(config.getActorRegisterName(ref), ref.GetDirectAddr()) {
+			if !clusterProvider.removeTxn(config.getActorRegisterName(ref), config.state.Address) {
 				return fmt.Errorf("failed unregister cluster actor from clusterProvider, ref:%v", ref.GetId())
 			}
 		}

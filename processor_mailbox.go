@@ -40,6 +40,10 @@ type processorMailBox struct {
 	procStatus int32
 	poisoned   atomic.Bool
 	life       lifecycle // Started/PreStop phase; only touched while holding turn
+	// registered records that THIS processor's registerToCluster succeeded, so stop()
+	// only ever deletes a lock it actually holds. Same concurrency domain as life: written
+	// in start() and read in stop(), both while holding the turn.
+	registered bool
 
 	// turn is a capacity-1 semaphore (one token = free). Holding a token grants
 	// the exclusive right to execute actor code (Started/Receive/PreStop), so the
@@ -331,12 +335,14 @@ func (x *processorMailBox) start() {
 		if err := x.tOpts.registerToCluster(x.system.getProvider(), x.system.getConfig(), x.self()); err != nil {
 			// cluster registration failed: this actor cannot serve its kind, so
 			// stop it (logged, not panicked — a runtime failure, not a crash).
-			// life is still lifeInit, so stop() will skip PreStop.
+			// life is still lifeInit, so stop() will skip PreStop, and registered is
+			// still false, so stop() will not touch the lock the winner holds.
 			x.system.Logger().Error("register to cluster failed, stop self",
 				"id", x.self(), "err", err)
 			x.stop()
 			return
 		}
+		x.registered = true
 	}
 	x.life = lifeStarting
 	x.receiver.Started()
@@ -385,7 +391,14 @@ func (x *processorMailBox) stop() {
 	}()
 	//unregister from cluster
 	defer func() {
-		if x.tOpts.unRegisterFromCluster != nil {
+		// Gated on `registered`, exactly as PreStop is gated on lifeStarted: this used to
+		// run unconditionally, so an actor that FAILED to register — the loser of the
+		// single-activation race, or any actor hit by a transient etcd error — still went
+		// on to delete the registration key. Paired with the old empty-string lock value
+		// that deleted the actual owner's lock and let the same grain activate twice. Both
+		// halves are fixed; this one also stops the loser from emitting a bogus
+		// "unregister failed" WARN for a lock it never held.
+		if x.registered && x.tOpts.unRegisterFromCluster != nil {
 			if err := x.tOpts.unRegisterFromCluster(x.system.getProvider(), x.system.getConfig(), x.self()); err != nil {
 				// Not fatal for this actor, but peers will keep routing to a stale
 				// cluster entry until the lease expires, so it must be visible.

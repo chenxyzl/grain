@@ -51,6 +51,35 @@ regression test that was verified to fail against the old code.
   Now an `atomic.LoadInt32`. The callback also re-checks before `t.Reset`, so a
   cancel racing with the callback no longer leaves the timer armed for one more
   interval after `Stop()`.
+- **Double activation: a cluster grain could run on two nodes at once, each persisting
+  its own state.** The etcd registration key is the single-activation lock — `setTxn` is
+  create-only, so of two nodes racing to activate the same grain exactly one wins and the
+  loser is stopped before `Started()` runs. Two defects together defeated it:
+  - The lock's VALUE was `ref.GetDirectAddr()`, which is **the empty string for a cluster
+    ref**: a cluster id is `cluster/kind/name`, with no `@addr` for `parseCache` to split
+    off. Every node wrote `""`, so `removeTxn`'s compare-and-delete (`If Value == val`)
+    matched whatever any node passed — the lock carried no owner identity and the guarded
+    delete was effectively unconditional.
+  - `stop()`'s deferred `unRegisterFromCluster` ran **even when registration had failed**,
+    unlike `PreStop` which is gated on `lifeStarted`.
+  So the node that LOST the race deleted the winner's lock on its way out. The grain was
+  then unlocked in etcd while the winner still hosted it, the next activation anywhere
+  succeeded, and both copies ran — each with its own state, each persisting in `PreStop`.
+  It did not need a membership race either: `setTxn` returns false for a transient etcd
+  error exactly as it does for a lost race (it logs `NOT a lost race`), so one etcd blip on
+  any node was enough to unlock a grain another node was serving.
+  - The value is now `config.state.Address`, so the compare-and-delete means "delete only
+    the lock I hold". (`GetDirectAddr()` evaluates to exactly that for a *direct* ref, which
+    is presumably what was intended.) This is also safe across a rolling upgrade: an old
+    node writes `""` and a new one writes an address, and neither matches the other, so
+    neither can delete the other's lock.
+  - A `registered` flag now gates the unregister, mirroring how `lifeStarted` gates
+    `PreStop`. It also stops the loser logging a bogus `unregister failed` WARN for a lock
+    it never held.
+  - `TestGrainLockValueIdentifiesTheOwner`, `TestLoserCannotDeleteWinnersGrainLock` and
+    `TestFailedRegistrationSkipsUnregister` all verified to fail against the old code;
+    `TestGrainRegistrationIsExclusive` and `TestSuccessfulRegistrationDoesUnregister` pin
+    the properties the fix must not break.
 - **Crash: `RpcService.Start()` immediately followed by `Stop()` killed the process.**
   `Start` spawned a goroutine that read the `x.gs` *field* and called `Serve` on it,
   while `Stop` set that same field to `nil`. A `Stop` landing before the goroutine was
