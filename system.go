@@ -111,8 +111,11 @@ func (x *system) Spawn(p Producer, opts ...KindOptFunc) ActorRef {
 
 // SpawnNamed creates an actor under an explicit name, unique per node. Returns ErrNameExists
 // if it is taken: a respawn after a crash, or a race, is recoverable and must not kill the
-// process.
+// process. Returns ErrInvalidName if the name contains an actor-id separator ('/' or '@').
 func (x *system) SpawnNamed(p Producer, name string, opts ...KindOptFunc) (ActorRef, error) {
+	if err := ValidateActorName(name); err != nil {
+		return nil, err
+	}
 	opts = append(opts, withOptsDirectSelf(name, x.getAddr(), x))
 	options := newOpts(p, opts...)
 	proc, err := newProcessor(x, options)
@@ -122,7 +125,21 @@ func (x *system) SpawnNamed(p Producer, name string, opts ...KindOptFunc) (Actor
 	return proc.self(), nil
 }
 
+// GetClusterActorRef returns a reference to the cluster grain (kind, name), wherever the cluster
+// currently hosts it. It does not activate anything: the first message does.
+//
+// PANICS on a kind or name containing an actor-id separator ('/' or '@'), because there is no error
+// to return and the alternative is worse — such a ref parses into an id with every field empty, so
+// every send to it is dropped and no node can ever activate it, with nothing reported. When the
+// name comes from user data, screen it with ValidateActorName first.
 func (x *system) GetClusterActorRef(kind string, name string) ActorRef {
+	if err := validateKindName(kind); err != nil {
+		panic(err.Error() + " (from GetClusterActorRef)")
+	}
+	if err := ValidateActorName(name); err != nil {
+		panic(err.Error() + " (from GetClusterActorRef; use grain.ValidateActorName to screen " +
+			"names that come from user data)")
+	}
 	return newClusterActorRef(kind, name, x)
 }
 

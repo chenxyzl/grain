@@ -1,6 +1,8 @@
 package grain
 
 import (
+	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -325,5 +327,67 @@ func TestStreamWriteWithNoStreamDeadLetters(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("a send over an unopened stream produced no dead letter")
+	}
+}
+
+// An actor id is "type/kind/name[@addr]", so a name carrying a separator parses into a different
+// id than it was built from — and when the piece count stops matching, into an id with every field
+// empty. Such a ref used to be accepted silently and was then a permanent black hole: isCluster()
+// false, address lookup "", every send dropped, no node able to activate it.
+func TestGetClusterActorRefRejectsSeparatorsInName(t *testing.T) {
+	sys := newTestSystem(t)
+	for _, name := range []string{"tenant/42", "a@b", "", "/", "x/"} {
+		t.Run("name="+name, func(t *testing.T) {
+			defer func() {
+				r := recover()
+				if r == nil {
+					t.Fatalf("GetClusterActorRef(%q) did not panic; it would have returned an "+
+						"unroutable ref", name)
+				}
+				if s, ok := r.(string); !ok || !strings.Contains(s, "invalid actor name") {
+					t.Fatalf("panic did not name the problem: %v", r)
+				}
+			}()
+			sys.GetClusterActorRef("player", name)
+		})
+	}
+}
+
+// A valid name must still produce a fully parsed, routable ref.
+func TestGetClusterActorRefAcceptsOrdinaryNames(t *testing.T) {
+	sys := newTestSystem(t)
+	for _, name := range []string{"1234567890123456789", "room-abc", "player_1", "tenant.42", "a:b"} {
+		ref := sys.GetClusterActorRef("player", name)
+		if ref.GetKind() != "player" || ref.GetName() != name || !ref.isCluster() {
+			t.Errorf("name %q: kind=%q name=%q isCluster=%v", name,
+				ref.GetKind(), ref.GetName(), ref.isCluster())
+		}
+	}
+}
+
+// SpawnNamed has an error to return, so it returns one rather than panicking.
+func TestSpawnNamedRejectsSeparatorsInName(t *testing.T) {
+	sys := newTestSystem(t)
+	for _, name := range []string{"a/b", "a@b", ""} {
+		ref, err := sys.SpawnNamed(func() IActor { return &sink{} }, name)
+		if !errors.Is(err, ErrInvalidName) {
+			t.Errorf("SpawnNamed(%q): err = %v, want ErrInvalidName", name, err)
+		}
+		if ref != nil {
+			t.Errorf("SpawnNamed(%q) returned a ref alongside the error", name)
+		}
+	}
+}
+
+func TestValidateActorName(t *testing.T) {
+	for _, name := range []string{"a", "1", "room-1", "a.b", "a:b", "a_b"} {
+		if err := ValidateActorName(name); err != nil {
+			t.Errorf("ValidateActorName(%q) = %v, want nil", name, err)
+		}
+	}
+	for _, name := range []string{"", "/", "@", "a/b", "a@b", "a/b@c"} {
+		if err := ValidateActorName(name); !errors.Is(err, ErrInvalidName) {
+			t.Errorf("ValidateActorName(%q) = %v, want ErrInvalidName", name, err)
+		}
 	}
 }

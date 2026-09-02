@@ -93,6 +93,10 @@ func WithConfigGrpcCallOptions(callOptions ...grpc.CallOption) ConfigOptFunc {
 func WithConfigKind(kindName string, producer Producer, opts ...KindOptFunc) ConfigOptFunc {
 	return func(config *config) {
 		config.mustNotRunning()
+		// a kind carrying '/' or '@' makes every id built from it unparsable, hence unroutable
+		if err := validateKindName(kindName); err != nil {
+			panic(err.Error() + " (from WithConfigKind)")
+		}
 		if kindName == defaultLocalKind ||
 			kindName == defaultSystemKind ||
 			kindName == defaultReplyKind ||
