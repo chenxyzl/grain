@@ -89,16 +89,14 @@ func (x *BaseActor) Ask[T proto.Message](target ActorRef, msg proto.Message) (T,
 	return askImpl[T](x.Self(), target, msg, x.turn)
 }
 
-// ScheduleSelfOnce Tells this actor msg after delay. msg is delivered as-is, so do not mutate it
+// ScheduleSelfOnce Tells this actor msg after delay. ⚠️ msg is delivered as-is, so do not mutate it
 // in the meantime — see IScheduler.
 func (x *BaseActor) ScheduleSelfOnce(delay time.Duration, msg proto.Message) CancelScheduleFunc {
 	return x.GetSystem().GetScheduler().ScheduleOnce(x.Self(), delay, msg)
 }
 
 // ScheduleSelfRepeated Tells this actor msg after delay, then every interval until the returned
-// func is called. ⚠️ Every tick delivers the SAME msg instance, so a field written while handling
-// one tick is still set on the next: schedule a fieldless trigger and build the real message in
-// the handler, or proto.Clone before mutating. See IScheduler.
+// func is called. ⚠️ Every tick delivers the SAME instance — see IScheduler.
 func (x *BaseActor) ScheduleSelfRepeated(delay time.Duration, interval time.Duration, msg proto.Message) CancelScheduleFunc {
 	return x.GetSystem().GetScheduler().ScheduleRepeated(x.Self(), delay, interval, msg)
 }

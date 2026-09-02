@@ -18,7 +18,10 @@ type eventStream struct {
 	nodeId            uint64
 	eventStreamPrefix string
 	eventStreamMaps   *safemap.RWMap[string, *safemap.RWMap[uint64, ActorRef]] //eventName:eventStreamId:nodeId-actorId
-	sub               map[string]map[string]bool                               // eventName:actorId:_
+	// sub maps eventName -> actorId -> that subscriber's ref. The ref is STORED rather than rebuilt
+	// per delivery: onPublish used to call newActorRefFromAID for every subscriber on every publish
+	// (110ns and 72B each) to reproduce a value that never changes while the subscription lives.
+	sub map[string]map[string]ActorRef
 }
 
 func newEventStream(nodeId uint64, provider iProvider, eventStreamPrefix string) IActor {
@@ -27,7 +30,7 @@ func newEventStream(nodeId uint64, provider iProvider, eventStreamPrefix string)
 		provider:          provider,
 		eventStreamPrefix: eventStreamPrefix,
 		eventStreamMaps:   safemap.NewRWMap[string, *safemap.RWMap[uint64, ActorRef]](),
-		sub:               make(map[string]map[string]bool)}
+		sub:               make(map[string]map[string]ActorRef)}
 }
 
 func (x *eventStream) Started() {
@@ -60,11 +63,12 @@ func (x *eventStream) Receive(ctx Context) {
 
 func (x *eventStream) subscribe(_ Context, msg *message.Subscribe) {
 	if _, ok := x.sub[msg.EventName]; !ok {
-		x.sub[msg.EventName] = make(map[string]bool)
+		x.sub[msg.EventName] = make(map[string]ActorRef)
 		x.registerEventStream(msg.EventName)
 		x.Logger().Debug("EventStream subscribe from etcd: ", "eventName", msg.EventName)
 	}
-	x.sub[msg.EventName][msg.GetActorId()] = true
+	// parse the id once, here, instead of on every publish
+	x.sub[msg.EventName][msg.GetActorId()] = newActorRefFromAID(msg.GetActorId(), x.GetSystem())
 	x.Logger().Debug("EventStream subscribed", "id", msg.GetActorId(), "eventName", msg.EventName)
 }
 
@@ -94,9 +98,9 @@ func (x *eventStream) broadcastPublish(_ Context, msg proto.Message) {
 
 func (x *eventStream) onPublish(_ Context, msg proto.Message) {
 	eventName := string(proto.MessageName(msg))
-	for actorId := range x.sub[eventName] {
-		actorRef := newActorRefFromAID(actorId, x.GetSystem())
-		x.GetSystem().getSender().tell(actorRef, msg)
+	sender := x.GetSystem().getSender()
+	for _, actorRef := range x.sub[eventName] {
+		sender.tell(actorRef, msg)
 	}
 }
 

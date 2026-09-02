@@ -31,7 +31,7 @@ var (
 		if slices.Contains(config.state.Kinds, ref.GetKind()) {
 			// defaultRegisterTimes attempts with 0/100/200ms backoff. The sleep sits BETWEEN
 			// attempts only, so a doomed run does not burn a final wait with Started() blocked.
-			for i := 0; i < defaultRegisterTimes; i++ {
+			for i := range defaultRegisterTimes {
 				if i > 0 {
 					time.Sleep(time.Millisecond * 100 * (1 << (i - 1)))
 				}

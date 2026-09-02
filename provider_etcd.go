@@ -276,9 +276,9 @@ func (x *providerEtcd) freeNodeIds() []uint64 {
 // brief outage during register() looks exactly like "every node id is in use".
 func (x *providerEtcd) setTxn(key string, val string) bool {
 	tx := x.client.Txn(context.Background())
+	// val is already a string; the Sprintf("%v") that used to wrap it bought nothing
 	tx.If(clientv3.Compare(clientv3.CreateRevision(key), "=", 0)).
-		Then(clientv3.OpPut(key, fmt.Sprintf("%v", val), clientv3.WithLease(x.leaseId))).
-		Else()
+		Then(clientv3.OpPut(key, val, clientv3.WithLease(x.leaseId)))
 	txnRes, err := tx.Commit()
 	if err != nil {
 		x.Logger().Error("setTxn failed with an etcd error (NOT a lost race)", "key", key, "err", err)
@@ -295,8 +295,7 @@ func (x *providerEtcd) setTxn(key string, val string) bool {
 func (x *providerEtcd) removeTxn(key string, val string) bool {
 	tx := x.client.Txn(context.Background())
 	tx.If(clientv3.Compare(clientv3.Value(key), "=", val)).
-		Then(clientv3.OpDelete(key)).
-		Else()
+		Then(clientv3.OpDelete(key))
 	txnRes, err := tx.Commit()
 	if err != nil {
 		x.Logger().Error("removeTxn failed with an etcd error (NOT a value mismatch)", "key", key, "err", err)

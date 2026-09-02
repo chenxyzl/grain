@@ -31,7 +31,7 @@ func create[K comparable, V any](sharding func(key K) uint32) ConcurrentMap[K, V
 		sharding: sharding,
 		shards:   make([]*ConcurrentMapShared[K, V], ShardCount),
 	}
-	for i := 0; i < ShardCount; i++ {
+	for i := range ShardCount {
 		m.shards[i] = &ConcurrentMapShared[K, V]{items: make(map[K]V)}
 	}
 	return m
@@ -125,7 +125,7 @@ func (m *ConcurrentMap[K, V]) Get(key K) (V, bool) {
 
 func (m *ConcurrentMap[K, V]) Count() int {
 	count := 0
-	for i := 0; i < ShardCount; i++ {
+	for i := range ShardCount {
 		shard := m.shards[i]
 		shard.RLock()
 		count += len(shard.items)

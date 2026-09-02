@@ -32,10 +32,11 @@ func (x *contextImpl) Target() ActorRef {
 	return x.target
 }
 
+// Sender may be nil — a plain Tell carries no sender. No nil normalization here: the guard that
+// used to sit in this function was a no-op, because returning a literal nil and returning x.sender
+// when x.sender is nil produce the same value, and it did not flatten a non-nil interface holding
+// a nil pointer either.
 func (x *contextImpl) Sender() ActorRef {
-	if x.sender == nil {
-		return nil
-	}
 	return x.sender
 }
 

@@ -53,27 +53,9 @@ func parseCache(fullPath string) (typ, kind, name, directAddr string) {
 	return typ, kind, name, directAddr
 }
 
-func (x *cacheParse) GetType() string {
-	if x == nil {
-		return ""
-	}
-	return x.d8c
-}
-func (x *cacheParse) GetKind() string {
-	if x == nil {
-		return ""
-	}
-	return x.kind
-}
-func (x *cacheParse) GetName() string {
-	if x == nil {
-		return ""
-	}
-	return x.name
-}
-func (x *cacheParse) GetDirectAddr() string {
-	if x == nil {
-		return ""
-	}
-	return x.directAddr
-}
+// cacheParse is embedded BY VALUE in actorIdWrapper, so these are never called on a nil receiver —
+// the getters have no nil guard for that reason.
+func (x *cacheParse) GetType() string       { return x.d8c }
+func (x *cacheParse) GetKind() string       { return x.kind }
+func (x *cacheParse) GetName() string       { return x.name }
+func (x *cacheParse) GetDirectAddr() string { return x.directAddr }

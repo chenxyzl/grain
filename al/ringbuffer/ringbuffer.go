@@ -79,16 +79,15 @@ func (rb *RingBuffer[T]) next(i int64) int64 {
 }
 
 // grow doubles the capacity (capped at maxCap, so copying stays O(1) amortized) and unwraps the
-// ring into the new slice in FIFO order so head starts at 0. Hold rb.mu; only valid at size==cap.
+// ring into the new slice in FIFO order so head starts at 0. Hold rb.mu.
+//
+// Only valid at size==cap, which is also why there is no head<tail case: in a full ring
+// tail == (head+size) mod cap == head, so the copy always splits at the physical end of the array.
 func (rb *RingBuffer[T]) grow() {
 	newCap := min(rb.cap*2, rb.maxCap)
 	items := make([]T, newCap)
-	if rb.head < rb.tail {
-		copy(items, rb.items[rb.head:rb.tail])
-	} else {
-		n := copy(items, rb.items[rb.head:])
-		copy(items[n:], rb.items[:rb.tail])
-	}
+	n := copy(items, rb.items[rb.head:])
+	copy(items[n:], rb.items[:rb.tail])
 	rb.items = items
 	rb.head = 0
 	rb.tail = rb.size // size < newCap, so no wrap

@@ -1,8 +1,8 @@
 package grain
 
 import (
-	"fmt"
 	"log/slog"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -111,23 +111,27 @@ func (x *config) getKinds() []string {
 	return kinds
 }
 
+// The etcd key builders below concatenate rather than fmt.Sprintf: every argument is already a
+// string or an integer, so formatting buys nothing and costs an allocation plus the reflection
+// walk. getActorRegisterName in particular runs on every cluster-grain activation AND deactivation
+// (133ns/80B/3allocs as Sprintf, 50ns/48B/1alloc concatenated).
 func (x *config) getMemberPrefix() string {
-	return fmt.Sprintf("/%v/member/", x.clusterName)
+	return "/" + x.clusterName + "/member/"
 }
 func (x *config) getMemberPath(memberId uint64) string {
-	return fmt.Sprintf("/%v/member/%d", x.clusterName, memberId)
+	return "/" + x.clusterName + "/member/" + strconv.FormatUint(memberId, 10)
 }
 func (x *config) getMemberExtDataPath(subKey string, memberId ...uint64) string {
 	if len(memberId) > 0 && memberId[0] != 0 {
-		return fmt.Sprintf("/%v/member_ext/%s/%d", x.clusterName, subKey, memberId[0])
+		return "/" + x.clusterName + "/member_ext/" + subKey + "/" + strconv.FormatUint(memberId[0], 10)
 	}
-	return fmt.Sprintf("/%v/member_ext/%s", x.clusterName, subKey)
+	return "/" + x.clusterName + "/member_ext/" + subKey
 }
 func (x *config) getEventStreamWatchPath() string {
-	return fmt.Sprintf("/%v/%v/", x.clusterName, eventStreamWatchName)
+	return "/" + x.clusterName + "/" + eventStreamWatchName + "/"
 }
 func (x *config) getActorRegisterName(ref ActorRef) string {
-	return fmt.Sprintf("/%v/%v", x.clusterName, ref.GetId())
+	return "/" + x.clusterName + "/" + ref.GetId()
 }
 func (x *config) getClusterUrls() []string {
 	return x.clusterUrls

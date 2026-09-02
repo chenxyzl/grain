@@ -64,10 +64,8 @@ func (s *timerSchedule) sendOnce(target ActorRef, delay time.Duration, message p
 	return func() { t.Stop() }
 }
 
-// sendRepeatedly tells message to target every interval, starting after initial. ALIASING: the
-// same instance is sent every tick, never copied, so it is shared with the caller and the
-// receiving actor — and a remote target means the write-stream actor marshals it, so a
-// concurrent write is a real data race. See IScheduler for the safe patterns.
+// sendRepeatedly tells message to target every interval, starting after initial. ⚠️ The same
+// instance is sent on every tick, never copied — see IScheduler for the aliasing rules.
 func (s *timerSchedule) sendRepeatedly(target ActorRef, initial, interval time.Duration, message proto.Message) CancelScheduleFunc {
 	return startTimer(initial, interval, func() {
 		s.sender.tell(target, message)
