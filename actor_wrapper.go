@@ -11,7 +11,10 @@ type actorIdWrapper struct {
 	fullPath    string
 	system      ISystem
 	cacheRemote atomic.Pointer[cacheRemote]
-	sync.RWMutex
+	// sync.Mutex, not RWMutex: the read path is the lock-free atomic load in getRemoteAddrCache,
+	// so this only ever guards the recompute and is never read-locked. 16 bytes smaller, on a
+	// struct there is one of per ActorRef.
+	mu sync.Mutex
 }
 
 func newDirectActorRef(kind string, name string, addr string, system ISystem) ActorRef {
@@ -74,13 +77,13 @@ func (x *actorIdWrapper) getRemoteAddrCache() string {
 	if !x.isCluster() {
 		return ""
 	}
-	// fast path: version compare only, no slice allocation; GetNodes() runs only when it advanced
+	// fast path: version compare only; the node set is consulted only once it has advanced
 	version := x.GetSystem().getProvider().GetNodesVersion()
 	if vCache := x.cacheRemote.Load(); vCache != nil && vCache.version == version {
 		return vCache.remoteAddr
 	}
-	x.Lock()
-	defer x.Unlock()
+	x.mu.Lock()
+	defer x.mu.Unlock()
 	//double check under the lock, not the stale value read above
 	vCache := x.cacheRemote.Load()
 	if vCache != nil && vCache.version == version {
@@ -88,9 +91,9 @@ func (x *actorIdWrapper) getRemoteAddrCache() string {
 	}
 	nodes, ver := x.GetSystem().getProvider().GetNodes()
 	cacheAddr := x.GetSystem().getAddrHash().CalcAddrByKind8Name(nodes, x.GetKind(), x.GetName())
-	if cacheAddr == "" {
-		return ""
-	}
+	// "" is cached too, and must be: it is a real answer for this node set ("no node hosts this
+	// kind"), and the version guards it exactly as well as an address. Skipping it made every
+	// send to an unhosted kind re-run the hash over the whole node set.
 	x.cacheRemote.Store(&cacheRemote{ver, cacheAddr})
 	return cacheAddr
 }

@@ -41,6 +41,22 @@ type providerEtcd struct {
 	// consistent with nodeMap.
 	localProviderVersion atomic.Int64
 	nodeMap              map[string]tNodeState
+	// nodes is an IMMUTABLE snapshot of nodeMap plus the version it belongs to, rebuilt under
+	// nodeChangeLocker whenever nodeMap changes. GetNodes hands it out as-is, so the read side is
+	// lock-free and allocation-free.
+	//
+	// This exists because it is not a cold path. GetClusterActorRef returns a FRESH ref whose
+	// address cache is empty (and callers legitimately build one per message, keyed by player id),
+	// so before this snapshot every cluster send copied the whole node table: 1.6us and 2.7KB for
+	// a 10-node cluster, versus 207ns for an entire local send.
+	nodes atomic.Pointer[nodesSnapshot]
+}
+
+// nodesSnapshot pairs a node set with its version so the two can never be read out of step.
+// Treat the slice as READ-ONLY: every caller of GetNodes shares this one backing array.
+type nodesSnapshot struct {
+	version int64
+	nodes   []tNodeState
 }
 
 // registerEventStream puts path=val bound to this node's lease, so the entry dies with the node.
@@ -98,11 +114,16 @@ func (x *providerEtcd) Logger() *slog.Logger {
 
 func (x *providerEtcd) start(systemLife iSystemLife, clusterMemberChangedListener func(), addr string, config *config, logger *slog.Logger) error {
 	x.logger = logger
-	x.localProviderVersion.Store(1) // 0 is direct[local] actor
-	x.nodeMap = make(map[string]tNodeState)
 	x.system = systemLife
 	x.clusterMemberChangedListener = clusterMemberChangedListener
 	x.config = config
+	// Under the lock and published before anything can read it: grpc is ALREADY serving when
+	// Start() calls us, so an inbound envelope's GetNodes/GetNodesVersion races these writes.
+	x.nodeChangeLocker.Lock()
+	x.localProviderVersion.Store(1) // 0 is direct[local] actor
+	x.nodeMap = make(map[string]tNodeState)
+	x.publishNodesLocked()
+	x.nodeChangeLocker.Unlock()
 	etcdClient, err := clientv3.New(clientv3.Config{Endpoints: config.getClusterUrls(), DialTimeout: config.etcdDialTimeout})
 	if err != nil {
 		return fmt.Errorf("cannot connect to etcd:%v|err:%v", config.getClusterUrls(), err)
@@ -314,9 +335,14 @@ func (x *providerEtcd) loadMembers() (int64, error) {
 	if err != nil {
 		return 0, errors.Join(err, errors.New("first load node state err"))
 	}
+	// One lock and one snapshot rebuild for the whole batch, not per key: republishing per key
+	// would be O(members^2) and would briefly expose half-loaded node sets.
+	x.nodeChangeLocker.Lock()
 	for _, kv := range rsp.Kvs {
-		x.parseWatch(mvccpb.PUT, string(kv.Key), kv.Value)
+		x.applyMemberLocked(mvccpb.PUT, string(kv.Key), kv.Value)
 	}
+	x.publishNodesLocked()
+	x.nodeChangeLocker.Unlock()
 	return rsp.Header.Revision, nil
 }
 
@@ -362,16 +388,23 @@ func (x *providerEtcd) stopSystemOnWatchLoss() {
 	}
 }
 
-// parseWatch applies one member-key change to nodeMap. It never returns an error: a malformed
-// value is logged and that node dropped, else one garbage value written by any peer bricks every
-// joining node.
+// parseWatch applies one member-key change to nodeMap and republishes the snapshot. It never
+// returns an error: a malformed value is logged and that node dropped, else one garbage value
+// written by any peer bricks every joining node.
 func (x *providerEtcd) parseWatch(op mvccpb.Event_EventType, key string, value []byte) {
 	x.nodeChangeLocker.Lock()
 	defer x.nodeChangeLocker.Unlock()
+	x.applyMemberLocked(op, key, value)
+	x.publishNodesLocked()
+}
+
+// applyMemberLocked applies one member-key change to nodeMap and bumps the version. Hold
+// nodeChangeLocker; the caller must publishNodesLocked before releasing it.
+func (x *providerEtcd) applyMemberLocked(op mvccpb.Event_EventType, key string, value []byte) {
 	x.localProviderVersion.Add(1)
-	arr := strings.Split(key, "/")
-	if len(arr) > 0 {
-		key = arr[len(arr)-1]
+	// the member id is the last path segment; no need to split the whole key for it
+	if i := strings.LastIndexByte(key, '/'); i >= 0 {
+		key = key[i+1:]
 	}
 	if op == mvccpb.DELETE {
 		delete(x.nodeMap, key)
@@ -387,20 +420,37 @@ func (x *providerEtcd) parseWatch(op mvccpb.Event_EventType, key string, value [
 	x.Logger().Info("watcher key changed, success", "key", key, "v", a)
 }
 
+// publishNodesLocked rebuilds the immutable snapshot GetNodes hands out. Hold nodeChangeLocker,
+// so the published version and node set always belong together.
+func (x *providerEtcd) publishNodesLocked() {
+	nodes := make([]tNodeState, 0, len(x.nodeMap))
+	for _, state := range x.nodeMap {
+		nodes = append(nodes, state)
+	}
+	x.nodes.Store(&nodesSnapshot{version: x.localProviderVersion.Load(), nodes: nodes})
+}
+
 func (x *providerEtcd) GetNodeId() uint64 { return x.config.state.NodeId }
 func (x *providerEtcd) GetNodesVersion() int64 {
 	// lock-free: version is atomic, so the cluster-send hot path avoids the RLock
 	return x.localProviderVersion.Load()
 }
+
+// GetNodes returns the current node set and the version it belongs to. Lock-free and
+// allocation-free: it hands out the shared snapshot published by publishNodesLocked.
+//
+// The slice is READ-ONLY — every caller shares one backing array, so mutating it corrupts the
+// routing table for the whole process.
+//
+// The returned version may lag GetNodesVersion() by an instant, which only costs a caller one
+// extra cache miss; what matters is that version and nodes are mutually consistent, so an address
+// cached against this version stays correct for exactly as long as this node set is current.
 func (x *providerEtcd) GetNodes() ([]tNodeState, int64) {
-	x.nodeChangeLocker.RLock()
-	defer x.nodeChangeLocker.RUnlock()
-	version := x.localProviderVersion.Load()
-	var nodes []tNodeState
-	for _, state := range x.nodeMap {
-		nodes = append(nodes, state)
+	if snap := x.nodes.Load(); snap != nil {
+		return snap.nodes, snap.version
 	}
-	return nodes, version
+	// before start() published the first snapshot
+	return nil, x.localProviderVersion.Load()
 }
 
 func (x *providerEtcd) GetNodeExtData(subKey string) (string, error) {
