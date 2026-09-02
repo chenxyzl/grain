@@ -14,6 +14,14 @@ func WithConfigAskTimeout(d time.Duration) ConfigOptFunc {
 	}
 }
 
+// WithConfigStopWaitTimeSecond bounds EACH of the two shutdown drain phases, in seconds
+// (default 10). It is a ceiling, not a cost: shutdown continues as soon as every actor has stopped.
+//
+// Keep it above WithConfigAskTimeout — an actor suspended in an Ask has to come back before it can
+// run PreStop — and above the slowest PreStop in the process. Overrunning it is not merely slow:
+// the node then refuses to revoke its etcd lease, so its grain locks stay held, and peers keep
+// routing to it, until the lease TTL expires. That is deliberate — revoking while an activation is
+// still running would hand its single-activation lock to a peer and let the grain run twice.
 func WithConfigStopWaitTimeSecond(t int) ConfigOptFunc {
 	return func(config *config) {
 		config.stopWaitTimeSecond = t

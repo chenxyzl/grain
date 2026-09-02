@@ -63,9 +63,10 @@ func (x *system) WaitStopSignal(beforeQuit func(), afterQuit func()) {
 	}
 	// Order matters: drain actors, then leave the cluster, then stop grpc — inbound envelopes
 	// must stay routable while actors are still being poisoned.
-	x.stopActors()
+	drained := x.stopActors()
 	if x.clusterProvider != nil {
-		x.clusterProvider.stop()
+		// Only give up the lease if every actor really stopped; see stopActors.
+		x.clusterProvider.stop(drained)
 	}
 	if x.rpcService != nil {
 		err := x.rpcService.Stop()
@@ -94,16 +95,32 @@ func (x *system) ForceStop(err error) {
 	}
 }
 
-func (x *system) stopActors() {
+// stopActors drains every actor, in two phases: those that opted into being poisoned first, then
+// the rest. It reports whether they ALL stopped.
+//
+// That result is load-bearing, not informational. Every grain's single-activation lock hangs off
+// this node's etcd lease, so revoking the lease while an activation is still running frees its
+// lock — a peer then activates the same grain and the two write the same state (lost update), no
+// network partition needed. A member key left behind for one lease TTL is the strictly lesser
+// evil, so a false result must suppress the revoke.
+func (x *system) stopActors() bool {
 	x.Logger().Info("stop all actors begin")
 	// Refuse on-demand activation from here on: grpc still listens (stopped only after this
 	// returns), so inbound envelopes would spawn actors nothing poisons.
 	x.draining.Store(true)
 	// wake Asks blocked on a reply so shutdown doesn't wait out askTimeout
 	x.wakePendingAsks()
-	x.stopActorsImpl(true)
-	x.stopActorsImpl(false)
-	x.Logger().Info("stop all actors success")
+	// both phases run even if the first times out: the second still poisons what is left
+	drainedFirst := x.stopActorsImpl(true)
+	drainedLatter := x.stopActorsImpl(false)
+	if drainedFirst && drainedLatter {
+		x.Logger().Info("stop all actors success")
+		return true
+	}
+	x.Logger().Error("stop all actors INCOMPLETE: actors are still running, so this node will " +
+		"NOT revoke its etcd lease; their grain locks stay held until it expires, which keeps " +
+		"peers from double-activating them")
+	return false
 }
 
 // wakePendingAsks poisons every waiting Ask so shutdown doesn't wait out askTimeout. The send
@@ -117,40 +134,46 @@ func (x *system) wakePendingAsks() {
 	})
 }
 
-func (x *system) stopActorsImpl(first bool) {
-	firstStr := "<<first>>"
-	if !first {
-		firstStr = "<<latter>>"
-	}
-	x.Logger().Info(firstStr + "stop actors begin")
-	times := 0
-	for {
-		if times != 0 {
-			time.Sleep(time.Second)
-		}
-		var left []ActorRef
-		x.registry.lookup.IterCb(func(key string, v iProcess) {
-			if first { //first poison
-				if v.opts() != nil && !v.opts().poisonFirstOnQuit {
-					return
-				}
-			} else { //later poison
+// stopPollInterval is how often the drain loop re-checks the registry. Well under a second, so a
+// healthy shutdown costs one interval rather than a full second per phase.
+const stopPollInterval = 50 * time.Millisecond
 
+// stopActorsImpl poisons every actor belonging to this phase and waits for them to leave the
+// registry, up to stopWaitTimeSecond. Reports whether the phase fully drained.
+func (x *system) stopActorsImpl(first bool) bool {
+	phase := "<<latter>> "
+	if first {
+		phase = "<<first>> "
+	}
+	x.Logger().Info(phase + "stop actors begin")
+	deadline := time.Now().Add(time.Duration(x.getConfig().stopWaitTimeSecond) * time.Second)
+	// one "still waiting" line per second, not per 50ms poll
+	const logEvery = int(time.Second / stopPollInterval)
+	for round := 1; ; round++ {
+		var left []ActorRef
+		// rangeIt, not lookup.IterCb: poison() wakes a run loop that can reach registry.remove,
+		// and IterCb holds a shard read lock for the whole callback (see registry.rangeIt).
+		x.registry.rangeIt(func(_ string, v iProcess) {
+			// the first phase only claims actors that opted into being poisoned early
+			if first && v.opts() != nil && !v.opts().poisonFirstOnQuit {
+				return
 			}
-			//
-			v.poison()
+			v.poison() // idempotent: sets the flag and wakes the run loop
 			left = append(left, v.self())
 		})
-		times++
 		if len(left) == 0 {
-			x.Logger().Warn(firstStr+"waiting actors stop success", "times", times)
-			break
-		} else if times >= x.getConfig().stopWaitTimeSecond {
-			x.Logger().Warn(firstStr+"waiting stop timeout", "left", len(left), "times", times, "actors", left)
-			break
-		} else {
-			x.Logger().Info(firstStr+"waiting actors stop", "count", len(left), "times", times)
+			x.Logger().Info(phase+"stop actors success", "rounds", round)
+			return true
 		}
+		if !time.Now().Before(deadline) {
+			x.Logger().Error(phase+"stop actors TIMED OUT, actors are still running",
+				"left", len(left), "rounds", round,
+				"stopWaitTimeSecond", x.getConfig().stopWaitTimeSecond, "actors", left)
+			return false
+		}
+		if round%logEvery == 1 {
+			x.Logger().Info(phase+"waiting actors stop", "count", len(left), "round", round)
+		}
+		time.Sleep(stopPollInterval)
 	}
-	x.Logger().Info(firstStr + "stop actors success")
 }

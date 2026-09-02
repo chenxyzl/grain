@@ -34,6 +34,9 @@ func newTestSystemTB(t testing.TB) *system {
 		addr:     "10.10.108.145:50685",
 		pending:  safemap.NewIntC[uint64, chan proto.Message](),
 		addrHash: newAddrHash(),
+		// cap-1, as NewSystem builds it. WaitStopSignal selects on this and ForceStop sends to
+		// it, so leaving it nil makes both block forever.
+		forceCloseChan: make(chan bool, 1),
 	}
 	// logger left unset, so Logger() falls back to slog.Default() as it does before Start()
 	sys.registry = newRegistry()

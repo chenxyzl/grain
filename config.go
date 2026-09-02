@@ -13,8 +13,12 @@ import (
 type ConfigOptFunc func(*config)
 
 const (
-	defaultAskTimeout         = time.Second * 3
-	defaultStopWaitTimeSecond = 3
+	defaultAskTimeout = time.Second * 3
+	//defaultStopWaitTimeSecond bounds EACH of the two shutdown drain phases. Comfortably above
+	//defaultAskTimeout on purpose: an actor suspended in an Ask has to come back before it can run
+	//PreStop. It is a ceiling, not a cost — the loop returns as soon as the registry empties — and
+	//exceeding it is expensive, because the node then declines to revoke its etcd lease.
+	defaultStopWaitTimeSecond = 10
 	//defaultEtcdDialTimeout bounds the initial clientv3 connect and the lease Revoke on shutdown.
 	defaultEtcdDialTimeout = time.Second * 10
 	//defaultEtcdLeaseTTLSecond: TTL of the lease this node's member key and every event-stream

@@ -232,11 +232,21 @@ func (x *system) registerAsk(snId uint64) chan proto.Message {
 	return ch
 }
 
-// deliverReply routes a reply to the waiting Ask by snId. Pop is atomic, so at most one of
-// {reply, timeout, shutdown} ever writes the channel; a late reply finds nothing and is dropped.
+// deliverReply routes a reply to the waiting Ask by snId. Pop is atomic, so a late reply finds
+// nothing and is dropped.
+//
+// The send MUST stay non-blocking. Pop does not make this the only writer: wakePendingAsks
+// writes msgPoison WITHOUT popping, so the buffer can already be full when we get here, and an
+// asker that has since timed out will never drain it (askImpl only removes the entry after
+// resumeTurn, which itself waits for the turn). A blocking send would then wedge THIS goroutine
+// forever — and for a local reply that is the replying actor's own processing goroutine, holding
+// its turn, so the actor could never stop.
 func (x *system) deliverReply(snId uint64, msg proto.Message) {
 	if ch, ok := x.pending.Pop(snId); ok {
-		ch <- msg // cap-1, single writer wins the Pop, never blocks
+		select {
+		case ch <- msg:
+		default: // already carries a poison/reply nobody will read; the Ask is over
+		}
 	}
 }
 

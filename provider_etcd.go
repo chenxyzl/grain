@@ -114,7 +114,8 @@ func (x *providerEtcd) start(systemLife iSystemLife, clusterMemberChangedListene
 	started := false
 	defer func() {
 		if !started {
-			x.releaseEtcd()
+			// nothing of ours is running yet, so giving up the lease is unambiguously right
+			x.releaseEtcd(true)
 		}
 	}()
 	leaseResp, err := etcdClient.Grant(context.Background(), x.config.etcdLeaseTTLSecond)
@@ -148,19 +149,33 @@ func (x *providerEtcd) start(systemLife iSystemLife, clusterMemberChangedListene
 	return nil
 }
 
-// releaseEtcd undoes whatever start() acquired: the keepalive context, the lease (which also
-// removes every key bound to it, this node's member entry included) and the client.
+// releaseEtcd undoes whatever start() acquired: the keepalive context, the lease and the client.
 // Idempotent, and shared by stop() and start()'s failure path.
-func (x *providerEtcd) releaseEtcd() {
+//
+// revokeLease=true also removes every key bound to the lease — this node's member entry and all
+// of its grain locks — which is correct once nothing is running here. revokeLease=false leaves the
+// lease to expire on its own, and that is what keeps a still-running activation's lock held.
+func (x *providerEtcd) releaseEtcd(revokeLease bool) {
 	if x.cancelFunc != nil {
 		x.cancelFunc()
 		x.cancelFunc = nil
 	}
 	if x.client != nil && x.leaseId != 0 {
-		ctx, cancel := context.WithTimeout(context.Background(), x.config.etcdDialTimeout)
-		defer cancel()
-		if _, err := x.client.Revoke(ctx, x.leaseId); err != nil {
-			x.Logger().Info("cluster provider etcd revoke lease err", "err", err)
+		if revokeLease {
+			ctx, cancel := context.WithTimeout(context.Background(), x.config.etcdDialTimeout)
+			defer cancel()
+			if _, err := x.client.Revoke(ctx, x.leaseId); err != nil {
+				x.Logger().Info("cluster provider etcd revoke lease err", "err", err)
+			}
+		} else {
+			// Keepalive is already cancelled above, so the lease dies on its own after the TTL.
+			// Until then this node's grain locks stay held — which is the point: an activation
+			// that never stopped must not have its lock handed to a peer. The cost is that the
+			// member key lingers too, so peers keep routing here for up to the TTL.
+			x.Logger().Warn("cluster provider etcd lease left to EXPIRE instead of revoked: "+
+				"actors did not drain, so their grain locks stay held; peers may keep routing "+
+				"to this node until the lease times out",
+				"leaseTTLSecond", x.config.etcdLeaseTTLSecond)
 		}
 		x.leaseId = 0
 	}
@@ -172,12 +187,12 @@ func (x *providerEtcd) releaseEtcd() {
 	}
 }
 
-func (x *providerEtcd) stop() {
+func (x *providerEtcd) stop(revokeLease bool) {
 	// flag the deliberate teardown BEFORE tearing anything down, so the background goroutines do
 	// not mistake it for an etcd failure and stop the system again
 	x.stopping.Store(true)
-	x.releaseEtcd()
-	x.Logger().Info("cluster provider etcd stopped")
+	x.releaseEtcd(revokeLease)
+	x.Logger().Info("cluster provider etcd stopped", "leaseRevoked", revokeLease)
 }
 
 // registerRounds bounds register()'s claim retries; a round is only consumed by losing a race.

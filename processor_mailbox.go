@@ -188,16 +188,25 @@ func (x *processorMailBox) invoke(ctx Context) {
 				"stack", ghelper.StackTrace())
 		}
 	}()
-	switch ctx.Message().(type) {
-	case *message.Initialize:
-		x.start()
-	case *message.Poison:
-		// A Poison arriving as a message must not stop synchronously: another handler may be
-		// suspended in a blocking Ask. Via the flag path, stop runs only once inflight==0.
-		x.poison()
-	default:
-		x.receiver.Receive(ctx)
+	// Control messages are only INTERPRETED when addressed to this actor. Every local delivery
+	// site normalizes the context target to proc.self() (see sendToLocal / the initialize push),
+	// so target identity is exactly the "is this for me?" test. A relay processor — the
+	// write_stream actor — is instead handed contexts whose target is an actor on ANOTHER node,
+	// and for it the message is opaque cargo: interpreting a Poison there would stop the outbound
+	// stream to that whole peer and leave the remote grain running, never delivering the poison.
+	if ctx.Target() == x.self() {
+		switch ctx.Message().(type) {
+		case *message.Initialize:
+			x.start()
+			return
+		case *message.Poison:
+			// A Poison arriving as a message must not stop synchronously: another handler may be
+			// suspended in a blocking Ask. Via the flag path, stop runs only once inflight==0.
+			x.poison()
+			return
+		}
 	}
+	x.receiver.Receive(ctx)
 }
 
 func (x *processorMailBox) schedule() {

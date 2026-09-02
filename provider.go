@@ -16,7 +16,10 @@ const (
 type iProvider interface {
 	//life
 	start(systemLife iSystemLife, clusterMemberChangedListener func(), addr string, config *config, logger *slog.Logger) error
-	stop()
+	//stop tears the provider down. revokeLease says whether it may give up this node's lease:
+	//false when actors failed to drain, because every grain's single-activation lock hangs off
+	//that lease, so releasing it early lets a peer double-activate a grain still running here.
+	stop(revokeLease bool)
 
 	//nodes
 	GetNodeId() uint64
