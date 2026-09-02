@@ -89,7 +89,9 @@ type iRegistry interface {
 	get(actRef ActorRef) iProcess
 	add(iProcP iProcessProvider) (iProcess, error)
 	getOrAdd(id string, iProcP iProcessProvider) iProcess
-	remove(actRef ActorRef)
+	//remove deletes actRef's entry only while it still holds iProcP; see registry.remove for why
+	//the identity check matters.
+	remove(actRef ActorRef, iProcP iProcess)
 }
 
 // CancelScheduleFunc ...

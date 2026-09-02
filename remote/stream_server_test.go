@@ -51,7 +51,7 @@ func TestListenReturnsOnEveryRecvError(t *testing.T) {
 				if e == nil {
 					sawNil.Store(true)
 				}
-			}, ":0")
+			}, ":0", nil)
 			svc.logger = slog.Default()
 
 			stream := &errStream{err: c.err}
@@ -106,7 +106,7 @@ func (f *okThenEOF) Recv() (*Envelope, error) {
 // The happy path must still deliver every envelope, then exit cleanly on EOF.
 func TestListenDeliversUntilEOF(t *testing.T) {
 	var delivered atomic.Int32
-	svc := NewRpcServer(func(e *Envelope) { delivered.Add(1) }, ":0")
+	svc := NewRpcServer(func(e *Envelope) { delivered.Add(1) }, ":0", nil)
 	svc.logger = slog.Default()
 
 	if err := svc.Listen(&okThenEOF{left: 5}); err != nil {
@@ -121,7 +121,7 @@ func TestListenDeliversUntilEOF(t *testing.T) {
 // wildcard the listener reports.
 func TestStartAdvertisedAddr(t *testing.T) {
 	t.Run("explicit host is advertised as given", func(t *testing.T) {
-		svc := NewRpcServer(func(*Envelope) {}, "127.0.0.1:0")
+		svc := NewRpcServer(func(*Envelope) {}, "127.0.0.1:0", nil)
 		if err := svc.Start(); err != nil {
 			t.Fatalf("Start: %v", err)
 		}
@@ -141,7 +141,7 @@ func TestStartAdvertisedAddr(t *testing.T) {
 	})
 
 	t.Run("wildcard is replaced by a dialable host", func(t *testing.T) {
-		svc := NewRpcServer(func(*Envelope) {}, ":0")
+		svc := NewRpcServer(func(*Envelope) {}, ":0", nil)
 		if err := svc.Start(); err != nil {
 			t.Fatalf("Start: %v", err)
 		}
@@ -163,7 +163,7 @@ func TestStartAdvertisedAddr(t *testing.T) {
 	})
 
 	t.Run("empty listenAddr defaults to :0", func(t *testing.T) {
-		svc := NewRpcServer(func(*Envelope) {}, "")
+		svc := NewRpcServer(func(*Envelope) {}, "", nil)
 		if svc.listenAddr != ":0" {
 			t.Errorf("listenAddr = %q, want the \":0\" default", svc.listenAddr)
 		}
@@ -173,7 +173,7 @@ func TestStartAdvertisedAddr(t *testing.T) {
 // A bad listen address must name itself in the error; it comes from user config, so
 // "address already in use" alone would not say which option to fix.
 func TestStartBadListenAddrNamesIt(t *testing.T) {
-	svc := NewRpcServer(func(*Envelope) {}, "256.256.256.256:1")
+	svc := NewRpcServer(func(*Envelope) {}, "256.256.256.256:1", nil)
 	err := svc.Start()
 	if err == nil {
 		_ = svc.Stop()
@@ -190,7 +190,7 @@ func TestStartBadListenAddrNamesIt(t *testing.T) {
 // assertion.
 func TestStartThenImmediateStop(t *testing.T) {
 	for range 50 {
-		svc := NewRpcServer(func(*Envelope) {}, "127.0.0.1:0")
+		svc := NewRpcServer(func(*Envelope) {}, "127.0.0.1:0", nil)
 		if err := svc.Start(); err != nil {
 			t.Fatalf("Start: %v", err)
 		}

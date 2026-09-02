@@ -92,7 +92,29 @@ func (x *processorMailBox) self() ActorRef { return x._self }
 func (x *processorMailBox) opts() *tOpts   { return &x.tOpts }
 
 func (x *processorMailBox) acquireTurn() { <-x.turn }
-func (x *processorMailBox) releaseTurn() { x.turn <- struct{}{} }
+
+// releaseTurn returns the turn token. Exactly one token exists (created in build), and every
+// acquire/release pair is balanced, so finding the channel already full means someone released a
+// turn they never held — single-threaded execution is already broken at that point.
+//
+// The reachable cause is a handler doing `go func(){ x.Ask(...) }()`. askImpl's yieldTurn then runs
+// on the SPAWNED goroutine, which is not the turn holder and which yieldTurn cannot distinguish, so
+// it frees the turn while the real handler is still running and the drainer starts a second Receive
+// concurrently. Both goroutines later release, and the second release is what lands here.
+//
+// Logged, not panicked: the invariant broke earlier, and the actor's state is what a developer needs
+// in order to find the goroutine that did it. Costs a select instead of a blocking send.
+func (x *processorMailBox) releaseTurn() {
+	select {
+	case x.turn <- struct{}{}:
+	default:
+		x.system.Logger().Error("grain: BUG, turn released by a goroutine that never held it — "+
+			"this actor is no longer single-threaded. Almost always a handler that spawned a "+
+			"goroutine and called Ask from it: Ask is only valid on the handler's own goroutine "+
+			"(Started, Receive, PreStop). Tell self instead, and Ask while handling that message.",
+			"id", x.self(), "stack", ghelper.StackTrace())
+	}
+}
 
 // isStarted reports whether Started() has completed and PreStop() has not begun. Callers hold the
 // turn, and life is only written under it, so no atomic. A positive test against lifeStarted, not
@@ -259,6 +281,14 @@ func (x *processorMailBox) doStop() {
 		// work reappeared before we got the turn; a drainer will handle it and retry stop
 		return
 	}
+	// Claim the turn as OURS. run() only assigns activeDS after popping a message, so on the
+	// drained path that got us here it still points at some earlier drainer's state, whose
+	// handedOff is false. Left that way, a PreStop that releases the turn would make yieldTurn
+	// take its "first yield" branch and spawn a successor — which, since doStop only runs at
+	// inflight==0, would immediately re-enter doStop and run the REST of stop() (deregister,
+	// unregister-from-cluster) a second time while PreStop was still suspended. nil, not a fresh
+	// state: nothing may drain during PreStop, so no successor should ever be spawned from it.
+	x.activeDS = nil
 	x.stop()
 }
 
@@ -305,7 +335,7 @@ func (x *processorMailBox) stop() {
 	}()
 	defer func() {
 		atomic.StoreInt32(&x.procStatus, stopped)
-		x.system.getRegistry().remove(x.self())
+		x.system.getRegistry().remove(x.self(), x)
 		// Close the ring so later Push returns PushClosed, then dead-letter what is still queued.
 		// The drain is not optional: procStatus stays `running` for all of PreStop, so a sender in
 		// that window gets PushOK while schedule()'s CAS(idle→running) fails and nothing drains it.

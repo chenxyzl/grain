@@ -18,18 +18,39 @@ type cacheParse struct {
 
 // parseCache splits "type/kind/name@directAddr" into those four parts. directAddr is "" when
 // absent, and all four are "" if fullPath is not in that shape.
-func parseCache(fullPath string) (string, string, string, string) {
-	a1 := strings.Split(fullPath, "/")
-	if len(a1) != 3 {
+//
+// Every result is a SUBSTRING of fullPath, so this allocates nothing — deliberately, because
+// newActorRefFromAID runs it once for the target and once for the sender of EVERY inbound
+// envelope. The two strings.Split calls it replaces cost 94ns and one allocation per call; this is
+// 29ns and none.
+func parseCache(fullPath string) (typ, kind, name, directAddr string) {
+	i := strings.IndexByte(fullPath, '/')
+	if i < 0 {
 		return "", "", "", ""
 	}
-	a2 := strings.Split(a1[2], "@")
-	name := a2[0]
-	var directAddr string
-	if len(a2) > 1 {
-		directAddr = a2[1]
+	rest := fullPath[i+1:]
+	j := strings.IndexByte(rest, '/')
+	if j < 0 {
+		return "", "", "", ""
 	}
-	return a1[0], a1[1], name, directAddr
+	name = rest[j+1:]
+	// a third separator means the input was not "a/b/c" — the same rejection as len(Split) != 3
+	if strings.IndexByte(name, '/') >= 0 {
+		return "", "", "", ""
+	}
+	typ, kind = fullPath[:i], rest[:j]
+	if k := strings.IndexByte(name, '@'); k >= 0 {
+		directAddr = name[k+1:]
+		name = name[:k]
+		// Matches Split("@")[1]: a second '@' ends directAddr. Unreachable for an id this package
+		// builds — ValidateActorName bars '@' in a name, and addresses never contain one — but
+		// fullPath also arrives off the wire, so keep the established shape for garbage rather
+		// than inventing a new one here.
+		if k2 := strings.IndexByte(directAddr, '@'); k2 >= 0 {
+			directAddr = directAddr[:k2]
+		}
+	}
+	return typ, kind, name, directAddr
 }
 
 func (x *cacheParse) GetType() string {

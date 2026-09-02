@@ -19,6 +19,10 @@ type iRpcReceiver func(envelope *Envelope)
 
 type RpcService struct {
 	iRpcReceiver iRpcReceiver
+	// onFatal reports a Serve failure to the owner. Serve runs on its own goroutine with nothing
+	// above it to recover, so the alternative was panic() — which kills the process instead of
+	// letting the system shut down in order.
+	onFatal func(error)
 	//
 	logger *slog.Logger
 	//listenAddr is what Start() binds; addr is what peers are told to dial — deliberately
@@ -29,12 +33,13 @@ type RpcService struct {
 }
 
 // NewRpcServer builds the node's inbound grpc server. listenAddr is the host:port to bind;
-// "" means ":0" — every interface, kernel-assigned port.
-func NewRpcServer(iRpcReceiver iRpcReceiver, listenAddr string) *RpcService {
+// "" means ":0" — every interface, kernel-assigned port. onFatal, when non-nil, is called if Serve
+// returns an unexpected error; it must not block.
+func NewRpcServer(iRpcReceiver iRpcReceiver, listenAddr string, onFatal func(error)) *RpcService {
 	if listenAddr == "" {
 		listenAddr = ":0"
 	}
-	return &RpcService{iRpcReceiver: iRpcReceiver, listenAddr: listenAddr}
+	return &RpcService{iRpcReceiver: iRpcReceiver, listenAddr: listenAddr, onFatal: onFatal}
 }
 
 func (x *RpcService) Listen(server Remoting_ListenServer) error {
@@ -91,8 +96,18 @@ func (x *RpcService) Start() error {
 	RegisterRemotingServer(gs, x)
 	go func() {
 		// ErrServerStopped just means Stop() landed before Serve(); not a failure.
-		if err := gs.Serve(lis); err != nil && !errors.Is(err, grpc.ErrServerStopped) && err != io.EOF {
-			panic(err)
+		err := gs.Serve(lis)
+		if err == nil || errors.Is(err, grpc.ErrServerStopped) || err == io.EOF {
+			return
+		}
+		// This node can no longer accept inbound traffic, so it must not keep serving cluster
+		// traffic as if it could. Reported to the owner rather than panicked: a panic here is on
+		// this goroutine with no recover above it, so it killed the process outright and skipped
+		// the ordered shutdown (drain actors, then release the etcd lease).
+		x.Logger().Error("grpc Serve failed; the node can no longer accept inbound traffic",
+			"listen", x.listenAddr, "err", err)
+		if x.onFatal != nil {
+			x.onFatal(fmt.Errorf("grpc serve on %q failed: %w", x.listenAddr, err))
 		}
 	}()
 	x.Logger().Info("RpcService Started ...", "listen", x.listenAddr)

@@ -13,7 +13,9 @@ import (
 )
 
 func (x *system) Start() {
-	x.rpcService = remote.NewRpcServer(x.RecvEnvelope, x.config.grpcListenAddr)
+	// A Serve failure means this node can no longer receive anything, so escalate it into the
+	// normal shutdown path instead of letting the transport panic the process from a goroutine.
+	x.rpcService = remote.NewRpcServer(x.RecvEnvelope, x.config.grpcListenAddr, x.ForceStop)
 	if err := x.rpcService.Start(); err != nil {
 		panic(errors.Join(err, errors.New("grpc server start failed")))
 	}

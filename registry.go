@@ -18,8 +18,14 @@ func newRegistry() *registry {
 	}
 }
 
-func (r *registry) remove(actRef ActorRef) {
-	r.lookup.Remove(actRef.GetId())
+// remove deletes the entry for actRef, but ONLY while it still holds proc. The identity check is
+// load-bearing: ids get reused (a cluster grain deactivates and is re-activated on demand, a named
+// actor is respawned), so an unconditional delete-by-id lets a late or repeated stop evict a NEWER,
+// live activation and orphan it — reachable from any path that runs a teardown twice.
+func (r *registry) remove(actRef ActorRef, proc iProcess) {
+	r.lookup.RemoveCb(actRef.GetId(), func(_ string, v iProcess, exists bool) bool {
+		return exists && v == proc
+	})
 }
 
 func (r *registry) get(actRef ActorRef) iProcess {

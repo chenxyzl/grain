@@ -1,8 +1,11 @@
 package grain
 
 import (
+	"bytes"
 	"errors"
+	"log/slog"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -390,4 +393,62 @@ func TestValidateActorName(t *testing.T) {
 			t.Errorf("ValidateActorName(%q) = %v, want ErrInvalidName", name, err)
 		}
 	}
+}
+
+// goroutineAsker commits the documented misuse: it calls Ask from a goroutine it spawned, so the
+// yieldTurn/resumeTurn pair runs on a goroutine that never held the turn. The turn token then gets
+// released twice, and releaseTurn must say so instead of letting the actor quietly de-serialise.
+type goroutineAsker struct {
+	BaseActor
+	fired chan struct{}
+}
+
+func (a *goroutineAsker) Started() {}
+func (a *goroutineAsker) PreStop() {}
+func (a *goroutineAsker) Receive(ctx Context) {
+	if _, ok := ctx.Message().(*message.Unsubscribe); !ok {
+		return
+	}
+	go func() {
+		// wrong: Ask belongs on the handler's own goroutine
+		_, _ = a.Ask[*message.Subscribe](a.Self(), &message.Subscribe{EventName: "x"})
+		close(a.fired)
+	}()
+	time.Sleep(150 * time.Millisecond) // still "running" while the goroutine yields our turn
+}
+
+func TestUnmatchedTurnReleaseIsReported(t *testing.T) {
+	var buf lockedBuffer
+	sys := newTestSystem(t)
+	sys.logger.Store(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelError})))
+
+	a := &goroutineAsker{fired: make(chan struct{})}
+	ref, err := sys.SpawnNamed(func() IActor { return a }, "goroutine-asker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sys.tellWithSender(ref, &message.Unsubscribe{EventName: "go"}, nil, 1)
+	select {
+	case <-a.fired:
+	case <-time.After(5 * time.Second):
+	}
+	waitFor(t, func() bool { return strings.Contains(buf.String(), "never held it") },
+		"the framework to report the broken single-threading")
+}
+
+// lockedBuffer is a race-free io.Writer for capturing log output.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }

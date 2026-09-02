@@ -40,7 +40,7 @@ func TestRangeItCallbackMayReenterRegistry(t *testing.T) {
 
 	<-inCallback
 	// queue a writer on the same shard, as any actor stopping/spawning would
-	go func() { reg.remove(ref) }()
+	go func() { reg.remove(ref, nil) }() // nil proc: RemoveCb still takes the shard write lock
 	time.Sleep(100 * time.Millisecond) // give Lock() time to enqueue
 	close(writerQueued)
 
