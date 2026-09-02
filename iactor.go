@@ -1,11 +1,6 @@
 package grain
 
-// Producer builds a new actor instance. Spawn, SpawnNamed and WithConfigKind take
-// one; the framework calls it once per activation.
-//
-// Exported (was iProducer) because it appears in exported signatures: a func literal
-// satisfied it either way, but callers could not declare a variable of the type or
-// write a helper that returns one.
+// Producer builds a new actor instance; the framework calls it once per activation.
 type Producer func() IActor
 type tKind struct {
 	producer Producer
@@ -16,41 +11,32 @@ type tKind struct {
 type IActor interface {
 	//inner api, for inherit auth
 	_init(self ActorRef) //for bind self
-	//_bindTurn binds the reentrancy turn controller of the owning processor, so
-	//a blocking Ask can yield/reacquire the actor's single execution turn.
+	//_bindTurn binds the owning processor's turn controller, so a blocking Ask can yield it
 	_bindTurn(t reentryTurn)
 
 	//Started after self Instance
 	Started()
 	//PreStop when receive poison, before stop self
 	PreStop()
-	//Receive message
+	//Receive one message; the only place user logic runs
 	Receive(ctx Context)
 }
 
-// drainState is the per-drain-goroutine flag: once a goroutine yields its turn
-// inside a blocking Ask (spawning a successor drainer), handedOff is set and the
-// goroutine exits after finishing its current handler instead of looping.
+// drainState flags a drain goroutine that yielded its turn inside a blocking Ask (thereby
+// spawning a successor drainer): it exits after the current handler instead of looping.
 type drainState struct {
 	handedOff bool
 }
 
-// reentryTurn lets BaseActor.Ask (through askImpl) release the actor's execution
-// turn before blocking on a reply and reacquire it afterwards, enabling
-// reentrancy while keeping the actor strictly single-threaded. Implemented by
-// processorMailBox.
+// reentryTurn lets askImpl release the actor's execution turn before blocking on a reply and
+// reacquire it after — reentrancy while staying single-threaded. Implemented by processorMailBox.
 type reentryTurn interface {
-	// yieldTurn releases the turn before blocking (ensuring a successor drainer
-	// exists) and returns the caller's drain state to restore on resume.
+	// yieldTurn releases the turn (ensuring a successor drainer exists) and returns the state to
+	// restore on resume.
 	yieldTurn() *drainState
 	// resumeTurn reacquires the turn after the reply arrives.
 	resumeTurn(ds *drainState)
-	// isStarted reports whether the actor is in its running phase: Started() has
-	// completed and PreStop() has not begun (life == lifeStarted). That is the ONLY
-	// phase in which a blocking Ask is permitted, so askImpl uses this as an
-	// allow-list rather than denying specific phases: a lifecycle state added later
-	// is refused by default instead of silently slipping through.
-	// Only valid while holding the turn, which every actor handler does.
+	// isStarted: actor is running (Started() done, PreStop() not begun) — the ONLY phase allowing
+	// a blocking Ask, so askImpl allow-lists it. Valid only while holding the turn, as handlers do.
 	isStarted() bool
 }
-

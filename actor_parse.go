@@ -16,11 +16,8 @@ type cacheParse struct {
 	directAddr string
 }
 
-// parseCache
-// @return type
-// @return kind
-// @return name
-// @return directAddr default is ""
+// parseCache splits "type/kind/name@directAddr" into those four parts. directAddr is "" when
+// absent, and all four are "" if fullPath is not in that shape.
 func parseCache(fullPath string) (string, string, string, string) {
 	a1 := strings.Split(fullPath, "/")
 	if len(a1) != 3 {

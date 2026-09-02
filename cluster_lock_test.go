@@ -11,8 +11,8 @@ import (
 
 var errFakeRegister = errors.New("fake: etcd said no")
 
-// newTestProcessorWithOpts mirrors newTestProcessor but takes the tOpts verbatim, so a
-// test can supply its own registerToCluster / unRegisterFromCluster and a cluster self-ref.
+// newTestProcessorWithOpts is newTestProcessor with caller-supplied tOpts, so a test can
+// inject its own registerToCluster / unRegisterFromCluster and a cluster self-ref.
 func newTestProcessorWithOpts(sys *fakeSys, r IActor, mailbox int, opts tOpts) *processorMailBox {
 	p := &processorMailBox{
 		system:     sys,
@@ -46,10 +46,8 @@ func waitFor(t *testing.T, cond func() bool, what string) {
 	t.Fatalf("timed out waiting: %s", what)
 }
 
-// txnProvider implements just the two txn primitives, with etcd's real semantics: setTxn
-// is create-only (If CreateRevision == 0 Then Put), removeTxn is compare-value-then-delete
-// (If Value == val Then Delete). Everything else is the embedded nil iProvider and would
-// panic if these tests touched it.
+// txnProvider implements only the two txn primitives with etcd's real semantics: setTxn is
+// create-only, removeTxn is compare-value-then-delete. Anything else hits the nil iProvider.
 type txnProvider struct {
 	iProvider
 	kv map[string]string
@@ -81,9 +79,7 @@ func nodeCfg(addr string) *config {
 	return c
 }
 
-// TestGrainRegistrationIsExclusive pins the single-activation guarantee: the key is
-// created with a create-only txn, so two nodes racing to activate the same cluster actor
-// cannot both win.
+// Single activation: the create-only txn means two nodes racing the same grain cannot both win.
 func TestGrainRegistrationIsExclusive(t *testing.T) {
 	prov := newTxnProvider()
 	nodeA, nodeB := nodeCfg("10.0.0.1:5000"), nodeCfg("10.0.0.2:5000")
@@ -98,10 +94,8 @@ func TestGrainRegistrationIsExclusive(t *testing.T) {
 	}
 }
 
-// TestGrainLockValueIdentifiesTheOwner: the lock value must be the owning node's address,
-// because removeTxn compares against it. It used to be ref.GetDirectAddr(), which is ""
-// for a cluster ref ("cluster/kind/name" has no "@addr"), so every node wrote the same
-// empty string and the compare-and-delete matched unconditionally.
+// The lock value must be the owning node's address, since removeTxn compares against it. A
+// cluster ref has no "@addr", so anything ref-derived is "" on every node and matches always.
 func TestGrainLockValueIdentifiesTheOwner(t *testing.T) {
 	prov := newTxnProvider()
 	nodeA := nodeCfg("10.0.0.1:5000")
@@ -116,15 +110,8 @@ func TestGrainLockValueIdentifiesTheOwner(t *testing.T) {
 	}
 }
 
-// TestLoserCannotDeleteWinnersGrainLock is the regression for the double-activation bug.
-//
-// Node B loses the race, so start() stops it, and stop()'s deferred unregister used to run
-// regardless. With the old empty-string lock value that compare-and-delete matched, so B
-// deleted the lock A was holding: the grain was then unlocked in etcd while A still hosted
-// it, the next activation anywhere succeeded, and the same grain ran twice with each copy
-// persisting its own state.
-//
-// Two independent fixes, so this asserts the outcome both of them protect.
+// A node that lost the race must never delete the winner's lock; otherwise the grain is
+// unlocked in etcd while still hosted, and a second activation runs the same grain twice.
 func TestLoserCannotDeleteWinnersGrainLock(t *testing.T) {
 	prov := newTxnProvider()
 	nodeA, nodeB := nodeCfg("10.0.0.1:5000"), nodeCfg("10.0.0.2:5000")
@@ -137,8 +124,7 @@ func TestLoserCannotDeleteWinnersGrainLock(t *testing.T) {
 	if err := defaultRegisterToCluster(prov, nodeB, ref); err == nil {
 		t.Fatal("node B should have lost the race")
 	}
-	// Fix 1: even if the loser does attempt an unregister (an un-upgraded peer, or any
-	// other path that reaches it), the value no longer matches so the delete is refused.
+	// even if the loser attempts an unregister, the value mismatch must refuse the delete
 	_ = defaultUnregisterFromCluster(prov, nodeB, ref)
 
 	if _, held := prov.kv[key]; !held {
@@ -155,10 +141,8 @@ func TestLoserCannotDeleteWinnersGrainLock(t *testing.T) {
 	}
 }
 
-// TestFailedRegistrationSkipsUnregister covers fix 2 at the processor level: `registered`
-// gates stop()'s unregister the same way lifeStarted gates PreStop. A transient etcd error
-// (setTxn returns false without the key being taken) must not lead to an unregister for a
-// lock this actor never held.
+// A failed registration must not unregister: `registered` gates stop()'s unregister the way
+// lifeStarted gates PreStop, so a transient etcd error cannot release a lock never held.
 func TestFailedRegistrationSkipsUnregister(t *testing.T) {
 	sys := newFakeSys()
 	sys.cfg = nodeCfg("10.0.0.1:5000")
@@ -185,9 +169,8 @@ func TestFailedRegistrationSkipsUnregister(t *testing.T) {
 	}
 }
 
-// TestSuccessfulRegistrationDoesUnregister guards against over-correcting: the gate must
-// not suppress the unregister on the normal path, or every stopped grain would leave a
-// stale lock behind until the node's lease expired.
+// The gate must not suppress the unregister on the normal path, or every stopped grain leaves
+// a stale lock until the node's lease expires.
 func TestSuccessfulRegistrationDoesUnregister(t *testing.T) {
 	sys := newFakeSys()
 	sys.cfg = nodeCfg("10.0.0.1:5000")

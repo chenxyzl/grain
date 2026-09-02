@@ -6,16 +6,12 @@ import (
 	"strings"
 )
 
-// maxStackFrames bounds the trace so a deep or recursive stack cannot produce an
-// unbounded log line. Truncation is marked explicitly rather than silently dropped.
+// maxStackFrames bounds a trace so a deep or recursive stack cannot make an unbounded log line.
 const maxStackFrames = 32
 
-// StackTrace renders the caller's stack for a log line.
-//
-// Uses runtime.Callers + CallersFrames rather than runtime.Caller in a loop: the loop
-// re-walked the stack once per frame, built the string with O(n^2) concatenation, and
-// FuncForPC(pc).Name() reports the OUTER function for inlined frames, so names were
-// sometimes wrong. CallersFrames expands inline frames correctly.
+// StackTrace renders the caller's stack for a log line, marking truncation explicitly. Uses
+// runtime.Callers + CallersFrames, not runtime.Caller in a loop: the loop re-walks the stack per
+// frame, and FuncForPC(pc).Name() reports the OUTER function for inlined frames.
 func StackTrace() string {
 	pcs := make([]uintptr, maxStackFrames)
 	// skip 2: runtime.Callers itself and StackTrace.
@@ -46,12 +42,8 @@ func StackTrace() string {
 	return b.String()
 }
 
-// trimFilePath shortens an absolute source path to something readable in a log.
-//
-// The old code trimmed at "/src/", which only ever matched under GOPATH — in a module
-// build paths look like /home/me/proj/pkg/file.go, so project files were logged with
-// their full absolute path and the trim was dead code. Keep the last two segments
-// (package dir + file), which is what actually identifies the location.
+// trimFilePath shortens an absolute source path to its last two segments (package dir + file),
+// which is what identifies the location. Trimming at "/src/" instead only matches under GOPATH.
 func trimFilePath(file string) string {
 	if file == "" {
 		return "?"

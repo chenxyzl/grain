@@ -47,9 +47,8 @@ func (x *contextImpl) GetMsgSnId() uint64 {
 	return x.msgSnId
 }
 
-// Forward re-sends the current message to target as-is, preserving the original
-// sender and msgSnId so target can reply directly to the original sender. It is
-// a one-shot forward of this message, not a persistent redirect rule.
+// Forward re-sends this message to target as-is, keeping the original sender and msgSnId so
+// target replies to the original sender. One-shot, not a persistent redirect rule.
 func (x *contextImpl) Forward(target ActorRef) {
 	x.senderFunc.tellWithSender(target, x.message, x.sender, x.msgSnId)
 }

@@ -37,27 +37,22 @@ func eq(a []string, b ...string) bool {
 	return true
 }
 
-// TestLinkLocalIsRejected pins the APIPA filter.
-//
-// 169.254.0.0/16 is what a host self-assigns when it fails to get a DHCP lease; no peer
-// can route to it. It used to pass the filter, so a lease-less host would advertise that
-// address to the cluster and be undialable.
+// TestLinkLocalIsRejected pins the APIPA filter: 169.254.0.0/16 is what a host self-assigns
+// when it fails to get a DHCP lease, and no peer can route to it.
 func TestLinkLocalIsRejected(t *testing.T) {
 	got := strs(selectInnerIPs(ips("169.254.13.7")))
 	if len(got) != 0 {
 		t.Errorf("a link-local address must not be advertised, got %v", got)
 	}
 
-	// With a real address present, link-local must not merely sort last — it must be
-	// dropped, otherwise it becomes the fallback when the real one disappears.
+	// must be dropped, not merely sorted last, or it becomes the fallback when the real one goes
 	got = strs(selectInnerIPs(ips("169.254.13.7", "10.0.0.5")))
 	if !eq(got, "10.0.0.5") {
 		t.Errorf("want only 10.0.0.5, got %v", got)
 	}
 }
 
-// TestPrivateAddressesSortFirst: cluster traffic goes over the internal network, so an
-// RFC1918 address must win over a public one regardless of enumeration order.
+// TestPrivateAddressesSortFirst: cluster traffic is internal, so RFC1918 must beat a public one.
 func TestPrivateAddressesSortFirst(t *testing.T) {
 	for _, in := range [][]net.IP{
 		ips("203.0.113.9", "10.0.0.5"),
@@ -70,8 +65,8 @@ func TestPrivateAddressesSortFirst(t *testing.T) {
 	}
 }
 
-// TestOrderIsDeterministic: with several NICs (eth0 + docker0 + VPN) the enumeration
-// order varies, so the chosen address must not.
+// TestOrderIsDeterministic: NIC enumeration order varies (eth0 + docker0 + VPN), the result must
+// not.
 func TestOrderIsDeterministic(t *testing.T) {
 	want := strs(selectInnerIPs(ips("10.0.0.5", "172.17.0.1", "192.168.1.9")))
 	for _, in := range [][]net.IP{
@@ -85,8 +80,7 @@ func TestOrderIsDeterministic(t *testing.T) {
 	}
 }
 
-// TestJunkIsRejected: loopback, unspecified, multicast and IPv6-only must never be
-// advertised.
+// TestJunkIsRejected: loopback, unspecified, multicast and IPv6-only must never be advertised.
 func TestJunkIsRejected(t *testing.T) {
 	in := ips("127.0.0.1", "0.0.0.0", "224.0.0.1", "fe80::1", "2001:db8::1", "10.1.2.3")
 	got := strs(selectInnerIPs(in))
@@ -95,11 +89,8 @@ func TestJunkIsRejected(t *testing.T) {
 	}
 }
 
-// TestGetTopInnerIPIsCachedAndSane exercises the real host. The address is enumerated on
-// FIRST CALL rather than in init(): enumerating at package load froze the answer before
-// main, so a host that acquired its address later (DHCP pending, container network
-// attaching, VPN coming up) returned nil forever and the rpc server silently advertised
-// 127.0.0.1 to the cluster.
+// TestGetTopInnerIPIsCachedAndSane exercises the real host: enumerated on FIRST CALL, then
+// stable and dialable.
 func TestGetTopInnerIPIsCachedAndSane(t *testing.T) {
 	first := GetTopInnerIP()
 	second := GetTopInnerIP()
@@ -121,15 +112,9 @@ func TestGetTopInnerIPIsCachedAndSane(t *testing.T) {
 	t.Logf("advertised address = %v (private=%v)", first, isPrivate(first))
 }
 
-// TestLoopbackInterfaceAddressIsNotAdvertised documents why the enumeration keeps an
-// interface-level FlagLoopback check even though selectInnerIPs also rejects loopback
-// ADDRESSES: the two catch different things.
-//
-// WSL2 attaches 10.255.255.254/32 to lo. That address is not in 127.0.0.0/8, so
-// IsLoopback() returns false for it, and it IS RFC1918 private — so if it ever reached
-// selectInnerIPs it would compete for first place. Measured on a WSL2 host: with eth0 on
-// 172.17.x or 192.168.x it wins, and the node then advertises an address no peer can
-// dial. Only the interface-level check keeps it out.
+// TestLoopbackInterfaceAddressIsNotAdvertised: the interface-level FlagLoopback check catches
+// what selectInnerIPs cannot. WSL2 puts 10.255.255.254/32 on lo — not in 127.0.0.0/8, so
+// IsLoopback() is false, and RFC1918, so it would outrank a real eth0 on 172.17.x/192.168.x.
 func TestLoopbackInterfaceAddressIsNotAdvertised(t *testing.T) {
 	lo := net.ParseIP("10.255.255.254") // what WSL2 puts on lo
 	if lo.IsLoopback() {
@@ -138,8 +123,7 @@ func TestLoopbackInterfaceAddressIsNotAdvertised(t *testing.T) {
 	if !isPrivate(lo) {
 		t.Fatal("premise broken: it is meant to be RFC1918, hence a sorting contender")
 	}
-	// Confirm it would outrank a real NIC on common private ranges, i.e. the
-	// interface-level filter is load-bearing rather than decorative.
+	// it outranks a real NIC on common private ranges, so the interface-level filter is load-bearing
 	for _, eth := range []string{"172.17.0.3", "192.168.1.5"} {
 		got := selectInnerIPs(ips("10.255.255.254", eth))
 		if got[0].String() == eth {
@@ -149,23 +133,17 @@ func TestLoopbackInterfaceAddressIsNotAdvertised(t *testing.T) {
 	}
 }
 
-// TestFailedEnumerationIsNotCached pins the review finding that a failure must not be
-// memoised.
-//
-// The first attempt can legitimately come up empty — DHCP lease pending, container
-// network attaching, VPN coming up. Caching that (as sync.OnceValue would) recreates the
-// very init()-time freeze this replaced, just later: GetTopInnerIP is exported, so a
-// caller invoking it before the network is up would poison the cache for the subsequent
-// RpcService.Start(), which would then advertise 127.0.0.1.
+// TestFailedEnumerationIsNotCached: a failure must not be memoised. The first attempt can
+// legitimately be empty (DHCP pending, container network attaching), and GetTopInnerIP is
+// exported, so an early caller must not poison the cache for RpcService.Start().
 func TestFailedEnumerationIsNotCached(t *testing.T) {
-	// Simulate "nothing found yet": clear the cache and confirm a nil result leaves it
-	// clear, so a later call re-enumerates.
+	// "nothing found yet": a nil result must leave the cache clear, so a later call re-enumerates
 	innerIPsCache.Store(nil)
 	if cached := innerIPsCache.Load(); cached != nil {
 		t.Fatal("precondition: cache should be clear")
 	}
 
-	// A real enumeration on this host succeeds, so drive the negative case directly.
+	// a real enumeration on this host succeeds, so drive the negative case directly
 	if len(selectInnerIPs(nil)) != 0 {
 		t.Fatal("premise: no candidates must yield no addresses")
 	}
@@ -180,7 +158,6 @@ func TestFailedEnumerationIsNotCached(t *testing.T) {
 	if innerIPsCache.Load() == nil {
 		t.Error("a successful enumeration should have been cached")
 	}
-	// And it must be stable afterwards.
 	if second := innerIPs(); len(second) != len(got) {
 		t.Errorf("not stable across calls: %v then %v", strs(got), strs(second))
 	}

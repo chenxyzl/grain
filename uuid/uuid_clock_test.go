@@ -7,20 +7,15 @@ import (
 	"time"
 )
 
-// TestPreEpochClockDoesNotUnderflow pins the epoch floor.
-//
-// The id layout encodes (now - epoch) as a uint64 subtraction, so a clock before
-// 2023-01-01 used to wrap it: measured, a 2020 clock produced 18049687768967155712
-// where a normal id is ~485046263180431360 — 37x larger, which breaks ParseSortVal
-// ordering and aliases with ids real nodes will emit ~133 years out. Triggered by an
-// unsynced container clock, an NTP step back, or a dead RTC.
+// TestPreEpochClockDoesNotUnderflow pins the epoch floor: (now - epoch) is a uint64
+// subtraction, so a pre-epoch clock (unsynced container, NTP step back, dead RTC) wraps it
+// into a huge value that breaks ParseSortVal ordering and aliases far-future ids.
 func TestPreEpochClockDoesNotUnderflow(t *testing.T) {
 	u, err := NewUUID(1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Drive Generate as if the wall clock were before epoch. Generate reads
-	// time.Now() itself, so assert on the arithmetic it performs, with the floor.
+	// Generate reads time.Now() itself, so assert on the arithmetic it performs, with the floor.
 	pre := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
 	floored := pre
 	if floored < int64(epoch) {
@@ -30,8 +25,7 @@ func TestPreEpochClockDoesNotUnderflow(t *testing.T) {
 		t.Fatalf("a 2020 timestamp must floor to epoch, got %d", floored)
 	}
 
-	// The real generator must never produce an id whose timestamp field is beyond the
-	// current wall clock: that is exactly the underflow signature.
+	// An id whose timestamp field is beyond the current wall clock is the underflow signature.
 	nowID := u.Generate()
 	maxPlausible := (uint64(time.Now().UnixMilli()+1000) - epoch) << timeShift
 	if nowID >= maxPlausible {
@@ -46,26 +40,15 @@ func TestPreEpochClockDoesNotUnderflow(t *testing.T) {
 	}
 }
 
-// TestStepExhaustionWaitIsBounded pins what is left of the original stall bug.
-//
-// When the 12-bit sequence is exhausted within a millisecond, Generate waits for the next
-// millisecond — deliberately, so the logical timestamp never runs ahead of the real clock
-// (see TestTimestampNeverLeadsRealClock for why that matters). The bug was never the
-// waiting itself: it was that the wait read the WALL clock, so after a clock rollback the
-// logical timestamp led the wall clock and one call spun for the entire rollback duration
-// while holding the mutex — measured, a 300ms rollback blocked a concurrent Generate for
-// 295ms and burned a core.
-//
-// nowMs is monotonic, so a rollback can no longer inflate the wait: the only thing it can
-// ever wait for is the current millisecond to end. This exercises the wait naturally, with
-// no artificial state, and asserts that bound.
+// TestStepExhaustionWaitIsBounded: with the 12-bit sequence exhausted inside a millisecond,
+// Generate waits for the next one (see TestTimestampNeverLeadsRealClock for why). nowMs is
+// monotonic, so the longest that wait can ever be is the rest of the current millisecond.
 func TestStepExhaustionWaitIsBounded(t *testing.T) {
 	u, err := NewUUID(1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// stepMax+1 ids exhaust one millisecond of sequence space, so several multiples of
-	// that guarantee the wait path is taken repeatedly.
+	// stepMax+1 ids exhaust one millisecond of sequence space; several multiples hit the wait.
 	total := int(stepMax+1) * 3
 	var worst time.Duration
 	for range total {
@@ -75,8 +58,7 @@ func TestStepExhaustionWaitIsBounded(t *testing.T) {
 			worst = d
 		}
 	}
-	// 1ms is the theoretical bound; the slack absorbs scheduling noise. A regression to
-	// the wall clock would show up here as tens or hundreds of milliseconds.
+	// 1ms is the theoretical bound; the slack absorbs scheduling noise.
 	if worst > 20*time.Millisecond {
 		t.Errorf("worst single Generate took %v: the wait is no longer bounded by the millisecond boundary, which means it is reading the wall clock again", worst)
 	}
@@ -84,15 +66,13 @@ func TestStepExhaustionWaitIsBounded(t *testing.T) {
 		total, worst.Round(time.Microsecond))
 }
 
-// TestStepExhaustionKeepsIdsUniqueAndOrdered: borrowing the next millisecond must not
-// break the two properties the wait loop was there to protect.
+// TestStepExhaustionKeepsIdsUniqueAndOrdered: the step wrap must keep ids unique and ordered.
 func TestStepExhaustionKeepsIdsUniqueAndOrdered(t *testing.T) {
 	u, err := NewUUID(7)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Generate well past one millisecond's worth of step space (stepMax+1 = 4096) so the
-	// wrap path is exercised many times.
+	// well past one millisecond of step space (stepMax+1 = 4096), so the wrap path repeats
 	const n = 4096*3 + 17
 	seen := make(map[uint64]struct{}, n)
 	var prev uint64
@@ -112,8 +92,7 @@ func TestStepExhaustionKeepsIdsUniqueAndOrdered(t *testing.T) {
 	}
 }
 
-// TestConcurrentGenerateUnique guards the lock itself: no duplicates across goroutines,
-// including through step wraps.
+// TestConcurrentGenerateUnique guards the lock: no duplicate ids across goroutines.
 func TestConcurrentGenerateUnique(t *testing.T) {
 	u, err := NewUUID(3)
 	if err != nil {
@@ -148,15 +127,10 @@ func TestConcurrentGenerateUnique(t *testing.T) {
 	}
 }
 
-// TestTimestampNeverLeadsRealClock pins the invariant that keeps ids safe across a process
-// restart, and is the reason Generate waits rather than borrowing the next millisecond.
-//
-// Borrowing was tried and reverted. It was ~7.5x faster (30753 vs 4103 ids/ms) but let the
-// logical timestamp run ahead of the real clock at ~6.5ms of lead per 1ms of real time.
-// Since a restarted process re-anchors to the wall clock, it would resume from a timestamp
-// already issued — measured, 5000 of the first 5000 post-restart ids collided with
-// pre-restart ones. Waiting keeps timestamp <= real clock, so a restart can only ever
-// re-enter the CURRENT millisecond.
+// TestTimestampNeverLeadsRealClock pins the invariant that keeps ids safe across a restart,
+// and is why Generate waits instead of borrowing the next millisecond: a restart re-anchors
+// to the wall clock, so a logical timestamp ahead of it would resume from already-issued ids.
+// Waiting keeps timestamp <= real clock, so a restart can at worst re-enter this millisecond.
 func TestTimestampNeverLeadsRealClock(t *testing.T) {
 	u, err := NewUUID(11)
 	if err != nil {
@@ -173,13 +147,9 @@ func TestTimestampNeverLeadsRealClock(t *testing.T) {
 	}
 }
 
-// TestNoCollisionAfterRestart is the end-to-end form of the invariant above: ids issued
-// before a restart must not be reissued after it.
-//
-// One residual window is inherent to snowflake without persistence — a restart landing
-// inside the SAME millisecond can reuse (timestamp, step) pairs. That window is 1ms,
-// against the seconds of exposure borrowing created, and a real restart (grpc listen plus
-// etcd registration) takes orders of magnitude longer. The sleep stands in for that.
+// TestNoCollisionAfterRestart is the end-to-end form of the invariant above. A 1ms window is
+// inherent to snowflake without persistence — a restart inside the SAME millisecond can reuse
+// (timestamp, step) — but a real restart takes far longer; the sleep stands in for it.
 func TestNoCollisionAfterRestart(t *testing.T) {
 	u, err := NewUUID(1)
 	if err != nil {
@@ -205,13 +175,9 @@ func TestNoCollisionAfterRestart(t *testing.T) {
 	}
 }
 
-// TestClockBaseIsMonotonic pins the structural rollback immunity.
-//
-// nowMs derives the current millisecond from a wall-clock sample taken at construction
-// plus elapsed MONOTONIC time. The monotonic clock is unaffected by NTP steps, manual
-// clock changes or RTC jumps, so the value can never go backwards — which removes the
-// "clock went back, ids repeat" class of bugs at the source rather than compensating for
-// it afterwards.
+// TestClockBaseIsMonotonic pins the structural rollback immunity: nowMs is a construction-time
+// wall sample plus elapsed MONOTONIC time, which no NTP step, manual clock change or RTC jump
+// can move backwards.
 func TestClockBaseIsMonotonic(t *testing.T) {
 	u, err := NewUUID(1)
 	if err != nil {
@@ -233,9 +199,8 @@ func TestClockBaseIsMonotonic(t *testing.T) {
 	}
 }
 
-// TestClockBaseIsFlooredAtEpoch: the epoch clamp moved to construction (it only has to
-// happen once, since nowMs advances monotonically from the base). A pre-epoch host clock
-// must still not produce an out-of-range id.
+// TestClockBaseIsFlooredAtEpoch: the epoch clamp happens once, at construction, since nowMs
+// advances monotonically from the base. A pre-epoch host clock must still yield a valid id.
 func TestClockBaseIsFlooredAtEpoch(t *testing.T) {
 	u, err := NewUUID(1)
 	if err != nil {
@@ -259,27 +224,10 @@ func TestClockBaseIsFlooredAtEpoch(t *testing.T) {
 	}
 }
 
-// TestBaseMonoCarriesMonotonicReading guards the single assumption nowMs rests on.
-//
-// time.Since has two branches (see the stdlib source):
-//
-//	func Since(t Time) Duration {
-//		if t.wall&hasMonotonic != 0 && !runtimeIsBubbled() {
-//			return subMono(runtimeNano()-startNano, t.ext)  // fast: ONE monotonic read
-//		}
-//		return Now().Sub(t)                                 // fallback: reads the WALL clock
-//	}
-//
-// Everything nowMs claims depends on taking the first branch, and that requires baseMono
-// to still carry its monotonic reading. Several ordinary-looking operations strip it —
-// .UTC(), .Local(), .Round(), .Truncate(), or round-tripping through time.Unix. If a
-// future edit does any of those, the fallback kicks in SILENTLY and we lose both:
-//
-//   - the speed (Now() reads wall + monotonic; runtimeNano() reads only monotonic), and
-//   - much worse, the rollback immunity, because Now() is the wall clock again.
-//
-// Time.String() documents that it appends "m=±<value>" exactly when a monotonic reading
-// is present, so that is the observable to assert on.
+// TestBaseMonoCarriesMonotonicReading guards the one assumption nowMs rests on: baseMono must
+// still carry its monotonic reading, or time.Since falls back to Now().Sub(t) — the WALL clock
+// — silently losing the rollback immunity. .UTC(), .Local(), .Round(), .Truncate() and a
+// time.Unix round-trip all strip it; Time.String() appends "m=" exactly when it is present.
 func TestBaseMonoCarriesMonotonicReading(t *testing.T) {
 	u, err := NewUUID(1)
 	if err != nil {
@@ -297,17 +245,9 @@ func TestBaseMonoCarriesMonotonicReading(t *testing.T) {
 	}
 }
 
-// TestEpochIsPinned nails down the epoch constant and its meaning.
-//
-// epoch is the origin of the id's timestamp field, so changing it silently is a data
-// break: a later epoch makes (now-epoch) smaller, so ids minted afterwards sort BEFORE
-// ids minted before the change (measured: 54.6% smaller at the same instant). Anything
-// that persisted an id as an actor name, primary key or sort key would be affected.
-//
-// It is also pinned as true UTC on purpose. The previous constant (1672502400000) was
-// commented "2023-01-01:00:00:00 GMT" but actually evaluated to 2022-12-31T16:00:00Z,
-// i.e. 2023-01-01 in UTC+8 — so anyone "fixing" the value to match the comment would
-// have shifted every id by 8 hours.
+// TestEpochIsPinned nails down the epoch constant: the origin of the id's timestamp field,
+// pinned as TRUE UTC (2025-01-01T00:00:00Z, not 2025-01-01 in a local zone — a zone slip
+// shifts every id by the offset). Changing it re-bases every id and breaks ordering.
 func TestEpochIsPinned(t *testing.T) {
 	want := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	if got := time.UnixMilli(int64(epoch)).UTC(); !got.Equal(want) {
@@ -324,10 +264,8 @@ func TestEpochIsPinned(t *testing.T) {
 	t.Logf("epoch = %v UTC; 42-bit ms field exhausts %v", want.Format("2006-01-02"), exhaust.Format("2006-01"))
 }
 
-// TestClockBeforeEpochIsFloored: the floor now catches any clock before 2025, a wider
-// range than before (it used to be before 2023). A host with a 2024 clock therefore has
-// all its ids collapsed to epoch+uptime — still unique and ordered, but not meaningful as
-// timestamps. That is the intended trade: a valid id beats an out-of-range one.
+// TestClockBeforeEpochIsFloored: any clock before the epoch collapses to epoch+uptime — still
+// unique and ordered, just not meaningful as a timestamp. A valid id beats an out-of-range one.
 func TestClockBeforeEpochIsFloored(t *testing.T) {
 	for _, y := range []int{2020, 2023, 2024} {
 		wall := time.Date(y, 6, 1, 0, 0, 0, 0, time.UTC).UnixMilli()

@@ -31,7 +31,6 @@ func init() {
 
 func BenchmarkSafeMap1(b *testing.B) {
 	b.ResetTimer()
-	// 限制并发数
 	b.SetParallelism(parallelism)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -42,7 +41,6 @@ func BenchmarkSafeMap1(b *testing.B) {
 }
 func BenchmarkSafeMap2(b *testing.B) {
 	b.ResetTimer()
-	// 限制并发数
 	b.SetParallelism(parallelism)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -53,7 +51,6 @@ func BenchmarkSafeMap2(b *testing.B) {
 }
 func BenchmarkSafeMap3(b *testing.B) {
 	b.ResetTimer()
-	// 限制并发数
 	b.SetParallelism(parallelism)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -65,7 +62,6 @@ func BenchmarkSafeMap3(b *testing.B) {
 }
 func BenchmarkSafeMap4(b *testing.B) {
 	b.ResetTimer()
-	// 限制并发数
 	b.SetParallelism(parallelism)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -76,7 +72,6 @@ func BenchmarkSafeMap4(b *testing.B) {
 }
 func BenchmarkSafeMap5(b *testing.B) {
 	b.ResetTimer()
-	// 限制并发数
 	b.SetParallelism(parallelism)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -87,7 +82,6 @@ func BenchmarkSafeMap5(b *testing.B) {
 }
 func BenchmarkSafeMap6(b *testing.B) {
 	b.ResetTimer()
-	// 限制并发数
 	b.SetParallelism(parallelism)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -98,7 +92,6 @@ func BenchmarkSafeMap6(b *testing.B) {
 }
 func BenchmarkSafeMap7(b *testing.B) {
 	b.ResetTimer()
-	// 限制并发数
 	b.SetParallelism(parallelism)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -109,7 +102,6 @@ func BenchmarkSafeMap7(b *testing.B) {
 }
 func BenchmarkSafeMap8(b *testing.B) {
 	b.ResetTimer()
-	// 限制并发数
 	b.SetParallelism(parallelism)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {

@@ -20,12 +20,9 @@ func WithConfigStopWaitTimeSecond(t int) ConfigOptFunc {
 	}
 }
 
-// WithConfigEtcdDialTimeout bounds the initial etcd connect and the lease Revoke on
-// shutdown. Default 10s.
-//
-// It panics on a non-positive value: clientv3 treats a zero DialTimeout as "no
-// timeout", so a mistake here turns a wrong etcd endpoint from a startup error into an
-// indefinite hang, which is far harder to diagnose than a panic at config time.
+// WithConfigEtcdDialTimeout bounds the initial etcd connect and the lease Revoke on shutdown.
+// Default 10s. Panics on <= 0: clientv3 reads a zero DialTimeout as "no timeout", so a wrong
+// endpoint hangs instead of failing at startup.
 func WithConfigEtcdDialTimeout(d time.Duration) ConfigOptFunc {
 	return func(config *config) {
 		if d <= 0 {
@@ -35,15 +32,9 @@ func WithConfigEtcdDialTimeout(d time.Duration) ConfigOptFunc {
 	}
 }
 
-// WithConfigEtcdLeaseTTLSecond sets the TTL of the etcd lease this node's member key
-// and event-stream subscriptions hang off. Default 10s.
-//
-// It is the worst case window in which peers keep routing to a node that died without
-// unregistering: lower it to shorten misrouting after a crash, at the cost of more
-// keepalive traffic. The unit is seconds because that is what etcd's Grant takes.
-//
-// It panics on a non-positive value rather than letting etcd reject the Grant at
-// startup with a message that does not mention this option.
+// WithConfigEtcdLeaseTTLSecond sets the TTL of the etcd lease this node's member key and
+// event-stream subscriptions hang off, i.e. how long peers may keep routing to a node that died
+// without unregistering. Default 10, unit seconds (what etcd's Grant takes). Panics on <= 0.
 func WithConfigEtcdLeaseTTLSecond(seconds int64) ConfigOptFunc {
 	return func(config *config) {
 		if seconds <= 0 {
@@ -54,19 +45,12 @@ func WithConfigEtcdLeaseTTLSecond(seconds int64) ConfigOptFunc {
 	}
 }
 
-// WithConfigGrpcListenAddr sets the host:port the node's grpc server binds. Default
-// ":0" — every interface, kernel-assigned port — because a fixed port would stop two
-// nodes on one host from both starting.
+// WithConfigGrpcListenAddr sets the host:port the node's grpc server binds. Default ":0" —
+// every interface, kernel-assigned port — so two nodes on one host can both start. Panics on "".
 //
-// The address a node ADVERTISES to its peers is derived from this: a specific host is
-// advertised as given, while a wildcard or empty host (":9000", "0.0.0.0:9000") is
-// advertised as the top inner IP, falling back to 127.0.0.1 when the machine has no
-// inner NIC. So binding one NIC also pins what peers dial. Port 0 stays usable with an
-// explicit host ("10.0.0.7:0"): the kernel-assigned port is read back from the listener.
-//
-// Not sufficient for a node behind NAT or a container port mapping, where the reachable
-// address is not one this process can see — that needs a separate advertise address,
-// which the framework does not have yet.
+// The address ADVERTISED to peers derives from it: a specific host as given, a wildcard or empty
+// one as the top inner IP (else 127.0.0.1), port 0 read back from the listener — so binding one
+// NIC pins what peers dial. Wrong behind NAT/port mapping; no separate advertise address yet.
 func WithConfigGrpcListenAddr(addr string) ConfigOptFunc {
 	return func(config *config) {
 		if addr == "" {
@@ -76,13 +60,8 @@ func WithConfigGrpcListenAddr(addr string) ConfigOptFunc {
 	}
 }
 
-// WithConfigGrpcDialOptions APPENDS dial options to the defaults.
-//
-// It used to replace the slice, which silently dropped the default
-// insecure.NewCredentials() seeded in newConfig — so adding a single unrelated option
-// made grpc.NewClient fail with "no transport security set", surfacing only as
-// streamWriteActor logging and poisoning itself. If you need different credentials,
-// pass grpc.WithTransportCredentials explicitly; the later option wins.
+// WithConfigGrpcDialOptions APPENDS dial options to the defaults; replacing them would drop
+// newConfig's insecure.NewCredentials(). For other credentials pass yours — the later one wins.
 func WithConfigGrpcDialOptions(dialOptions ...grpc.DialOption) ConfigOptFunc {
 	return func(config *config) {
 		config.dialOptions = append(config.dialOptions, dialOptions...)
@@ -91,8 +70,7 @@ func WithConfigGrpcDialOptions(dialOptions ...grpc.DialOption) ConfigOptFunc {
 
 // WithConfigCallDialOptions appends grpc call options.
 //
-// Deprecated: the name is wrong — these are CallOptions, nothing to do with dialing.
-// Use WithConfigGrpcCallOptions.
+// Deprecated: these are CallOptions, nothing to do with dialing. Use WithConfigGrpcCallOptions.
 func WithConfigCallDialOptions(callOptions ...grpc.CallOption) ConfigOptFunc {
 	return WithConfigGrpcCallOptions(callOptions...)
 }
@@ -120,34 +98,20 @@ func WithConfigKind(kindName string, producer Producer, opts ...KindOptFunc) Con
 	}
 }
 
-// WithConfigLogger sets the logger this system derives all of its own loggers from —
-// the system logger, the cluster provider's, and (via BaseActor.Logger) every actor's.
+// WithConfigLogger sets the logger this system derives all of its own loggers from: the system
+// logger (tagged system=<addr>, node=<id>), the cluster provider's and, via BaseActor.Logger,
+// every actor's (actor=<ref>). A nil logger is ignored. slog.Default() is left untouched.
 //
-// This is the way to log without depending on global state. Left unset, the system reads
-// slog.Default() when it builds its logger in Start(), which means InitLog (or any other
-// slog.SetDefault) has to happen BEFORE Start() or none of the framework's output goes
-// to it — an ordering rule nothing enforces and that is easy to get wrong, because the
-// caller's own slog lines DO switch over while the framework's silently do not.
-//
-// Passing a logger here removes the ordering rule entirely: it is used regardless of what
-// the global default is or when it changes. It does not touch slog.Default(), so the rest
-// of the process is unaffected.
-//
-//	system := grain.NewSystem(name, ver, urls,
-//	    grain.WithConfigLogger(grain.NewLogger("./game.log", slog.LevelInfo)))
-//
-// The system adds system=<addr> and node=<id> to whatever is passed; actors add
-// actor=<ref> on top of that. A nil logger is ignored (the default applies).
+// Unset, the system reads slog.Default() when Start() builds its logger, so slog.SetDefault
+// must happen BEFORE Start() — an ordering rule nothing enforces, and this option removes.
 func WithConfigLogger(l *slog.Logger) ConfigOptFunc {
 	return func(config *config) {
 		config.logger = l
 	}
 }
 
-// WithConfigDeadLetter sets a system-wide handler for undeliverable messages
-// (mailbox overflow or a send to a stopped actor). When unset, dead letters are
-// logged at WARN. The handler runs on the sender's goroutine, so keep it fast
-// and non-blocking.
+// WithConfigDeadLetter sets a system-wide handler for undeliverable messages (mailbox overflow,
+// send to a stopped actor); unset they are logged at WARN. Runs on the sender's goroutine.
 func WithConfigDeadLetter(h DeadLetterHandler) ConfigOptFunc {
 	return func(config *config) {
 		config.deadLetterHandler = h

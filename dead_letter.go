@@ -8,18 +8,12 @@ const (
 	DeadLetterReasonStopped  = "actor stopped"    // target actor already stopped
 )
 
-// DeadLetter describes a message that could not be delivered to its target
-// mailbox. It is surfaced to the DeadLetterHandler configured via
+// DeadLetter describes an undeliverable message, surfaced to the DeadLetterHandler set via
 // WithConfigDeadLetter (defaults to a WARN log).
 type DeadLetter struct {
-	// Target is the message's intended recipient. For a cross-node send this is the
-	// REMOTE actor, which is not the mailbox that overflowed — see Owner.
-	Target ActorRef
-	// Owner is the actor whose mailbox actually rejected the message. It differs from
-	// Target on the outbound path: sendToCluster builds the context with the remote
-	// target but pushes into the local write_stream actor's mailbox, so an overflow
-	// there means the outbound stream is the bottleneck. Without this you could not
-	// tell which of the two was saturated.
+	Target ActorRef // intended recipient; for a cross-node send the REMOTE actor
+	// Owner is the actor whose mailbox actually rejected it — on the outbound path the local
+	// write_stream actor, not Target, meaning the outbound stream is the bottleneck.
 	Owner   ActorRef
 	Sender  ActorRef // may be nil
 	Message proto.Message
@@ -27,7 +21,6 @@ type DeadLetter struct {
 	Reason  string
 }
 
-// DeadLetterHandler receives undeliverable messages. It is invoked on the
-// sender's goroutine, so it must be non-blocking and fast (offload heavy work).
-// A panic in the handler is recovered and logged, not propagated to the sender.
+// DeadLetterHandler receives undeliverable messages. Invoked on the SENDER's goroutine, so it
+// must be fast and non-blocking. A panic in it is recovered and logged, not propagated.
 type DeadLetterHandler func(DeadLetter)

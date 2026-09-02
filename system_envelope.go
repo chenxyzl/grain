@@ -8,10 +8,8 @@ import (
 )
 
 func (x *system) RecvEnvelope(envelope *remote.Envelope) {
-	// This is the entry point for data from another node, so treat it as untrusted:
-	// use the nil-safe getters throughout, and reject a nil envelope rather than
-	// dereferencing it (a nil here used to panic and, being on a grpc handler
-	// goroutine with no recover, took the whole process down).
+	// Entry point for data from another node, so treat it as untrusted: nil-safe getters only,
+	// and reject nil rather than panic on the grpc handler goroutine, which has no recover.
 	if envelope == nil {
 		x.Logger().Error("recvEnvelope, nil envelope")
 		return
@@ -21,7 +19,6 @@ func (x *system) RecvEnvelope(envelope *remote.Envelope) {
 		x.Logger().Error("recvEnvelope, unregister msg type", "actor", envelope.GetTarget(), "msgName", envelope.GetMsgName(), "err", err)
 		return
 	}
-	//new body proto message
 	bodyMsg := typ.New().Interface()
 	err = proto.Unmarshal(envelope.GetContent(), bodyMsg)
 	if err != nil {
@@ -33,12 +30,11 @@ func (x *system) RecvEnvelope(envelope *remote.Envelope) {
 		x.Logger().Error("recvEnvelope, empty target", "msgName", envelope.GetMsgName())
 		return
 	}
-	// A sender is optional; if the sender is nil, the receiver sees a nil sender and cannot reply. This
+	// A sender is optional, and "" must stay nil, or `ctx.Sender() != nil` is a false positive
 	var sender ActorRef
 	if s := envelope.GetSender(); s != "" {
 		sender = newActorRefFromAID(s, x)
 	}
 	var target = newActorRefFromAID(envelope.GetTarget(), x)
-	//build ctx
 	x.tellWithSender(target, bodyMsg, sender, envelope.GetMsgSnId())
 }

@@ -4,8 +4,8 @@ import (
 	"log/slog"
 )
 
-// watchOp is the framework-neutral change type delivered by watchEventStream,
-// so the event-stream watcher (eventStream) doesn't depend on etcd's mvccpb.
+// watchOp is the framework-neutral change type delivered by watchEventStream, so eventStream
+// does not depend on etcd's mvccpb.
 type watchOp int8
 
 const (
@@ -21,8 +21,8 @@ type iProvider interface {
 	//nodes
 	GetNodeId() uint64
 	GetNodes() ([]tNodeState, int64)
-	//GetNodesVersion returns the current node-set version only, without building
-	//the node slice. Cheap enough to poll on the hot send path.
+	//GetNodesVersion returns the version alone, no node slice; cheap enough to poll on the
+	//hot send path.
 	GetNodesVersion() int64
 
 	//set remove key val
@@ -34,8 +34,7 @@ type iProvider interface {
 	registerEventStream(path string, val string) error
 	//unregisterEventStream deletes path
 	unregisterEventStream(path string) error
-	//watchEventStream does an initial full load then watches prefix, invoking f
-	//with a neutral watchOp per change.
+	//watchEventStream does an initial full load then watches prefix, calling f per change.
 	watchEventStream(prefix string, f func(op watchOp, key string, val []byte)) error
 
 	//GetNodeExtData get node ext data

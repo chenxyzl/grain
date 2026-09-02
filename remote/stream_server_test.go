@@ -14,8 +14,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// errStream mimics a stream whose peer is gone: grpc caches the terminal error and
-// returns it, together with a nil message, on every subsequent Recv.
+// errStream mimics a dead peer: grpc caches the terminal error and returns it, with a nil
+// message, on every subsequent Recv.
 type errStream struct {
 	grpc.ServerStream
 	err   error
@@ -28,15 +28,8 @@ func (f *errStream) Recv() (*Envelope, error) {
 	return nil, f.err
 }
 
-// TestListenReturnsOnEveryRecvError pins the fix for a spin-and-crash bug.
-//
-// The error switch used to have a `case status.Code(err) > 0` arm that logged
-// without returning. codes.Canceled is 1, so every code >= 2 — notably
-// codes.Unavailable (14), which is what grpc reports when a peer process dies or its
-// TCP connection drops — fell through to recvEnvelope(msg) with msg == nil. Measured
-// before the fix: ~460k iterations/sec, ~460k nil envelopes delivered, and
-// system.RecvEnvelope dereferenced the nil envelope, panicking on a grpc handler
-// goroutine that nothing recovers — i.e. one dead peer crashed the whole process.
+// Every Recv error must end the stream, whatever its code, and must deliver no envelope —
+// falling through hands the receiver a nil envelope in a tight spin loop.
 func TestListenReturnsOnEveryRecvError(t *testing.T) {
 	cases := []struct {
 		name string
@@ -81,7 +74,7 @@ func TestListenReturnsOnEveryRecvError(t *testing.T) {
 					stream.recvN.Load(), delivered.Load(), sawNil.Load())
 			}
 
-			// One Recv to observe the error, then out. No envelope may be delivered.
+			// one Recv to observe the error, then out
 			if n := stream.recvN.Load(); n != 1 {
 				t.Errorf("Recv called %d times, want exactly 1", n)
 			}
@@ -110,8 +103,7 @@ func (f *okThenEOF) Recv() (*Envelope, error) {
 	return &Envelope{MsgName: "x"}, nil
 }
 
-// TestListenDeliversUntilEOF guards against over-correcting: the happy path must
-// still deliver every envelope and then exit cleanly.
+// The happy path must still deliver every envelope, then exit cleanly on EOF.
 func TestListenDeliversUntilEOF(t *testing.T) {
 	var delivered atomic.Int32
 	svc := NewRpcServer(func(e *Envelope) { delivered.Add(1) }, ":0")
@@ -125,9 +117,8 @@ func TestListenDeliversUntilEOF(t *testing.T) {
 	}
 }
 
-// The listen address used to be a hardcoded ":0". These pin what the configurable
-// version does — in particular that the ADVERTISED address (what peers dial) is derived
-// from it and is never the wildcard the listener reports.
+// The advertised address (what peers dial) is derived from listenAddr and is never the
+// wildcard the listener reports.
 func TestStartAdvertisedAddr(t *testing.T) {
 	t.Run("explicit host is advertised as given", func(t *testing.T) {
 		svc := NewRpcServer(func(*Envelope) {}, "127.0.0.1:0")
@@ -160,8 +151,7 @@ func TestStartAdvertisedAddr(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Addr() %q is not host:port: %v", svc.Addr(), err)
 		}
-		// "[::]" / "0.0.0.0" / "" are what the listener reports and what no peer can
-		// connect to.
+		// what the listener reports, and what no peer can dial
 		for _, bad := range []string{"", "::", "0.0.0.0"} {
 			if host == bad {
 				t.Errorf("advertised host = %q, which no peer can dial", host)
@@ -180,7 +170,7 @@ func TestStartAdvertisedAddr(t *testing.T) {
 	})
 }
 
-// A bad listen address must name itself in the error: it now comes from user config, so
+// A bad listen address must name itself in the error; it comes from user config, so
 // "address already in use" alone would not say which option to fix.
 func TestStartBadListenAddrNamesIt(t *testing.T) {
 	svc := NewRpcServer(func(*Envelope) {}, "256.256.256.256:1")
@@ -194,18 +184,10 @@ func TestStartBadListenAddrNamesIt(t *testing.T) {
 	}
 }
 
-// TestStartThenImmediateStop pins a crash that has nothing to do with the caller: Start
-// spawned a goroutine that read the x.gs FIELD and called Serve on it, while Stop set
-// that same field to nil. A Stop landing in the window before the goroutine got
-// scheduled made it call Serve on a nil *grpc.Server — a panic raised inside grpc, on a
-// goroutine nothing recovers, so the process died. (It was also a plain data race on
-// x.gs and on Start's err.)
-//
-// The mirror case is a Stop landing just AFTER Serve begins: Serve then returns
-// grpc.ErrServerStopped, which the goroutine treated as fatal and panicked on.
-//
-// A panic on either path takes the whole test binary down, so reaching the end of this
-// loop IS the assertion.
+// Start-then-Stop must survive either interleaving: Stop before the Serve goroutine runs
+// (must not Serve a nil *grpc.Server) and Stop just after (ErrServerStopped is not fatal).
+// A panic on either path kills the test binary, so reaching the end of the loop is the
+// assertion.
 func TestStartThenImmediateStop(t *testing.T) {
 	for range 50 {
 		svc := NewRpcServer(func(*Envelope) {}, "127.0.0.1:0")
@@ -216,7 +198,6 @@ func TestStartThenImmediateStop(t *testing.T) {
 			t.Fatalf("Stop: %v", err)
 		}
 	}
-	// let any Serve goroutine still in flight reach its error handling before the test
-	// process moves on
+	// let any in-flight Serve goroutine reach its error handling before the test exits
 	time.Sleep(200 * time.Millisecond)
 }

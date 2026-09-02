@@ -26,7 +26,6 @@ func TestPushPop(t *testing.T) {
 	}
 }
 
-// TestPopEmptyNonBlocking verifies Pop returns immediately on an empty buffer.
 func TestPopEmptyNonBlocking(t *testing.T) {
 	rb := New[Item](4, 4)
 	if _, ok := rb.Pop(); ok {
@@ -34,8 +33,7 @@ func TestPopEmptyNonBlocking(t *testing.T) {
 	}
 }
 
-// TestGrowPreservesFIFO fills past the initial capacity so the ring doubles
-// several times, then verifies every item comes back in FIFO order.
+// Doubling several times must not disturb FIFO order.
 func TestGrowPreservesFIFO(t *testing.T) {
 	rb := New[Item](2, 1024)
 	const n = 500
@@ -61,21 +59,18 @@ func TestGrowPreservesFIFO(t *testing.T) {
 	}
 }
 
-// TestGrowAfterWrap forces the ring into a wrapped state (head > tail) before a
-// grow, exercising the two-segment linearizing copy path.
+// Grow from a wrapped state (head > tail): exercises the two-segment linearizing copy.
 func TestGrowAfterWrap(t *testing.T) {
 	rb := New[Item](4, 1024)
-	// fill 4
 	for i := 0; i < 4; i++ {
 		rb.Push(Item{i})
 	}
-	// pop 2 (head advances to 2)
 	rb.Pop()
 	rb.Pop()
-	// push 2 more -> tail wraps to 2, so head(2) == tail(2), size==4, full & wrapped
+	// tail wraps to 2, so head(2) == tail(2), size == 4: full and wrapped
 	rb.Push(Item{4})
 	rb.Push(Item{5})
-	// next push must grow while wrapped; remaining logical order is 2,3,4,5
+	// grows while wrapped; remaining logical order is 2,3,4,5
 	if r := rb.Push(Item{6}); r != PushOK {
 		t.Fatalf("push after wrap-grow failed: %v", r)
 	}
@@ -88,8 +83,7 @@ func TestGrowAfterWrap(t *testing.T) {
 	}
 }
 
-// TestOverflowDropsNewItem verifies that at max capacity Push returns
-// PushOverflow and drops the NEW item, leaving queued items intact.
+// At max capacity Push must drop the NEW item and leave the queued ones intact.
 func TestOverflowDropsNewItem(t *testing.T) {
 	rb := New[Item](2, 2) // init==max==2, never grows
 	if rb.Push(Item{1}) != PushOK {
@@ -101,7 +95,6 @@ func TestOverflowDropsNewItem(t *testing.T) {
 	if r := rb.Push(Item{3}); r != PushOverflow {
 		t.Fatalf("push 3 at max cap: got %v want PushOverflow", r)
 	}
-	// queued items 1,2 must be intact and in order; 3 was dropped
 	if item, ok := rb.Pop(); !ok || item.i != 1 {
 		t.Fatalf("got %v,%v want 1", item, ok)
 	}
@@ -113,7 +106,6 @@ func TestOverflowDropsNewItem(t *testing.T) {
 	}
 }
 
-// TestGrowStopsAtMax verifies the ring doubles only up to maxCap, then overflows.
 func TestGrowStopsAtMax(t *testing.T) {
 	rb := New[Item](2, 5) // doubles 2->4->5(capped), then overflow
 	for i := 0; i < 5; i++ {
@@ -129,8 +121,7 @@ func TestGrowStopsAtMax(t *testing.T) {
 	}
 }
 
-// TestClosedReturnsPushClosed verifies Push after Close returns PushClosed and
-// does not enqueue, while already-queued items remain poppable.
+// Push after Close must not enqueue, but pre-close items stay poppable.
 func TestClosedReturnsPushClosed(t *testing.T) {
 	rb := New[Item](4, 4)
 	rb.Push(Item{1})
@@ -138,7 +129,6 @@ func TestClosedReturnsPushClosed(t *testing.T) {
 	if r := rb.Push(Item{2}); r != PushClosed {
 		t.Fatalf("push after close: got %v want PushClosed", r)
 	}
-	// the pre-close item is still poppable
 	if item, ok := rb.Pop(); !ok || item.i != 1 {
 		t.Fatalf("got %v,%v want 1", item, ok)
 	}
@@ -147,9 +137,8 @@ func TestClosedReturnsPushClosed(t *testing.T) {
 	}
 }
 
-// TestMPSCNoLossWhenSized runs many concurrent producers against a single
-// consumer with a max capacity large enough to absorb the load, asserting every
-// message is delivered exactly once and none overflow.
+// Many producers, one consumer, maxCap large enough to absorb the load: every message must
+// arrive exactly once and nothing may overflow.
 func TestMPSCNoLossWhenSized(t *testing.T) {
 	const producers = 16
 	const perProducer = 1000
@@ -186,7 +175,6 @@ func TestMPSCNoLossWhenSized(t *testing.T) {
 			} else {
 				select {
 				case <-producersDone:
-					// drain remaining, then exit
 					for {
 						if v, ok := rb.Pop(); ok {
 							if seen[v] {

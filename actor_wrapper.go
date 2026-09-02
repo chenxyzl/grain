@@ -53,45 +53,35 @@ func (x *actorIdWrapper) parseCache() {
 
 func (x *actorIdWrapper) GetId() string { return x.fullPath }
 
-// String ...
 func (x *actorIdWrapper) String() string { return x.fullPath }
 
-// isDirect ...
 func (x *actorIdWrapper) isDirect() bool { return x.GetType() == defaultActDirect }
 
-// isCluster ...
 func (x *actorIdWrapper) isCluster() bool { return x.GetType() == defaultActCluster }
 
-// isAsk ...
 func (x *actorIdWrapper) isAsk() bool { return x.GetKind() == defaultReplyKind }
 
-// askSnId parses the correlation id from the reply ref's name. Only meaningful
-// on the remote inbound path (a reply ref rebuilt via newActorRefFromAID);
-// local asks use the lighter replyRef which carries the snId directly.
+// askSnId parses the correlation id out of a reply ref's name. Only meaningful on the remote
+// inbound path; local asks use replyRef, which carries the snId directly.
 func (x *actorIdWrapper) askSnId() uint64 {
 	n, _ := strconv.ParseUint(x.GetName(), 10, 64)
 	return n
 }
 
-// getRemoteAddrCache resolves which node currently owns this cluster actor, caching
-// the answer against the provider's node-set version. Returns "" when the actor's
-// kind is not hosted anywhere (or this is not a cluster ref).
-//
-// The second result used to be a "changed" flag that no caller ever read; it and the
-// unreachable `vCache == nil` tail are gone.
+// getRemoteAddrCache resolves which node currently owns this cluster actor, caching the answer
+// against the provider's node-set version. Returns "" when the kind is hosted nowhere.
 func (x *actorIdWrapper) getRemoteAddrCache() string {
 	if !x.isCluster() {
 		return ""
 	}
-	// fast path: compare the provider version only (no slice allocation). The
-	// full GetNodes() is called just once, when the version actually advanced.
+	// fast path: version compare only, no slice allocation; GetNodes() runs only when it advanced
 	version := x.GetSystem().getProvider().GetNodesVersion()
 	if vCache := x.cacheRemote.Load(); vCache != nil && vCache.version == version {
 		return vCache.remoteAddr
 	}
 	x.Lock()
 	defer x.Unlock()
-	//double check: re-read under the lock, not the stale value captured above.
+	//double check under the lock, not the stale value read above
 	vCache := x.cacheRemote.Load()
 	if vCache != nil && vCache.version == version {
 		return vCache.remoteAddr

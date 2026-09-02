@@ -36,15 +36,9 @@ func BenchmarkCalcPos(b *testing.B) {
 	}
 }
 
-// TestSystemHotFieldsAreOnSeparateCacheLines guards the padding around askId.
-//
-// askId takes an atomic.AddUint64 on every send (nextSnId), while addr and logger are READ
-// on every send. Co-resident in one 64-byte line, the write invalidated the line for every
-// core reading the others — measured at 24.1 vs 14.2 ns/op under 16-core contention.
-//
-// A comment cannot hold this: adding one field above askId shifts the whole tail and quietly
-// undoes it. This asserts the property instead of the byte offsets, so harmless reordering
-// stays legal and a regression does not.
+// TestSystemHotFieldsAreOnSeparateCacheLines guards the padding around askId: it is bumped
+// atomically per send while addr/logger are read per send, so sharing a 64-byte line is false
+// sharing. Asserts the property, not byte offsets, so harmless reordering stays legal.
 func TestSystemHotFieldsAreOnSeparateCacheLines(t *testing.T) {
 	const cacheLine = 64
 	var s system
@@ -73,19 +67,11 @@ func TestSystemHotFieldsAreOnSeparateCacheLines(t *testing.T) {
 	}
 }
 
-// TestAskToUnhostedClusterKindFailsFast pins that an Ask whose target kind no node hosts
-// fails immediately instead of waiting out askTimeout.
-//
-// tellWithSender's `cacheAddr == ""` arm used to log and return, replying nothing. Every
-// other undeliverable path already answers a waiting Ask — sendToLocal replies
-// errActorNotFound for an actor that does not exist, toDeadLetter does the same for a
-// saturated or stopped mailbox — so this was the one place where a statically decidable
-// failure (a typo'd kind name, or a send during the startup window before the member set
-// has loaded) was the SLOWEST failure in the system instead of the fastest.
+// TestAskToUnhostedClusterKindFailsFast: an Ask whose target kind no node hosts must fail
+// immediately, like every other undeliverable path, instead of waiting out askTimeout.
 func TestAskToUnhostedClusterKindFailsFast(t *testing.T) {
 	sys := newTestSystem(t)
-	// Generous on purpose: a correct fast-fail never waits, so a regression shows up as
-	// this test timing out rather than quietly passing after askTimeout.
+	// generous on purpose: a regression times out here instead of quietly passing
 	sys.config.askTimeout = 30 * time.Second
 
 	// the fakeProvider hosts only kind "player"
@@ -102,12 +88,11 @@ func TestAskToUnhostedClusterKindFailsFast(t *testing.T) {
 		if err == nil {
 			t.Fatal("an Ask to a kind that no node hosts must fail")
 		}
-		// Same code as a missing actor, so a caller needs only the one check...
+		// same code as a missing actor, so a caller needs only the one check...
 		if !errors.Is(err, message.CodeActorNotFound) {
 			t.Errorf("want CodeActorNotFound, got code %d: %q", err.Code, err.Des)
 		}
-		// ...but a description that names this cause, because the fix is different: a
-		// missing WithConfigKind, not a grain that happens to be inactive.
+		// ...but a description naming the kind, since the fix is a missing WithConfigKind
 		if !strings.Contains(err.Des, "kind") {
 			t.Errorf("the description should say the KIND is unhosted, got %q", err.Des)
 		}

@@ -76,17 +76,12 @@ func (x *HelloGoActorA) Receive(context grain.Context) {
 }
 
 func init() {
-	//log
 	grain.InitLog("./test.log", slog.LevelInfo)
-	//new
 	testSystem.system = grain.NewSystem("schedule", "0.0.1", []string{"127.0.0.1:2379"},
 		grain.WithConfigAskTimeout(askTimeout),
 		grain.WithConfigKind("hello", func() grain.IActor { return &HelloGoActorA{} }))
-	//start
 	testSystem.system.Logger().Warn("system starting")
-	//
 	testSystem.system.Start()
-	//
 	testSystem.system.Logger().Warn("system started successfully")
 
 	n := runtime.NumCPU()

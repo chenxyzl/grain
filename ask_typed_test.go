@@ -9,11 +9,8 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// These tests pin the reply-decoding contract of the typed Ask (v1.2.3). Before
-// Ask became generic it was instantiated as awaitReply[proto.Message], and the
-// `case T` arm — matched first — swallowed *ErrCode and *Poison as *successful*
-// replies, because both are themselves proto.Messages. The sentinels are now
-// matched before T, so the contract holds for every T including proto.Message.
+// These tests pin the typed Ask's reply-decoding contract: the *ErrCode and *Poison sentinels
+// are matched before T, so they surface as errors for every T, including proto.Message.
 
 // replier answers each Subscribe with whatever reply() produces.
 type replier struct {
@@ -52,9 +49,7 @@ func TestAskErrCodeReplyIsReturnedAsError(t *testing.T) {
 	}
 }
 
-// TestAskErrCodeNotSwallowedByInterfaceT is the regression that matters most:
-// with T = proto.Message the old `case T`-first ordering matched *ErrCode and
-// reported success.
+// With T = proto.Message, a `case T`-first ordering would match *ErrCode and report success.
 func TestAskErrCodeNotSwallowedByInterfaceT(t *testing.T) {
 	_, p := newReplierProcessor(t, func() proto.Message { return message.WithErr("boom") })
 
@@ -67,9 +62,7 @@ func TestAskErrCodeNotSwallowedByInterfaceT(t *testing.T) {
 	}
 }
 
-// TestAskPoisonReplyIsReturnedAsError covers the shutdown path: wakePendingAsks
-// pushes the poison sentinel into every waiting reply channel so Ask returns
-// immediately instead of waiting out askTimeout.
+// Shutdown path: wakePendingAsks pushes poison into waiting channels, so Ask returns at once.
 func TestAskPoisonReplyIsReturnedAsError(t *testing.T) {
 	_, p := newReplierProcessor(t, func() proto.Message { return msgPoison })
 
@@ -96,9 +89,8 @@ func TestAskHappyPathReturnsTypedReply(t *testing.T) {
 	}
 }
 
-// TestAskTypeMismatchNamesBothTypes also pins the diagnostic: the expected name
-// comes from proto.MessageName on the zero T, which only yields a real name now
-// that T is concrete (a nil proto.Message interface returns "").
+// Also pins the diagnostic: the wanted name comes from proto.MessageName on the zero T, which
+// only yields a real name because T is concrete (a nil proto.Message interface returns "").
 func TestAskTypeMismatchNamesBothTypes(t *testing.T) {
 	_, p := newReplierProcessor(t, func() proto.Message {
 		return &message.Unsubscribe{EventName: "wrong type"}
@@ -113,8 +105,7 @@ func TestAskTypeMismatchNamesBothTypes(t *testing.T) {
 	}
 }
 
-// TestNoReentryAskNilTarget: askImpl's nil guard used to live only in
-// BaseActor.Ask, so NoReentryAsk(nil, ...) panicked on target.GetSystem().
+// The nil-target guard lives in askImpl, so NoReentryAsk(nil, ...) errors instead of panicking.
 func TestNoReentryAskNilTarget(t *testing.T) {
 	v, err := NoReentryAsk[*message.Unsubscribe](nil, &message.Subscribe{EventName: "x"})
 	if err == nil {
@@ -125,9 +116,7 @@ func TestNoReentryAskNilTarget(t *testing.T) {
 	}
 }
 
-// selfAskErrActor self-asks and replies with an ErrCode, exercising the same
-// contract through BaseActor.Ask[T] (the reentrant, turn-yielding path) rather
-// than NoReentryAsk.
+// selfAskErrActor self-asks and replies with an ErrCode, via the reentrant BaseActor.Ask[T].
 type selfAskErrActor struct {
 	BaseActor
 	out chan askOutcome

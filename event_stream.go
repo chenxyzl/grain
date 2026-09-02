@@ -32,11 +32,9 @@ func newEventStream(nodeId uint64, provider iProvider, eventStreamPrefix string)
 
 func (x *eventStream) Started() {
 	x.Logger().Info("EventStream started ...")
-	//watcher eventStream
 	err := x.watchEventStream()
 	if err != nil {
-		// runtime failure (etcd watch): log and stop self rather than panic
-		// (which would only be swallowed by start()'s recover anyway).
+		// stop self rather than panic; start()'s recover would only swallow it anyway
 		x.Logger().Error("watchEventStream err, stop self", "err", err)
 		x.GetSystem().Poison(x.Self())
 		return
@@ -77,11 +75,9 @@ func (x *eventStream) unsubscribe(_ Context, msg *message.Unsubscribe) {
 	if _, ok := x.sub[msg.EventName][msg.GetActorId()]; !ok {
 		return
 	}
-	//
 	delete(x.sub[msg.EventName], msg.GetActorId())
-	//
 	x.Logger().Debug("EventStream unsubscribe", "id", msg.GetActorId(), "eventName", msg.EventName)
-	//
+	// last subscriber for this event on this node: drop the etcd registration too
 	if len(x.sub[msg.EventName]) == 0 {
 		delete(x.sub, msg.EventName)
 		x.unregisterEventStream(msg.EventName)
@@ -105,8 +101,7 @@ func (x *eventStream) onPublish(_ Context, msg proto.Message) {
 }
 
 func (x *eventStream) watchEventStream() error {
-	// initial full load + continuous watch, delegated to the provider so this
-	// actor stays free of etcd (clientv3/mvccpb) types.
+	// initial full load + continuous watch, in the provider so this actor stays etcd-free
 	return x.provider.watchEventStream(x.eventStreamPrefix, func(op watchOp, key string, val []byte) {
 		_ = x.parseWatchEventStream(op, key, val)
 	})
@@ -133,15 +128,13 @@ func (x *eventStream) parseWatchEventStream(op watchOp, key string, value []byte
 		return nil
 	}
 	actorRef := newActorRefFromAID(string(value), x.GetSystem())
-	// newActorRefFromAID never returns nil — it hands back a ref with empty fields for
-	// a malformed AID — so the old `actorRef == nil` check was dead code and the
-	// intended validation never happened. Check what actually indicates a bad AID.
+	// newActorRefFromAID never returns nil: a malformed AID yields a ref with empty fields,
+	// so empty kind/name is the only way to detect one.
 	if actorRef.GetKind() == "" || actorRef.GetName() == "" {
 		return fmt.Errorf("invalid eventStream, unparsable actor id %q, key:%v", string(value), key)
 	}
-	// GetOrCreate, not Get/nil-check/Set: this runs on the provider's watch
-	// goroutine while registerEventStream runs on the actor's, and the racing
-	// Set would drop whichever per-event map was published first.
+	// GetOrCreate, not Get/nil-check/Set: this is the provider's watch goroutine and
+	// registerEventStream is the actor's, so a racing Set would drop one per-event map.
 	x.eventStreamMaps.GetOrCreate(eventName, safemap.NewRWMap[uint64, ActorRef]).Set(uint64(nodeId), actorRef)
 	x.Logger().Warn("event stream key add, success", "key", key)
 	return nil
@@ -158,7 +151,6 @@ func (x *eventStream) registerEventStream(eventName string) {
 		x.Logger().Error("register eventStream error", "path", path, "eventName", eventName, "err", err)
 		return
 	}
-	//change local
 	x.eventStreamMaps.GetOrCreate(eventName, safemap.NewRWMap[uint64, ActorRef]).Set(x.nodeId, x.Self())
 }
 func (x *eventStream) unregisterEventStream(eventName string) {
@@ -167,7 +159,6 @@ func (x *eventStream) unregisterEventStream(eventName string) {
 		x.Logger().Error("unregister eventStream error", "path", path, "eventName", eventName, "err", err)
 		return
 	}
-	//change local
 	actors, _ := x.eventStreamMaps.Get(eventName)
 	if actors == nil {
 		return

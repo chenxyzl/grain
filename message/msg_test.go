@@ -16,8 +16,7 @@ func TestCustomProto(t *testing.T) {
 	fmt.Println(v2)
 }
 
-// errors.Is must match on the code and ignore Des, so a caller never has to write
-// err.Code == int32(...) again.
+// errors.Is must match on the code and ignore Des.
 func TestErrCodeIs(t *testing.T) {
 	err := WithErrCode(CodeActorNotFound, "actor not found")
 	if !errors.Is(err, CodeActorNotFound) {
@@ -26,21 +25,17 @@ func TestErrCodeIs(t *testing.T) {
 	if errors.Is(err, CodeAskNotRunning) {
 		t.Fatal("want no match on a different code")
 	}
-	// Des must not take part in the comparison: WithErrCode with a different
-	// description is still the same failure.
+	// Des takes no part in the comparison: a different description is the same failure.
 	if !errors.Is(err, WithErrCode(CodeActorNotFound, "totally different words")) {
 		t.Fatal("want match against another ErrCode with the same code")
 	}
-	// and it must survive wrapping
 	if !errors.Is(fmt.Errorf("ask target %q: %w", "player/1", err), CodeActorNotFound) {
 		t.Fatal("want match through a wrap")
 	}
-	// unrelated error types must not match
 	if errors.Is(err, errors.New("boom")) {
 		t.Fatal("want no match against a plain error")
 	}
-	// a nil *ErrCode is reachable through the error interface; it must report false,
-	// not panic.
+	// a nil *ErrCode is reachable through the error interface: report false, don't panic
 	var nilErr *ErrCode
 	if nilErr.Is(CodeActorNotFound) {
 		t.Fatal("want no match on a nil ErrCode")

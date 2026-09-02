@@ -15,13 +15,10 @@ var (
 
 type HelloActorA struct{ grain.BaseActor }
 
-// Started deliberately does NOT Ask. Reentrancy is off during Started() —
-// yieldTurn skips the successor-drainer handoff while life == lifeStarting, so no
-// handler runs against half-initialized state — which also means the actor cannot
-// answer incoming requests there. Ask therefore refuses outright from Started()
-// and returns message.CodeAskNotRunning. See docs/reentrancy.md §九.
-//
-// The a->b->a cycle is therefore kicked off from a normal handler below.
+// Started deliberately does NOT Ask: reentrancy is off while life == lifeStarting (no handler
+// may run against half-initialized state), so the actor cannot answer requests there and Ask
+// refuses with message.CodeAskNotRunning. See docs/reentrancy.md §九. The a->b->a cycle is
+// therefore kicked off from a normal handler below.
 func (x *HelloActorA) Started() {
 	x.Logger().Info("Started1")
 }

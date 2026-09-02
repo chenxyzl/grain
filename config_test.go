@@ -6,10 +6,7 @@ import (
 	"time"
 )
 
-// The three values below used to be file-level constants (provider_etcd.go's
-// dialTimeoutTime / ttlTime and remote/stream_server.go's ":0"), so tuning any of them
-// meant forking the framework. These tests pin both the defaults — changing one silently
-// alters how long a dead node keeps receiving traffic — and the options.
+// Defaults for the etcd/gRPC knobs: the lease TTL bounds how long a dead node keeps traffic.
 func TestConfigDefaultsForEtcdAndGrpc(t *testing.T) {
 	c := newConfig("cluster", "v1", []string{"127.0.0.1:2379"})
 	if c.etcdDialTimeout != 10*time.Second {
@@ -41,11 +38,9 @@ func TestConfigEtcdAndGrpcOptions(t *testing.T) {
 	}
 }
 
-// Each option rejects its degenerate value at config time. Letting them through would
-// surface much later and much less clearly: a zero DialTimeout means "no timeout" to
-// clientv3, so a wrong endpoint hangs forever instead of failing; a zero TTL is rejected
-// by etcd's Grant with a message that never mentions the option; an empty listen address
-// is not distinguishable from "unset".
+// Each option rejects its degenerate value at config time, where the fix is obvious: a zero
+// DialTimeout means "no timeout" to clientv3, and a zero TTL is only rejected later by etcd's
+// Grant, with a message that never names the option.
 func TestConfigRejectsDegenerateValues(t *testing.T) {
 	for _, tc := range []struct {
 		name string

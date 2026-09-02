@@ -8,24 +8,17 @@ import (
 type PushResult int8
 
 const (
-	// PushOK: the item was enqueued (the buffer grew first if it was full and
-	// below its max capacity).
+	// PushOK: enqueued; the ring grew first if it was full and below maxCap.
 	PushOK PushResult = iota
-	// PushOverflow: the buffer is full AND already at its max capacity, so the
-	// item was dropped (the caller should route it to a dead letter). Existing
-	// queued items are kept — the NEW item is the one dropped (Akka-style).
+	// PushOverflow: full at maxCap — the NEW item is dropped (queued ones kept, Akka-style).
 	PushOverflow
-	// PushClosed: the buffer has been closed (actor stopped); the item was not
-	// enqueued.
+	// PushClosed: closed (actor stopped); not enqueued.
 	PushClosed
 )
 
-// RingBuffer is a FIFO queue backed by a ring that grows on demand.
-//   - Push never blocks. It grows the ring (doubling, up to maxCap) when full;
-//     once at maxCap a further Push returns PushOverflow (the new item is
-//     dropped) so senders are never blocked and cannot deadlock.
-//   - Pop never blocks: it returns (zero, false) when empty, which keeps the
-//     actor scheduler's drain-and-exit model intact.
+// RingBuffer is a FIFO queue backed by a ring that doubles on demand up to maxCap, never
+// shrinking. Neither end ever blocks: full at maxCap returns PushOverflow instead of parking
+// the sender, empty Pops (zero, false), which keeps the scheduler's drain-and-exit model.
 type RingBuffer[T any] struct {
 	mu     sync.Mutex
 	items  []T
@@ -37,8 +30,8 @@ type RingBuffer[T any] struct {
 	closed bool
 }
 
-// New creates a ring buffer starting at initCap and growing (doubling) up to
-// maxCap. initCap is clamped to >= 1 and maxCap to >= initCap.
+// New creates a ring buffer from initCap, doubling up to maxCap; initCap is clamped to >= 1
+// and maxCap to >= initCap.
 func New[T any](initCap int64, maxCap int64) *RingBuffer[T] {
 	if initCap <= 0 {
 		initCap = 1
@@ -74,14 +67,9 @@ func (rb *RingBuffer[T]) Push(item T) PushResult {
 	return PushOK
 }
 
-// next advances a ring index, wrapping at cap.
-//
-// A branch, not `(i+1) % rb.cap`: cap is a runtime variable, so the modulo compiles to
-// a hardware DIV — ~10ns, paid twice per message (Push and Pop) and inside the mutex,
-// which lengthens the critical section and amplifies producer/consumer contention. The
-// alternative of rounding capacities up to a power of two and masking would be a touch
-// faster still, but it would silently inflate a configured maxMailbox (1000 -> 1024);
-// this form changes no semantics at all.
+// next advances a ring index, wrapping at cap. A branch, not `(i+1) % rb.cap`: cap is a runtime
+// variable, so modulo compiles to a hardware DIV, ~10ns twice per message inside the mutex.
+// Masking power-of-two caps is faster still but would inflate a configured maxMailbox to 1024.
 func (rb *RingBuffer[T]) next(i int64) int64 {
 	i++
 	if i == rb.cap {
@@ -90,13 +78,11 @@ func (rb *RingBuffer[T]) next(i int64) int64 {
 	return i
 }
 
-// grow doubles the capacity (capped at maxCap) and linearizes the ring into the
-// new backing slice so head starts at 0. Must be called with rb.mu held and
-// only when size == cap. Doubling keeps the amortized copy cost O(1).
+// grow doubles the capacity (capped at maxCap, so copying stays O(1) amortized) and unwraps the
+// ring into the new slice in FIFO order so head starts at 0. Hold rb.mu; only valid at size==cap.
 func (rb *RingBuffer[T]) grow() {
 	newCap := min(rb.cap*2, rb.maxCap)
 	items := make([]T, newCap)
-	// copy in FIFO order starting at head, unwrapping the ring
 	if rb.head < rb.tail {
 		copy(items, rb.items[rb.head:rb.tail])
 	} else {
@@ -109,8 +95,7 @@ func (rb *RingBuffer[T]) grow() {
 	rb.cap = newCap
 }
 
-// Close marks the buffer closed. Already-enqueued items remain poppable; further
-// Push calls return PushClosed.
+// Close marks the buffer closed: queued items stay poppable, further Push returns PushClosed.
 func (rb *RingBuffer[T]) Close() {
 	rb.mu.Lock()
 	rb.closed = true
@@ -124,7 +109,6 @@ func (rb *RingBuffer[T]) Len() int64 {
 	return n
 }
 
-// Cap returns the current capacity (grows over time; never shrinks).
 func (rb *RingBuffer[T]) Cap() int64 {
 	rb.mu.Lock()
 	c := rb.cap

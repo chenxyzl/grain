@@ -15,9 +15,7 @@ import (
 	"github.com/chenxyzl/grain/uuid"
 )
 
-// fakeSys is a minimal ISystem for driving a processorMailBox without etcd.
-// Only the methods the scheduler actually calls are implemented; the rest are
-// inherited from the embedded nil ISystem and will panic if unexpectedly used.
+// fakeSys is a minimal ISystem for a processorMailBox without etcd; unimplemented methods panic.
 type fakeSys struct {
 	ISystem
 	reg     *registry
@@ -57,9 +55,7 @@ func (f *fakeSys) deliverReply(snId uint64, msg proto.Message) {
 	}
 }
 
-// tell / tellWithSender: minimal local-only router so real BaseActor.Ask (and
-// ctx.Reply) work in-process without etcd/grpc. Looks the target up in the
-// registry and delivers via proc.send; unknown targets are dropped.
+// tell/tellWithSender: local-only router so real Ask and ctx.Reply work in-process.
 func (f *fakeSys) tell(target ActorRef, msg proto.Message) {
 	f.tellWithSender(target, msg, nil, f.nextSnId())
 }
@@ -74,10 +70,8 @@ func (f *fakeSys) tellWithSender(target ActorRef, msg proto.Message, sender Acto
 	}
 }
 
-// newTestProcessor builds a processorMailBox wired to a fakeSys, mirroring
-// spawnProcessor's constructor but without the registry publish dance. The
-// mailbox starts at `mailbox` and can grow (like production), so a self-Ask
-// never overflows for want of a single slot.
+// newTestProcessor mirrors spawnProcessor's constructor without the registry publish dance. The
+// mailbox can grow, like production, so a self-Ask never overflows for want of a single slot.
 func newTestProcessor(sys *fakeSys, r IActor, mailbox int) *processorMailBox {
 	self := newDirectActorRef("local", "t", "test", sys)
 	p := &processorMailBox{
@@ -92,16 +86,13 @@ func newTestProcessor(sys *fakeSys, r IActor, mailbox int) *processorMailBox {
 	p.turn <- struct{}{}
 	p.receiver._init(self)
 	p.receiver._bindTurn(p)
-	// mirror build(): enqueue initialize so Started() runs (started=true) and
-	// PreStop pairs correctly on stop.
+	// mirror build(): enqueue initialize so Started() runs and PreStop pairs on stop
 	p.rb.Push(newContext(self, self, msgInitialize, sys.nextSnId(), nil))
 	sys.reg.lookup.Set(self.GetId(), p)
 	return p
 }
 
-// reentryActor: on msgBlock it yields the turn and waits on a caller-controlled
-// channel (simulating a blocking Ask); every Receive bumps a concurrency guard
-// to assert strict single-threading.
+// reentryActor yields the turn on a block message and waits on a channel: a fake blocking Ask.
 type reentryActor struct {
 	BaseActor
 	turnCtl     reentryTurn
@@ -128,10 +119,8 @@ func (a *reentryActor) Started() {
 }
 func (a *reentryActor) PreStop() { a.stopped.Store(true) }
 
-// enter/leave bracket the window in which this handler HOLDS the turn. The
-// yield window (between yieldTurn and resumeTurn) is explicitly excluded, since
-// the handler does not hold the turn there — that is exactly when a successor
-// legitimately runs. maxConc must therefore never exceed 1.
+// enter/leave bracket the window in which this handler HOLDS the turn; the yield window is
+// excluded, since a successor legitimately runs there. maxConc must therefore never exceed 1.
 func (a *reentryActor) enter() {
 	n := a.concurrent.Add(1)
 	for {
@@ -150,8 +139,7 @@ func (a *reentryActor) Receive(ctx Context) {
 	switch m := ctx.Message().(type) {
 	case *message.Subscribe: // "block" message: simulate a blocking Ask
 		a.blockedAt <- m.EventName
-		// mimic BaseActor.Ask's yield/resume around a blocking wait: not holding
-		// the turn while blocked.
+		// mimic BaseActor.Ask: do not hold the turn while blocked
 		a.leave()
 		ds := a.turnCtl.yieldTurn()
 		<-a.block
@@ -177,9 +165,7 @@ func drainProcessed(ch chan string, n int, d time.Duration) []string {
 	return got
 }
 
-// TestReentrancyGeneral verifies that while a handler is blocked (yielded turn),
-// a later-enqueued unrelated message is processed, and that no two handlers ever
-// run concurrently (strict single-threading).
+// TestReentrancyGeneral: a message enqueued while a handler is blocked runs, and no two ever do.
 func TestReentrancyGeneral(t *testing.T) {
 	sys := newFakeSys()
 	act := &reentryActor{
@@ -190,7 +176,6 @@ func TestReentrancyGeneral(t *testing.T) {
 	p := newTestProcessor(sys, act, 64)
 	p.init() // starts run loop; processes initialize -> Started
 
-	// msg1 blocks (yields turn)
 	p.send(newContext(p.self(), nil, &message.Subscribe{EventName: "blocker"}, sys.nextSnId(), nil))
 	select {
 	case got := <-act.blockedAt:
@@ -208,7 +193,6 @@ func TestReentrancyGeneral(t *testing.T) {
 		t.Fatalf("reentrant msg not processed during block, got=%v", got)
 	}
 
-	// unblock msg1
 	close(act.block)
 	got = drainProcessed(act.processed, 1, time.Second)
 	if len(got) != 1 || got[0] != "blocker" {
@@ -220,8 +204,7 @@ func TestReentrancyGeneral(t *testing.T) {
 	}
 }
 
-// TestReentrancyStopDrains verifies poison during a blocked handler eventually
-// stops the actor after the handler resumes (inflight returns to 0).
+// TestReentrancyStopDrains: poison during a blocked handler stops only once inflight is 0.
 func TestReentrancyStopDrains(t *testing.T) {
 	sys := newFakeSys()
 	act := &reentryActor{
@@ -236,7 +219,6 @@ func TestReentrancyStopDrains(t *testing.T) {
 	<-act.blockedAt // handler is blocked, turn yielded, inflight=1
 
 	p.poison() // request stop while a handler is in flight
-	// stop must NOT happen yet (handler still in flight)
 	time.Sleep(50 * time.Millisecond)
 	if act.stopped.Load() {
 		t.Fatal("actor stopped while a handler was still in flight")
@@ -254,10 +236,7 @@ func TestReentrancyStopDrains(t *testing.T) {
 	}
 }
 
-// TestReentrancyNested drives multiple messages that each block (yield) at once,
-// then releases them, verifying: all complete, strict single-turn holds, and the
-// scheduler parks cleanly afterward (no stuck/duplicate drainer) by processing a
-// final normal message.
+// TestReentrancyNested: several handlers yield at once; all complete and the scheduler reparks.
 func TestReentrancyNested(t *testing.T) {
 	sys := newFakeSys()
 	act := &reentryActor{
@@ -295,9 +274,8 @@ func TestReentrancyNested(t *testing.T) {
 	}
 }
 
-// TestStartedBlockingAskHoldsBusinessMessages verifies that a blocking Ask
-// inside Started() does NOT let queued business messages run before Started
-// completes (#5): starting=true suppresses the successor handoff.
+// TestStartedBlockingAskHoldsBusinessMessages: a blocking Ask inside Started() must not let
+// queued business messages run before Started completes (no successor handoff while starting).
 func TestStartedBlockingAskHoldsBusinessMessages(t *testing.T) {
 	sys := newFakeSys()
 	act := &reentryActor{
@@ -309,7 +287,6 @@ func TestStartedBlockingAskHoldsBusinessMessages(t *testing.T) {
 	p := newTestProcessor(sys, act, 64)
 	p.init()
 
-	// Started() blocks (yields turn). A business message is enqueued now.
 	<-act.blockedAt // "started"
 	p.send(newContext(p.self(), nil, &message.Unsubscribe{EventName: "early"}, sys.nextSnId(), nil))
 
@@ -323,7 +300,6 @@ func TestStartedBlockingAskHoldsBusinessMessages(t *testing.T) {
 		t.Fatal("Started() reported done while still blocked")
 	}
 
-	// Let Started() finish; only then may the business message run.
 	close(act.block)
 	if got := drainProcessed(act.processed, 1, 2*time.Second); len(got) != 1 || got[0] != "early" {
 		t.Fatalf("business message not processed after Started(), got=%v", got)
@@ -336,9 +312,7 @@ func TestStartedBlockingAskHoldsBusinessMessages(t *testing.T) {
 	}
 }
 
-// TestRemotePoisonWaitsInflight verifies that a Poison delivered as a message
-// (remote path, via invoke) does not stop the actor while a handler is
-// suspended in a blocking Ask (#3); PreStop runs only after inflight drains.
+// TestRemotePoisonWaitsInflight: a Poison arriving as a message stops only after inflight drains.
 func TestRemotePoisonWaitsInflight(t *testing.T) {
 	sys := newFakeSys()
 	act := &reentryActor{
@@ -349,7 +323,6 @@ func TestRemotePoisonWaitsInflight(t *testing.T) {
 	p := newTestProcessor(sys, act, 64)
 	p.init()
 
-	// A handler blocks in Ask (inflight=1, turn yielded).
 	p.send(newContext(p.self(), nil, &message.Subscribe{EventName: "blocker"}, sys.nextSnId(), nil))
 	<-act.blockedAt
 
@@ -361,7 +334,6 @@ func TestRemotePoisonWaitsInflight(t *testing.T) {
 		t.Fatal("actor stopped (PreStop ran) while a handler was suspended in Ask")
 	}
 
-	// Release the handler; now stop may proceed.
 	close(act.block)
 	deadline := time.After(2 * time.Second)
 	for !act.stopped.Load() {
@@ -374,13 +346,8 @@ func TestRemotePoisonWaitsInflight(t *testing.T) {
 	}
 }
 
-
-// selfAskActor: on the trigger message it enqueues some self-messages, then
-// issues a real BaseActor.Ask to ITSELF. The self-ask request can only be
-// processed by a drainer; with the send-before-yield ordering this goroutine
-// would block in awaitReply while still holding the turn, and no successor would
-// exist to drain the request -> deadlock. With yield-before-send, a successor
-// drainer runs the request and replies, so the self-ask completes.
+// selfAskActor fills its own mailbox, then issues a real Ask to ITSELF. Only a successor drainer
+// can serve that request, so yield-before-send is what keeps it from deadlocking.
 type selfAskActor struct {
 	BaseActor
 	mailboxCap int
@@ -398,8 +365,6 @@ func (a *selfAskActor) Receive(ctx Context) {
 			for i := 0; i < a.mailboxCap; i++ {
 				a.Self().Tell(&message.Unsubscribe{EventName: "filler"})
 			}
-			// real self-ask: only a successor drainer can process this request and
-			// reply; yield-before-send guarantees that successor exists.
 			_, err := a.Ask[*message.Unsubscribe](a.Self(), &message.Subscribe{EventName: "selfask"})
 			_ = err
 			if a.doneOnce.CompareAndSwap(false, true) {
@@ -413,8 +378,7 @@ func (a *selfAskActor) Receive(ctx Context) {
 	}
 }
 
-// TestSelfAskDoesNotDeadlock reproduces the self-ask + full-mailbox deadlock and
-// verifies the yield-before-send ordering resolves it.
+// TestSelfAskDoesNotDeadlock: a self-Ask with a full mailbox must still complete.
 func TestSelfAskDoesNotDeadlock(t *testing.T) {
 	sys := newFakeSys()
 	act := &selfAskActor{mailboxCap: 8, done: make(chan struct{})}
@@ -425,15 +389,13 @@ func TestSelfAskDoesNotDeadlock(t *testing.T) {
 
 	select {
 	case <-act.done:
-		// self-ask returned without deadlock — success.
+		// returned without deadlock
 	case <-time.After(3 * time.Second):
 		t.Fatal("self-ask deadlocked: Ask never returned")
 	}
 }
 
-// TestAskTimeoutAndLateReply verifies: an Ask times out to an ErrCode when no
-// reply arrives, and a reply that arrives AFTER the timeout (pending entry
-// already cancelled) is dropped without panicking or blocking.
+// TestAskTimeoutAndLateReply: Ask times out to an ErrCode; a late reply is dropped, not a panic.
 func TestAskTimeoutAndLateReply(t *testing.T) {
 	sys := newFakeSys()
 	sys.cfg = &config{askTimeout: 100 * time.Millisecond}
@@ -447,13 +409,11 @@ func TestAskTimeoutAndLateReply(t *testing.T) {
 	}
 	sys.cancelAsk(snId) // caller cleans up (as Ask's defer does)
 
-	// a late reply for the same snId: pending entry is gone -> Pop misses -> drop.
-	// must not panic or block.
+	// late reply for a cancelled snId: Pop misses -> dropped, must not panic or block
 	sys.deliverReply(snId, &message.Unsubscribe{EventName: "late"})
 }
 
-// TestWakePendingAsks verifies shutdown delivers poison to a waiting Ask so it
-// returns immediately instead of waiting out askTimeout.
+// TestWakePendingAsks: shutdown poisons a waiting Ask so it returns without waiting askTimeout.
 func TestWakePendingAsks(t *testing.T) {
 	sys := newFakeSys()
 	snId := sys.nextSnId()
@@ -484,8 +444,7 @@ func TestWakePendingAsks(t *testing.T) {
 	}
 }
 
-// TestAskReplyDelivered verifies the happy path: a reply for the snId is
-// delivered and decoded into the typed result.
+// TestAskReplyDelivered: a reply for the snId is delivered and decoded into the typed result.
 func TestAskReplyDelivered(t *testing.T) {
 	sys := newFakeSys()
 	snId := sys.nextSnId()
@@ -525,22 +484,12 @@ func (a *startedAskActor) Receive(ctx Context) {
 	}
 }
 
-// TestAskFromStartedIsRejected pins the rule (docs/reentrancy.md §九): an Ask
-// issued from Started() is refused at the call site with message.CodeAskNotRunning
-// and nothing is sent.
-//
-// Why refuse rather than let it run: reentrancy is deliberately off during
-// Started() (yieldTurn skips the successor-drainer handoff so no handler observes
-// half-initialized state), which means the actor cannot answer incoming requests
-// in that window. An Ask whose reply depends on that would silently wait out
-// askTimeout, and whether a given Ask depends on it is not decidable at call time.
-//
-// The contrast case — the same self-ask from a normal handler, which hands off and
-// completes — is TestSelfAskDoesNotDeadlock above.
+// TestAskFromStartedIsRejected (docs/reentrancy.md §九): an Ask from Started() is refused at the
+// call site with CodeAskNotRunning and nothing is sent. Reentrancy is off during Started(), so
+// the actor cannot answer requests then and such an Ask would just wait out askTimeout.
 func TestAskFromStartedIsRejected(t *testing.T) {
 	sys := newFakeSys()
-	// A generous timeout: a correct rejection never waits, so if this test ever
-	// takes ~askTimeout the guard is gone and the Ask actually went out.
+	// generous: a correct rejection never waits, so ~askTimeout here means the Ask went out
 	sys.cfg.askTimeout = 30 * time.Second
 	act := &startedAskActor{out: make(chan *message.ErrCode, 1)}
 	p := newTestProcessor(sys, act, 8)
@@ -560,16 +509,14 @@ func TestAskFromStartedIsRejected(t *testing.T) {
 			"so the rejection is not in effect")
 	}
 
-	// The request must never have been sent: the target (self) must not have served
-	// it, before or after Started() returned.
+	// the request must never have been sent, before or after Started() returned
 	time.Sleep(50 * time.Millisecond)
 	if act.served.Load() {
 		t.Error("the rejected Ask still delivered its request to the target")
 	}
 }
 
-// preStopAskActor attempts a real (turn-yielding) Ask from PreStop() and counts how
-// many times PreStop runs.
+// preStopAskActor attempts a real (turn-yielding) Ask from PreStop() and counts PreStop runs.
 type preStopAskActor struct {
 	BaseActor
 	sys      *fakeSys
@@ -583,25 +530,15 @@ func (a *preStopAskActor) PreStop() {
 	if n := a.preStops.Add(1); n > 1 {
 		return // never recurse; the count is what the test asserts
 	}
-	// A ghost target (registered nowhere) would be dropped by fakeSys, so if the
-	// Ask were NOT refused it would block until askTimeout and yield the turn.
+	// fakeSys drops a ghost target, so an unrefused Ask would yield the turn and block askTimeout
 	ghost := newDirectActorRef("local", "ghost", "test", a.sys)
 	_, err := a.Ask[*message.Unsubscribe](ghost, &message.Subscribe{EventName: "x"})
 	a.out <- err
 }
 
-// TestAskFromPreStopIsRejected pins two coupled decisions.
-//
-// 1. PreStop() is outside the Ask-allowed phase. stop() advances life to
-// lifeStopping before calling PreStop, so the isStarted() allow-list refuses the
-// Ask with CodeAskNotRunning and nothing is sent.
-//
-// 2. PreStop runs exactly once. This is why (1) matters: before lifeStopping
-// existed, a turn-yielding Ask in PreStop spawned a successor drainer which
-// re-entered doStop -> stop() while procStatus was still `running` (it only becomes
-// `stopped` in stop()'s defer, i.e. after PreStop returns), passed the lifeStarted
-// check, and ran PreStop a SECOND time. Verified against the pre-fix code: the
-// count was 2.
+// TestAskFromPreStopIsRejected pins two coupled rules: PreStop() is outside the Ask-allowed phase
+// (stop() sets lifeStopping first, so isStarted() refuses with CodeAskNotRunning), and PreStop
+// runs exactly once — a yielding call there lets a successor re-enter stop() while it runs.
 func TestAskFromPreStopIsRejected(t *testing.T) {
 	sys := newFakeSys()
 	sys.cfg.askTimeout = 200 * time.Millisecond // short, so a regression shows as a delay not a hang
@@ -631,9 +568,8 @@ func TestAskFromPreStopIsRejected(t *testing.T) {
 	}
 }
 
-// preStopYieldActor releases the turn from PreStop() directly, bypassing Ask. This
-// is the path that can still re-enter stop() now that Ask refuses to run there, so
-// it is what actually guards the lifeStopping fix.
+// preStopYieldActor releases the turn from PreStop() directly, bypassing Ask — the remaining
+// path that can re-enter stop(), so it is what guards lifeStopping.
 type preStopYieldActor struct {
 	BaseActor
 	turnCtl  reentryTurn
@@ -648,15 +584,13 @@ func (a *preStopYieldActor) PreStop() {
 	if n := a.preStops.Add(1); n > 1 {
 		return
 	}
-	// Hand the turn to a successor drainer, exactly as a blocking Ask used to.
+	// hand the turn to a successor drainer
 	ds := a.turnCtl.yieldTurn()
 	<-a.release
 	a.turnCtl.resumeTurn(ds)
 }
 
-// TestPreStopRunsOnceWhenItYieldsTheTurn is the direct regression test for the
-// lifeStopping state: any turn-yielding call inside PreStop lets a successor drainer
-// re-enter stop(), which must not run PreStop again.
+// TestPreStopRunsOnceWhenItYieldsTheTurn: a successor re-entering stop() must not re-run PreStop.
 func TestPreStopRunsOnceWhenItYieldsTheTurn(t *testing.T) {
 	sys := newFakeSys()
 	act := &preStopYieldActor{release: make(chan struct{})}

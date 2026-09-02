@@ -8,11 +8,8 @@ import (
 
 var _ ActorRef = (*replyRef)(nil)
 
-// replyRef is a lightweight, non-registered ActorRef used as the sender of an
-// Ask. It carries the correlation id (snId) and the origin node address so the
-// reply can be routed back and delivered via the system's pending table. Unlike
-// a real actor it is never registered; its string id is built lazily and only
-// when it must be serialized for a cross-node send.
+// replyRef is a lightweight, never-registered ActorRef used as the sender of an Ask; the
+// correlation id (snId) plus origin address is what routes the reply into the pending table.
 type replyRef struct {
 	snId   uint64
 	addr   string
@@ -28,8 +25,7 @@ func (r *replyRef) GetKind() string    { return defaultReplyKind }
 func (r *replyRef) GetName() string    { return strconv.FormatUint(r.snId, 10) }
 func (r *replyRef) GetDirectAddr() string { return r.addr }
 
-// GetId lazily builds the routable id; only needed when serialized for a remote
-// send (stream_write) — local replies never call it.
+// GetId lazily builds the routable id; only needed when serialized for a remote send.
 func (r *replyRef) GetId() string {
 	return defaultActDirect + "/" + defaultReplyKind + "/" + strconv.FormatUint(r.snId, 10) + "@" + r.addr
 }

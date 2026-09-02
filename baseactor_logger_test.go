@@ -7,11 +7,8 @@ import (
 	"testing"
 )
 
-// TestActorLoggerInheritsSystemAttrs pins that BaseActor.Logger() derives from the
-// SYSTEM logger, not slog.Default(). Before that change an actor line carried only
-// actor=..., so with several nodes writing to one collector there was no way to tell
-// which node produced it — a cluster actor ref is the same string on whichever node
-// currently holds the grain.
+// TestActorLoggerInheritsSystemAttrs pins that Logger() derives from the SYSTEM logger, not
+// slog.Default(): an actor ref alone is the same string on whichever node holds the grain.
 func TestActorLoggerInheritsSystemAttrs(t *testing.T) {
 	var buf bytes.Buffer
 	sys := newFakeSys()
@@ -32,8 +29,7 @@ func TestActorLoggerInheritsSystemAttrs(t *testing.T) {
 	}
 }
 
-// The logger is cached after the first build (see the field comment on BaseActor.logger),
-// so a second call must not rebuild it — and must not re-append the actor attr.
+// Cached after the first build: a second call must not rebuild it, nor re-append actor.
 func TestActorLoggerIsCached(t *testing.T) {
 	sys := newFakeSys()
 	act := &replier{}

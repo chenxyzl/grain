@@ -15,17 +15,12 @@ type ConfigOptFunc func(*config)
 const (
 	defaultAskTimeout         = time.Second * 3
 	defaultStopWaitTimeSecond = 3
-	//defaultEtcdDialTimeout bounds the initial clientv3 connect and the lease Revoke
-	//on shutdown.
+	//defaultEtcdDialTimeout bounds the initial clientv3 connect and the lease Revoke on shutdown.
 	defaultEtcdDialTimeout = time.Second * 10
-	//defaultEtcdLeaseTTLSecond is the TTL of the etcd lease that this node's member
-	//key (and every event-stream subscription) hangs off. It is the worst-case window
-	//in which peers keep routing to a node that died without unregistering, so
-	//lowering it shortens misrouting after a crash at the cost of more keepalive
-	//traffic. etcd counts lease TTLs in whole seconds, hence the unit.
+	//defaultEtcdLeaseTTLSecond: TTL of the lease this node's member key and every event-stream
+	//subscription hang off — how long peers may route to a dead node. Whole seconds, as Grant takes.
 	defaultEtcdLeaseTTLSecond = 10
-	//defaultGrpcListenAddr: every interface, kernel-assigned port. A fixed port is
-	//opt-in because two nodes on one host would otherwise fail to start.
+	//defaultGrpcListenAddr: all interfaces, kernel-assigned port, so two nodes can share a host.
 	defaultGrpcListenAddr = ":0"
 	//actor type
 	defaultActDirect  = "direct"
@@ -55,9 +50,6 @@ type config struct {
 	clusterUrls        []string
 	askTimeout         time.Duration
 	stopWaitTimeSecond int
-	//etcdDialTimeout / etcdLeaseTTLSecond / grpcListenAddr used to be file-level
-	//constants in provider_etcd.go and remote/stream_server.go, so tuning any of them
-	//meant forking the framework.
 	etcdDialTimeout    time.Duration
 	etcdLeaseTTLSecond int64
 	grpcListenAddr     string
@@ -66,8 +58,7 @@ type config struct {
 	kinds              map[string]tKind
 	state              tNodeState
 	deadLetterHandler  DeadLetterHandler
-	//logger, when non-nil, is what the system derives all of its own loggers from
-	//instead of reading the slog default. See WithConfigLogger.
+	//logger, when non-nil, is what the system derives its loggers from instead of slog.Default().
 	logger *slog.Logger
 }
 
@@ -96,21 +87,18 @@ func (x *config) init(addr string, nodeId uint64) tNodeState {
 	return x.state
 }
 
-// markRunning ...
 func (x *config) markRunning() {
 	if !atomic.CompareAndSwapInt32(&x.running, 0, 1) {
 		panic("already running")
 	}
 }
 
-// mustNotRunning ...
 func (x *config) mustNotRunning() {
 	if atomic.LoadInt32(&x.running) != 0 {
 		panic("already running")
 	}
 }
 
-// getKinds get all kinds
 func (x *config) getKinds() []string {
 	kinds := make([]string, 0, len(x.kinds))
 	for kind := range x.kinds {

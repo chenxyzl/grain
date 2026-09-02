@@ -142,47 +142,17 @@ func TestCalcAddrIsOrderIndependent(t *testing.T) {
 	}
 }
 
-// TestForwardingCannotLoop pins the invariant that makes cluster forwarding loop-free —
-// the one thing standing in for the hop/TTL counter remote.Envelope does not have.
+// TestForwardingCannotLoop pins what makes cluster forwarding loop-free — the stand-in for
+// the hop/TTL counter remote.Envelope does not have. A node holding an envelope for a grain it
+// does not host forwards to the owner per ITS OWN view, and views diverge constantly, so A
+// could in principle forward to B while B forwards back.
 //
-// The routing rule is: a node holding an envelope for a cluster actor it does not host
-// forwards to CalcAddrByKind8Name(ITS OWN view of the member set), and activates locally
-// when that answer is itself (system.go tellWithSender/sendToLocal). Nodes disagree about
-// the member set all the time — etcd watch events do not land simultaneously — so in
-// principle A could forward to B while B forwards back to A, bouncing the envelope at
-// network speed with nothing to stop it.
-//
-// It cannot happen, for two reasons that have to hold TOGETHER:
-//
-//  1. the score is a pure function of (name, node address) — it does not depend on the
-//     view, so every node computes the SAME score for the same candidate; and
-//  2. a node always appears in its own view (providerEtcd.register puts its member key
-//     before watch() loads the prefix), so it is always among its own candidates.
-//
-// Therefore the node a holder forwards to never scores lower than the holder itself, and
-// on a tie the address strictly decreases — (score, -address) is strictly monotone along
-// the chain, so no node can repeat and every chain terminates in a local activation.
-//
-// This test brute-forces it over arbitrarily divergent views, keeping only invariant (2).
-// It exists because both invariants are easy to break by accident: adding node weights, or
-// a capacity/least-loaded tie-break, makes the score view-dependent and reintroduces the
-// possibility of a loop — at which point the missing hop limit becomes a real bug and this
-// test is what should fail.
-//
-// Its teeth were checked by injecting view dependence into CalcAddrByKind8Name, and doing
-// that is informative about what the test does and does not guard:
-//
-//   - `score ^ (uint32(len(clusterNodes)) * 2654435761)` — fails on trial 1. This is the
-//     shape to worry about.
-//   - `score + uint32(len(clusterNodes))*7919` — passes, correctly: a constant offset
-//     applied to every candidate in a view shifts them all equally, so the argmax does not
-//     move.
-//   - `score + uint32(i)*104729` — also passes, correctly: 943k of perturbation against a
-//     full uint32 score range essentially never reorders the top candidate.
-//
-// So the guarded property is the SELECTION, not the raw score: a view-dependent term only
-// matters once it is large enough to change who wins. TestScoreIsIndependentOfTheMemberView
-// below pins the stricter, cheaper property directly.
+// It cannot, because two things hold together: the score depends only on (name, address), not
+// on the view; and a node always appears in its own view (register puts its member key before
+// watch loads the prefix). So each hop is strictly monotone in (score, -address) and no node
+// can repeat. Adding node weights or a least-loaded tie-break breaks the first and this test
+// is what should fail. It guards the SELECTION, so a view-dependent term only trips it once it
+// is large enough to change the argmax.
 func TestForwardingCannotLoop(t *testing.T) {
 	const (
 		nodeCount = 10
@@ -255,17 +225,14 @@ func TestForwardingCannotLoop(t *testing.T) {
 		"across %d nodes", trials, longest, nodeCount)
 }
 
-// TestScoreIsIndependentOfTheMemberView pins invariant (1) directly, since it is the one a
-// future "smarter" balancing change would break first: the score of a candidate must not
-// depend on which other nodes are in the view.
+// TestScoreIsIndependentOfTheMemberView pins the first invariant above directly — it is the one
+// a "smarter" balancing change breaks first — and that the selection equals the max score.
 func TestScoreIsIndependentOfTheMemberView(t *testing.T) {
 	kind := "player"
 	target := tNodeState{Address: "10.0.0.7:5007", Kinds: []string{kind}}
 	other := tNodeState{Address: "10.0.0.1:5001", Kinds: []string{kind}}
 	third := tNodeState{Address: "10.0.0.2:5002", Kinds: []string{kind}}
 
-	// score(name, addr) sees only those two things; assert that by checking it is unchanged
-	// as peers are added to the view, and that the selection still equals the max score.
 	score := func(name, addr string) uint32 { return fmix32(fnv32aTwo(name, addr)) }
 	for _, name := range []string{"a", "player/1", "player/999999", "zzz"} {
 		want := score(name, target.Address)
@@ -299,23 +266,15 @@ func TestScoreIsIndependentOfTheMemberView(t *testing.T) {
 	}
 }
 
-// TestOwnershipIsEvenlySpread is the property fmix32 buys: rendezvous hashing takes the
-// argmax over per-candidate scores, and FNV-1a alone leaves its high bits weakly avalanched
-// and correlated across inputs sharing a prefix — which every candidate here does, since they
-// differ only in the address appended after the same name. The result was a measurable pile-up
-// on some nodes (worst node +11% / -16% at 10 nodes).
-//
-// Node count is deliberately small. Spread has to be measured with many keys PER NODE or
-// sampling noise swamps the signal: at 200 nodes and 200k keys each node gets ~1000 keys, so
-// ~3% is pure noise and the number says nothing about the hash. 10 nodes gives 20k keys each.
+// TestOwnershipIsEvenlySpread is the property fmix32 buys. Few nodes on purpose: spread needs
+// many keys PER node or sampling noise swamps it (200 nodes / 200k keys is ~1000 each, where
+// ~3% is pure noise); 10 nodes gives 20k each.
 func TestOwnershipIsEvenlySpread(t *testing.T) {
 	const (
 		nodeCount = 10
 		keys      = 200000
-		// With fmix32 this configuration measures 0.31%; without it, 4.3%. (The gap is
-		// wider still with scattered addresses — 16.5% was measured over a random /16 —
-		// but these fixed addresses keep the test deterministic.) The bound sits an order
-		// of magnitude above the good case and well below the bad one.
+		// 0.31% with fmix32, 4.3% without (worse with scattered addresses; these fixed ones
+		// keep it deterministic). The bound sits between.
 		maxDeviationPct = 3.0
 	)
 	nodes := make([]tNodeState, nodeCount)
@@ -352,13 +311,10 @@ func TestOwnershipIsEvenlySpread(t *testing.T) {
 	t.Logf("%d nodes / %d keys: worst node is %.2f%% off an even share", nodeCount, keys, worst)
 }
 
-// TestFmix32MatchesMurmur3 pins the finalizer's constants and shift amounts against a
-// published murmur3 vector: MurmurHash3_x86_32("", seed=1) is 0x514E28B7, and for an empty key
-// that reduces to fmix32(seed ^ len) == fmix32(1).
-//
-// Worth pinning because a typo'd constant is invisible otherwise — the output would still look
-// random and still distribute evenly, so TestOwnershipIsEvenlySpread would pass. It would just
-// assign every key to a different node than any other build, i.e. re-shard the cluster.
+// TestFmix32MatchesMurmur3 pins the constants and shifts against a published vector:
+// MurmurHash3_x86_32("", seed=1) is 0x514E28B7, which for an empty key reduces to fmix32(1).
+// A typo'd constant is invisible otherwise — it still looks random and still distributes
+// evenly, so the spread test above passes; it just re-shards every key.
 func TestFmix32MatchesMurmur3(t *testing.T) {
 	if got := fmix32(1); got != 0x514e28b7 {
 		t.Errorf("fmix32(1) = %#x, want 0x514e28b7 (MurmurHash3_x86_32(\"\", seed=1)) — a "+
@@ -370,9 +326,8 @@ func TestFmix32MatchesMurmur3(t *testing.T) {
 	}
 }
 
-// A node whose Address is empty must not be selected: it is unroutable, and admitting it would
-// overload the maxAddr == "" sentinel. A member value can hold one — parseWatch only drops
-// values that fail JSON parsing, not ones that parse to an empty Address.
+// An empty Address must never be selected: it is unroutable, and callers read "" as "this kind
+// is hosted nowhere". A member entry can carry one (parseWatch only drops unparseable JSON).
 func TestEmptyAddressIsNeverSelected(t *testing.T) {
 	h := newAddrHash()
 	nodes := []tNodeState{

@@ -81,7 +81,6 @@ func init() {
 func BenchmarkChan(b *testing.B) {
 	go testGoChan()
 	b.ResetTimer()
-	// 限制并发数
 	b.SetParallelism(100)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -94,7 +93,6 @@ func BenchmarkChan(b *testing.B) {
 func BenchmarkChanMore(b *testing.B) {
 	go testGoChan()
 	b.ResetTimer()
-	// 限制并发数
 	b.SetParallelism(100)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {

@@ -18,24 +18,20 @@ func startTimer(delay, interval time.Duration, fn func()) CancelScheduleFunc {
 	var t *time.Timer
 	var state int32
 	t = time.AfterFunc(delay, func() {
-		// Wait until the constructor has published t (stateReady): AfterFunc can fire
-		// before the assignment to t completes for a zero/tiny delay.
+		// AfterFunc can fire before the assignment to t completes for a zero/tiny delay
 		for atomic.LoadInt32(&state) == stateInit {
 			runtime.Gosched()
 		}
 
-		// Must be an atomic load: the cancel func below writes state with
-		// atomic.SwapInt32 from another goroutine.
+		// must be atomic: the cancel func writes state from another goroutine
 		if atomic.LoadInt32(&state) == stateDone {
 			return
 		}
 
 		fn()
 
-		// Re-check before re-arming, otherwise a cancel racing with fn() leaves the
-		// timer armed for one more interval after Stop() already ran. Still a race in
-		// the strict sense — cancel does not guarantee fn() has stopped, only that no
-		// *further* fn() runs after the tick that observes stateDone.
+		// Re-check before re-arming, or a cancel racing fn() leaves the timer armed for one
+		// more interval. Cancel only guarantees no FURTHER fn() runs, not that fn() has ended.
 		if atomic.LoadInt32(&state) != stateDone {
 			t.Reset(interval)
 		}
@@ -59,8 +55,7 @@ func newTimerSchedule(sender iSender) *timerSchedule {
 	return s
 }
 
-// sendOnce tells message to target once, after delay. message is captured by the
-// closure and delivered as-is; the caller still holds it in the meantime.
+// sendOnce tells message to target once after delay, delivering the caller's instance as-is.
 func (s *timerSchedule) sendOnce(target ActorRef, delay time.Duration, message proto.Message) CancelScheduleFunc {
 	t := time.AfterFunc(delay, func() {
 		s.sender.tell(target, message)
@@ -69,18 +64,10 @@ func (s *timerSchedule) sendOnce(target ActorRef, delay time.Duration, message p
 	return func() { t.Stop() }
 }
 
-// sendRepeatedly tells message to target every interval, starting after initial.
-//
-// The closure captures ONE message pointer and hands that same pointer to tell() on
-// every tick — no copy is made. So the instance is aliased three ways for the life of
-// the schedule: the caller that supplied it, this timer goroutine, and the receiving
-// actor (or, for a remote target, the write-stream actor that marshals it). Writing to it
-// from any of them is visible to the others; concurrently with a remote marshal it is a
-// data race. IScheduler documents this and the two safe patterns.
-//
-// Cloning per tick would remove the hazard but cost an allocation on every tick of every
-// schedule, and would silently break anyone deliberately reusing the instance — so the
-// contract is documented rather than enforced.
+// sendRepeatedly tells message to target every interval, starting after initial. ALIASING: the
+// same instance is sent every tick, never copied, so it is shared with the caller and the
+// receiving actor — and a remote target means the write-stream actor marshals it, so a
+// concurrent write is a real data race. See IScheduler for the safe patterns.
 func (s *timerSchedule) sendRepeatedly(target ActorRef, initial, interval time.Duration, message proto.Message) CancelScheduleFunc {
 	return startTimer(initial, interval, func() {
 		s.sender.tell(target, message)

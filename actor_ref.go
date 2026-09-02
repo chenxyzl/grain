@@ -5,9 +5,7 @@ import (
 )
 
 type ActorRef interface {
-	// GetSystem returns the owning system. ISystem embeds the unexported iSystem, so
-	// framework code reaches the internal hooks straight off this value while callers
-	// outside the package cannot.
+	// GetSystem returns the owning system, plus the unexported iSystem hooks internal to grain.
 	GetSystem() ISystem
 	GetId() string
 	GetKind() string

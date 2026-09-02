@@ -12,8 +12,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// fakeProvider is a minimal iProvider: only the node-set queries are implemented,
-// which is all the routing paths need. Anything else panics via the nil embed.
+// fakeProvider implements only the node-set queries routing needs; the rest panics (nil embed).
 type fakeProvider struct {
 	iProvider
 	nodes []tNodeState
@@ -22,16 +21,13 @@ type fakeProvider struct {
 func (f *fakeProvider) GetNodes() ([]tNodeState, int64) { return f.nodes, 1 }
 func (f *fakeProvider) GetNodesVersion() int64          { return 1 }
 
-// newTestSystem builds a real *system wired to a fakeProvider, so the envelope and
-// routing paths (which are methods on *system, not on the fakeSys stub) can be
-// driven without etcd or grpc.
+// newTestSystem builds a real *system on a fakeProvider: envelope and routing paths, no etcd.
 func newTestSystem(t *testing.T) *system { return newTestSystemTB(t) }
 
 // newTestSystemTB is the testing.TB form, so benchmarks can use it too.
 func newTestSystemTB(t testing.TB) *system {
 	t.Helper()
-	// Production does this in providerEtcd.register -> system.init(nodeId); Spawn's
-	// generated names come from the uuid generator, so it must be seeded first.
+	// Spawn's generated names come from the uuid generator, so it must be seeded first
 	_ = uuid.Init(1)
 	sys := &system{
 		config:   newConfig("test", "0.0.1", []string{"127.0.0.1:2379"}),
@@ -39,8 +35,7 @@ func newTestSystemTB(t testing.TB) *system {
 		pending:  safemap.NewIntC[uint64, chan proto.Message](),
 		addrHash: newAddrHash(),
 	}
-	// left unset, so Logger() falls back to slog.Default() exactly as it does before
-	// Start() builds one
+	// logger left unset, so Logger() falls back to slog.Default() as it does before Start()
 	sys.registry = newRegistry()
 	sys.clusterProvider = &fakeProvider{
 		nodes: []tNodeState{{NodeId: 1, Address: sys.addr, Kinds: []string{"player"}}},
@@ -65,16 +60,9 @@ func (a *recorder) Receive(ctx Context) {
 	a.got <- ctx.Sender()
 }
 
-// TestRecvEnvelopeEmptySenderStaysNil pins the fix for a trap that broke the single
-// most common idiom in a handler.
-//
-// A remote Tell carries no sender: stream_write writes "" into Envelope.Sender.
-// RecvEnvelope used to feed that "" to newActorRefFromAID, which returns a NON-nil
-// *actorIdWrapper whose kind/name/addr are all empty (parseCache bails out and
-// returns four empty strings). So `if ctx.Sender() != nil` — used by the framework
-// itself and by essentially every user handler — was TRUE for every remote Tell, and
-// ctx.Reply() on such a message failed with the misleading "actor kind not in
-// cluster".
+// TestRecvEnvelopeEmptySenderStaysNil: a remote Tell carries Sender "", which must arrive as a
+// nil ctx.Sender() — newActorRefFromAID("") yields a non-nil ref with all-empty fields, making
+// `ctx.Sender() != nil` true for every remote Tell.
 func TestRecvEnvelopeEmptySenderStaysNil(t *testing.T) {
 	sys := newTestSystem(t)
 	act := &recorder{got: make(chan ActorRef, 1), nil_: make(chan bool, 1)}
@@ -107,8 +95,7 @@ func TestRecvEnvelopeEmptySenderStaysNil(t *testing.T) {
 	}
 }
 
-// TestRecvEnvelopeKeepsRealSender guards against over-correcting: a real sender AID
-// must still arrive intact.
+// TestRecvEnvelopeKeepsRealSender guards against over-correcting: a real sender AID survives.
 func TestRecvEnvelopeKeepsRealSender(t *testing.T) {
 	sys := newTestSystem(t)
 	act := &recorder{got: make(chan ActorRef, 1), nil_: make(chan bool, 1)}
@@ -140,27 +127,20 @@ func TestRecvEnvelopeKeepsRealSender(t *testing.T) {
 	}
 }
 
-// TestRecvEnvelopeRejectsGarbage: a nil envelope or an empty target must be dropped,
-// not panic and not routed.
+// TestRecvEnvelopeRejectsGarbage: a nil envelope or empty target is dropped, not panicked on.
 func TestRecvEnvelopeRejectsGarbage(t *testing.T) {
 	sys := newTestSystem(t)
 	body, _ := proto.Marshal(&message.Subscribe{EventName: "e"})
 	name := string(proto.MessageName(&message.Subscribe{}))
 
-	// nil envelope used to nil-deref envelope.MsgName and crash the process.
+	// must not be dereferenced
 	sys.RecvEnvelope(nil)
-	// empty target has nothing to route to.
+	// empty target has nothing to route to
 	sys.RecvEnvelope(&remote.Envelope{Target: "", MsgName: name, Content: body})
 }
 
-// TestSpawnNamedDuplicateReturnsError pins the replacement for a process-killing
-// panic: registry.add used to `panic("duplicated process id")`, so re-spawning a named
-// actor after a crash — or two goroutines racing to create it — took the whole process
-// down. protoactor-go returns ErrNameExists from SpawnNamed; Akka throws a *catchable*
-// InvalidActorNameException; Orleans has no such failure at all because grains are
-// virtual and activation is idempotent (this framework's cluster kinds already behave
-// that way, via ensureClusterKindActorExist). For an explicit named spawn in Go, an
-// error is the right answer.
+// TestSpawnNamedDuplicateReturnsError: a duplicate named spawn returns ErrNameExists rather
+// than panicking, and leaves the original registration intact.
 func TestSpawnNamedDuplicateReturnsError(t *testing.T) {
 	sys := newTestSystem(t)
 	producer := func() IActor { return &recorder{got: make(chan ActorRef, 1), nil_: make(chan bool, 1)} }
@@ -189,8 +169,7 @@ func TestSpawnNamedDuplicateReturnsError(t *testing.T) {
 	}
 }
 
-// TestSpawnGeneratedNameNeverCollides: Spawn uses a uuid, so it keeps the
-// error-free signature.
+// TestSpawnGeneratedNameNeverCollides: Spawn uses a uuid, hence its error-free signature.
 func TestSpawnGeneratedNameNeverCollides(t *testing.T) {
 	sys := newTestSystem(t)
 	seen := map[string]bool{}

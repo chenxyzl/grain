@@ -9,16 +9,14 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// TestStartTimerCancelIsRaceFree pins the fix for a data race at schedule.go:25:
-// the fired callback read `state` non-atomically while the cancel func wrote it with
-// atomic.SwapInt32. Run under -race; the detector flagged it before the fix.
+// Callback and cancel both touch `state`, so every access must be atomic. Needs -race.
 func TestStartTimerCancelIsRaceFree(t *testing.T) {
 	var fires atomic.Int32
 	for range 200 {
 		cancel := startTimer(time.Millisecond, time.Millisecond, func() {
 			fires.Add(1)
 		})
-		// Cancel while the callback is plausibly mid-flight, to hit the window.
+		// cancel while the callback is plausibly mid-flight, to hit the window
 		time.Sleep(time.Millisecond)
 		cancel()
 	}
@@ -26,8 +24,7 @@ func TestStartTimerCancelIsRaceFree(t *testing.T) {
 	t.Logf("callback fired %d times across 200 timers", fires.Load())
 }
 
-// TestStartTimerRepeatsThenStops checks the behaviour the race fix must preserve:
-// the callback repeats on the interval, and stops firing after cancel.
+// The callback repeats on the interval and stops firing after cancel.
 func TestStartTimerRepeatsThenStops(t *testing.T) {
 	var fires atomic.Int32
 	cancel := startTimer(10*time.Millisecond, 10*time.Millisecond, func() {
@@ -41,7 +38,7 @@ func TestStartTimerRepeatsThenStops(t *testing.T) {
 	}
 
 	cancel()
-	// One in-flight tick may still complete; nothing may fire after that.
+	// one in-flight tick may still complete; nothing may fire after that
 	time.Sleep(20 * time.Millisecond)
 	afterCancel := fires.Load()
 	time.Sleep(150 * time.Millisecond)
@@ -51,15 +48,14 @@ func TestStartTimerRepeatsThenStops(t *testing.T) {
 	}
 }
 
-// TestStartTimerCancelTwice: cancel must be idempotent (the Swap guard).
+// cancel must be idempotent (the Swap guard).
 func TestStartTimerCancelTwice(t *testing.T) {
 	cancel := startTimer(time.Hour, time.Hour, func() {})
 	cancel()
 	cancel() // must not panic
 }
 
-// collector records the identity of every message it receives, so a test can tell
-// "same instance again" from "a fresh copy".
+// collector forwards the received message so a test can tell "same instance" from "a copy".
 type collector struct {
 	BaseActor
 	got chan proto.Message
@@ -76,12 +72,8 @@ func (a *collector) Receive(ctx Context) {
 	}
 }
 
-// TestScheduleRepeatedDeliversTheSameInstance pins the aliasing that IScheduler
-// documents: every tick hands the target the identical pointer, shared with the caller.
-// It is pinned rather than fixed because per-tick cloning would allocate on every tick of
-// every schedule — but it is exactly the kind of contract that gets "optimised" away
-// later, so if someone does introduce a copy this test fails and points at the docs that
-// must change with it.
+// Pins the aliasing IScheduler documents: every tick delivers the identical pointer, shared
+// with the caller. If a per-tick copy is introduced this fails, and the docs must change too.
 func TestScheduleRepeatedDeliversTheSameInstance(t *testing.T) {
 	sys := newFakeSys()
 	act := &collector{got: make(chan proto.Message, 8)}
@@ -106,8 +98,7 @@ func TestScheduleRepeatedDeliversTheSameInstance(t *testing.T) {
 		}
 	}
 
-	// And the consequence users have to know about: a field the handler (or the caller)
-	// writes is still set on the next tick, because there is nothing to reset it.
+	// the consequence: a write by the handler or the caller is still set on the next tick
 	msg.EventName = "mutated by the handler"
 	select {
 	case got := <-act.got:

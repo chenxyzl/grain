@@ -7,23 +7,11 @@ import (
 )
 
 const (
-	// defaultMailboxInitSize is the starting mailbox capacity. The mailbox grows
-	// (doubling) on demand up to defaultMailboxMaxSize, so this is a floor, not a limit.
-	//
-	// Deliberately small. The previous value of 128 was justified on throughput grounds
-	// ("captures nearly all of the steady-state send throughput"), which was true of the
-	// pre-v1.2.2 FIXED-capacity blocking mailbox but is not true of a growable one:
-	// measured across init = 1, 4, 8, 16, 32, 128 and 512, local Tell throughput is
-	// identical within noise (204-223 ns/op, 0% overflow at every size), because the ring
-	// simply doubles on demand and steady-state queue depth is 0-1 anyway.
-	//
-	// What the old default did buy was 2304 bytes eagerly allocated and zeroed per actor
-	// (~730ns of the ~4.2us spawn). At 8 slots that is 128 bytes — 2.2KB saved per actor,
-	// i.e. ~220MB at 100k actors. The cost is paid only by actors that genuinely queue
-	// deeply: growing 8 -> 128 costs ~1us and 4 extra allocations, once, and only for
-	// those. A mailbox is a burst buffer, so most actors never get there.
-	//
-	// Use WithOptsMailboxSize to pre-reserve when a kind is known to burst.
+	// defaultMailboxInitSize is the starting mailbox capacity; the mailbox doubles on demand up
+	// to defaultMailboxMaxSize, so this is a floor, not a limit. Deliberately small: local Tell
+	// throughput is identical from 1 to 512 slots (the ring just grows, steady-state depth is
+	// 0-1), while 128 slots cost 2304 bytes eagerly zeroed per actor. Use WithOptsMailboxSize to
+	// pre-reserve for a kind known to burst.
 	defaultMailboxInitSize = 8
 	// defaultMailboxMaxSize is the hard ceiling; once reached, further messages
 	// overflow to a dead letter instead of blocking the sender.
@@ -31,37 +19,18 @@ const (
 	defaultRegisterTimes  = 3
 )
 
-// The grain registration key is the cluster's single-activation lock: setTxn is
-// create-only, so of two nodes racing to activate the same cluster actor exactly one
-// wins and the loser's start() stops it before Started() ever runs.
-//
-// The VALUE is the owning node's address, and that is load-bearing rather than
-// informational — removeTxn is a compare-and-delete against it, so it is what makes
-// "delete only the lock I hold" true.
-//
-// It used to be ref.GetDirectAddr(), which for a CLUSTER ref is the empty string: a
-// cluster id is "cluster/kind/name" with no "@addr" for parseCache to split off. So every
-// node wrote "" and every node's removeTxn("", ...) compared "" against "" and matched —
-// the lock carried no owner identity at all, and the compare-and-delete degenerated into
-// an unconditional delete. Combined with stop() unregistering even when registration had
-// FAILED, the node that lost the race deleted the winner's lock on its way out, leaving
-// the grain unlocked while the winner still hosted it — so the next activation anywhere
-// succeeded and the same grain ran twice, each copy persisting its own state. A brief etcd
-// error was enough to trigger it, since setTxn also returns false on a transport failure.
-//
-// GetDirectAddr() presumably meant "this node's address", which is what it evaluates to
-// for a direct ref; config.state.Address is that value for every ref kind. As a bonus this
-// is safe against un-upgraded peers in a rolling deploy: an old node writes "" and a new
-// one writes an address, and neither value matches the other, so neither can delete the
-// other's lock.
+// The grain registration key is the cluster's single-activation lock: setTxn is create-only, so
+// of two nodes racing to activate the same cluster actor exactly one wins and the loser's start()
+// stops it before Started() ever runs. The VALUE is the owning node's address, and it is
+// load-bearing rather than informational: removeTxn is a compare-and-delete against it, which is
+// what makes "delete only the lock I hold" true. A value that is not per-node degenerates that
+// into an unconditional delete, letting the loser free the winner's lock and the grain run twice.
 var (
 	defaultRegisterToCluster = func(clusterProvider iProvider, config *config, ref ActorRef) error {
 		//register to cluster
 		if slices.Contains(config.state.Kinds, ref.GetKind()) {
-			// defaultRegisterTimes attempts with 0/100/200ms backoff. The backoff sits
-			// BETWEEN attempts only: the old loop slept before checking the attempt
-			// limit, so a run that was going to fail still burned a final 400ms — with
-			// the actor's Started() blocked on it the whole time.
+			// defaultRegisterTimes attempts with 0/100/200ms backoff. The sleep sits BETWEEN
+			// attempts only, so a doomed run does not burn a final wait with Started() blocked.
 			for i := 0; i < defaultRegisterTimes; i++ {
 				if i > 0 {
 					time.Sleep(time.Millisecond * 100 * (1 << (i - 1)))
@@ -77,10 +46,8 @@ var (
 	defaultUnregisterFromCluster = func(clusterProvider iProvider, config *config, ref ActorRef) error {
 		//unRegister from cluster
 		if slices.Contains(config.state.Kinds, ref.GetKind()) {
-			// Returning the failure instead of swallowing it (the old body was an empty
-			// `if removeTxn(...) {}`): a failed de-registration leaves a stale cluster
-			// routing entry pointing at an actor that no longer exists, so peers keep
-			// sending to it. The caller logs it.
+			// Reported, not swallowed: a failed de-registration leaves a stale routing entry
+			// pointing at an actor that no longer exists, so peers keep sending to it.
 			if !clusterProvider.removeTxn(config.getActorRegisterName(ref), config.state.Address) {
 				return fmt.Errorf("failed unregister cluster actor from clusterProvider, ref:%v", ref.GetId())
 			}

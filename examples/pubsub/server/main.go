@@ -43,15 +43,11 @@ func (p *PlayerActor) Receive(ctx grain.Context) {
 
 func main() {
 	grain.InitLog("./test.log", slog.LevelInfo)
-	//new
 	system := grain.NewSystem("pubsub_cluster", "0.0.1", []string{"127.0.0.1:2379"},
 		grain.WithConfigAskTimeout(time.Second*100),
 		grain.WithConfigKind("player", func() grain.IActor { return &PlayerActor{} }))
-	//start
 	system.Logger().Warn("system starting")
-	//
 	system.Start()
-	//
 	system.Logger().Warn("system started successfully")
 	// create a cluster actor
 	_, err := grain.NoReentryAsk[*testpb.HelloReply](system.GetClusterActorRef("player", "cluster_player"), &testpb.HelloAsk{Name: "xxx"})
@@ -75,6 +71,5 @@ func main() {
 
 	//run wait
 	system.WaitStopSignal(nil, nil)
-	//
 	system.Logger().Warn("system stopped successfully")
 }

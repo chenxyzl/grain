@@ -2,20 +2,18 @@ package safemap
 
 import "sync"
 
-// RWMap read write lock with map
+// RWMap is a map guarded by a single RWMutex.
 type RWMap[K comparable, V any] struct {
 	mu sync.RWMutex
 	m  map[K]V
 }
 
-// NewRWMap ...
 func NewRWMap[K comparable, V any]() *RWMap[K, V] {
 	return &RWMap[K, V]{
 		m: make(map[K]V),
 	}
 }
 
-// Get ...
 func (rm *RWMap[K, V]) Get(key K) (V, bool) {
 	rm.mu.RLock()
 	defer rm.mu.RUnlock()
@@ -23,18 +21,13 @@ func (rm *RWMap[K, V]) Get(key K) (V, bool) {
 	return val, exists
 }
 
-// GetOrCreate returns the value stored under key, calling create() to build and
-// store one when the key is absent. The check and the insert happen under a
-// single write lock, so concurrent callers all receive the *same* value.
-//
-// This is not equivalent to Get + nil-check + Set: in that sequence two callers
-// can both miss, both build, and the second Set clobbers the value the first one
-// already handed out, silently discarding whatever was written into it.
-//
-// create runs while the write lock is held, so it must not touch this map.
+// GetOrCreate returns the value under key, calling create() to build and store one when absent.
+// Check and insert happen under one write lock, so concurrent callers all receive the SAME
+// value — unlike Get + Set, where both can miss, both build, and the second Set clobbers the
+// value the first already handed out. create runs under the write lock: it must not touch rm.
 func (rm *RWMap[K, V]) GetOrCreate(key K, create func() V) V {
-	rm.mu.Lock()         // w lock
-	defer rm.mu.Unlock() // w unlock
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
 	if val, exists := rm.m[key]; exists {
 		return val
 	}
@@ -43,34 +36,29 @@ func (rm *RWMap[K, V]) GetOrCreate(key K, create func() V) V {
 	return val
 }
 
-// Set ...
 func (rm *RWMap[K, V]) Set(key K, value V) {
-	rm.mu.Lock()         // w lock
-	defer rm.mu.Unlock() // w unlock
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
 	rm.m[key] = value
 }
 
-// Delete ...
 func (rm *RWMap[K, V]) Delete(key K) {
-	rm.mu.Lock()         // w lock
-	defer rm.mu.Unlock() // w unlock
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
 	delete(rm.m, key)
 }
 
-// Len ...
 func (rm *RWMap[K, V]) Len() int {
 	rm.mu.RLock()
 	defer rm.mu.RUnlock()
 	return len(rm.m)
 }
 
-// Range ...
-// return@true break for range
+// Range calls f for every entry; f returning false breaks the loop.
 //
-// WARNING: f runs while the read lock is held, so it MUST NOT call back into this
-// map (a nested write deadlocks outright; a nested read deadlocks as soon as a
-// writer is queued, because sync.RWMutex read locks are not reentrant). Snapshot
-// and act afterwards if you need that.
+// WARNING: f runs while the read lock is held, so it MUST NOT call back into this map — a
+// nested write deadlocks outright, a nested read deadlocks as soon as a writer is queued
+// (sync.RWMutex read locks are not reentrant). Snapshot here and act afterwards instead.
 func (rm *RWMap[K, V]) Range(f func(key K, value V) bool) {
 	rm.mu.RLock()
 	defer rm.mu.RUnlock()

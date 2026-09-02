@@ -17,17 +17,9 @@ func (s *stubProc) init()            {}
 func (s *stubProc) send(ctx Context) {}
 func (s *stubProc) poison()          { s.poisoned = true }
 
-// TestRangeItCallbackMayReenterRegistry pins the fix for a deadlock that took down
-// the whole shard.
-//
-// ConcurrentMap.IterCb holds a shard read lock while invoking its callback, and
-// clusterMemberChanged's callback used to call system.Poison -> registry.get, which
-// hashes to the SAME shard. sync.RWMutex read locks are not reentrant once a writer
-// is queued, so any concurrent actor spawn/stop (registry.add/remove) wedged the
-// iteration permanently — and it never released the shard lock, so every later
-// lookup or spawn on that shard blocked too. Reproduced before the fix.
-//
-// rangeIt now snapshots first and calls back outside the lock, so re-entry is safe.
+// rangeIt's callback must be able to re-enter the registry. The trap: IterCb holds a shard
+// read lock, and RWMutex read locks are not reentrant once a writer is queued, so a
+// same-shard lookup from inside the callback would wedge the shard for everyone.
 func TestRangeItCallbackMayReenterRegistry(t *testing.T) {
 	reg := newRegistry()
 	ref := newClusterActorRef("player", "p1", nil)
@@ -47,7 +39,7 @@ func TestRangeItCallbackMayReenterRegistry(t *testing.T) {
 	}()
 
 	<-inCallback
-	// Queue a writer on the same shard, as any actor stopping/spawning would.
+	// queue a writer on the same shard, as any actor stopping/spawning would
 	go func() { reg.remove(ref) }()
 	time.Sleep(100 * time.Millisecond) // give Lock() time to enqueue
 	close(writerQueued)
@@ -60,8 +52,7 @@ func TestRangeItCallbackMayReenterRegistry(t *testing.T) {
 	}
 }
 
-// TestRangeItVisitsEverything guards the snapshot itself: it must not drop or
-// duplicate entries.
+// The snapshot must not drop or duplicate entries.
 func TestRangeItVisitsEverything(t *testing.T) {
 	reg := newRegistry()
 	want := map[string]bool{}

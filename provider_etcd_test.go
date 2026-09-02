@@ -7,8 +7,7 @@ import (
 	"github.com/chenxyzl/grain/uuid"
 )
 
-// newMemberProvider builds a provider whose nodeMap shows the given ids as taken, keyed the
-// way parseWatch keys it (the last path segment, i.e. the id itself).
+// newMemberProvider marks ids as taken, keyed the way parseWatch keys them (the id itself).
 func newMemberProvider(takenIds ...uint64) *providerEtcd {
 	p := &providerEtcd{nodeMap: map[string]tNodeState{}}
 	for _, id := range takenIds {
@@ -47,8 +46,7 @@ func TestFreeNodeIds(t *testing.T) {
 	}
 }
 
-// The claimable range has to stay inside uuid's node field, or a node publishes an id to
-// etcd and then panics on uuid.Init with it.
+// The claimable range must stay inside uuid's node field, or a node publishes an id then panics.
 func TestClaimableNodeIdsAreAcceptedByUuid(t *testing.T) {
 	// uuid.Init mutates process-global generator state other tests rely on
 	t.Cleanup(func() { _ = uuid.Init(1) })

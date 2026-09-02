@@ -8,15 +8,12 @@ import (
 	"testing"
 )
 
-// newBufLogger returns a logger writing plain text into buf, tagged so a test can tell
-// which of several loggers produced a line.
+// newBufLogger writes plain text into buf, tagged so a test can tell the loggers apart.
 func newBufLogger(buf *bytes.Buffer, tag string) *slog.Logger {
 	return slog.New(slog.NewTextHandler(buf, nil)).With("src", tag)
 }
 
 // setDefaultForTest swaps slog's process-wide default and restores it when the test ends.
-// These tests exist precisely because the default is global state, so they must not leave
-// it changed for whatever test runs next.
 func setDefaultForTest(t *testing.T, l *slog.Logger) {
 	t.Helper()
 	prev := slog.Default()
@@ -24,10 +21,7 @@ func setDefaultForTest(t *testing.T, l *slog.Logger) {
 	slog.SetDefault(l)
 }
 
-// TestWithConfigLoggerWins: an explicitly configured logger must be used no matter what
-// the slog default is, and must survive both tagging steps (Start and init). Those used
-// to call slog.With(...), which read the global and would have discarded a configured
-// logger entirely.
+// TestWithConfigLoggerWins: a configured logger beats the slog default, through both tagging steps.
 func TestWithConfigLoggerWins(t *testing.T) {
 	var configured, global bytes.Buffer
 	setDefaultForTest(t, newBufLogger(&global, "global"))
@@ -36,7 +30,7 @@ func TestWithConfigLoggerWins(t *testing.T) {
 		WithConfigLogger(newBufLogger(&configured, "configured")))}
 	sys.logger.Store(sys.config.logger) // NewSystem
 
-	// mirror the two tagging sites (system_life.go Start / init) without needing etcd
+	// mirror the two tagging sites (system_life.go Start / init) without etcd
 	sys.addr = "1.2.3.4:9000"
 	sys.logger.Store(sys.Logger().With("system", sys.addr))
 	sys.Logger().Info("from start")
@@ -53,8 +47,7 @@ func TestWithConfigLoggerWins(t *testing.T) {
 			t.Errorf("configured logger output missing %q: %s", want, got)
 		}
 	}
-	// "system" must appear once per line, not twice: init appends only the node id to the
-	// logger Start() already tagged, rather than re-adding the address.
+	// "system" once per line, not twice: init appends only the node id to Start()'s logger.
 	for _, line := range strings.Split(strings.TrimSpace(got), "\n") {
 		if n := strings.Count(line, "system="); n > 1 {
 			t.Errorf("system attr duplicated %d times in: %s", n, line)
@@ -62,17 +55,14 @@ func TestWithConfigLoggerWins(t *testing.T) {
 	}
 }
 
-// TestNoConfigLoggerResolvesDefaultLate is the ordering rule InitLog depends on: with no
-// configured logger, the default is read at each rebuild, so a SetDefault issued after
-// NewSystem but before Start() still reaches the framework.
+// TestNoConfigLoggerResolvesDefaultLate pins the ordering rule InitLog depends on: with no
+// configured logger the default is read at each rebuild, so a SetDefault after NewSystem lands.
 func TestNoConfigLoggerResolvesDefaultLate(t *testing.T) {
 	var early, late bytes.Buffer
 	setDefaultForTest(t, newBufLogger(&early, "early"))
 
-	sys := &system{config: newConfig("c", "v", nil)} // NewSystem: logger stays nil, which
-	// is the mechanism
+	sys := &system{config: newConfig("c", "v", nil)} // NewSystem: nil logger is the mechanism
 
-	// InitLog-equivalent, AFTER NewSystem
 	setDefaultForTest(t, newBufLogger(&late, "late"))
 
 	sys.addr = "1.2.3.4:9000"
@@ -85,8 +75,7 @@ func TestNoConfigLoggerResolvesDefaultLate(t *testing.T) {
 	}
 }
 
-// A nil logger must be ignored rather than stored — storing it would nil-panic on the
-// first .With call.
+// A nil logger must be ignored, not stored — storing it would nil-panic on the first .With.
 func TestWithConfigLoggerNilIsIgnored(t *testing.T) {
 	var global bytes.Buffer
 	setDefaultForTest(t, newBufLogger(&global, "global"))
@@ -99,8 +88,7 @@ func TestWithConfigLoggerNilIsIgnored(t *testing.T) {
 	}
 }
 
-// The whole point of item 13: actors inherit the configured logger too, so one option
-// covers system, provider and actor output.
+// Actors inherit the configured logger too, so one option covers system, provider and actor.
 func TestActorLoggerInheritsConfiguredLogger(t *testing.T) {
 	var configured bytes.Buffer
 	setDefaultForTest(t, slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))) // must NOT be used
@@ -121,10 +109,8 @@ func TestActorLoggerInheritsConfiguredLogger(t *testing.T) {
 	}
 }
 
-// ForceStop logs through the system logger, and x.logger is now deliberately nil until
-// Start() builds it (that is what makes the late slog.Default() resolution work). So the
-// no-Start path has to go through Logger() rather than the field, or a ForceStop before
-// Start — e.g. a config error in the caller's own startup sequence — nil-panics.
+// x.logger stays nil until Start() builds it (that is what makes late slog.Default() resolution
+// work), so ForceStop must log via Logger(): reading the field would nil-panic before Start().
 func TestForceStopBeforeStartDoesNotPanic(t *testing.T) {
 	var global bytes.Buffer
 	setDefaultForTest(t, newBufLogger(&global, "global"))
@@ -141,11 +127,8 @@ func TestForceStopBeforeStartDoesNotPanic(t *testing.T) {
 	}
 }
 
-// TestSystemLoggerIsRaceFree reproduces the shape of a real data race: Start() and init()
-// both build x.logger while the grpc server is already accepting, so RecvEnvelope's
-// Logger() read runs concurrently with those writes. As a plain field that was a race the
-// test suite could never surface, because nothing drives inbound traffic during startup.
-// Run under -race.
+// TestSystemLoggerIsRaceFree: Start() and init() build x.logger while grpc is already accepting,
+// so RecvEnvelope's Logger() read races those writes. Run under -race.
 func TestSystemLoggerIsRaceFree(t *testing.T) {
 	sys := &system{config: newConfig("c", "v", nil)}
 

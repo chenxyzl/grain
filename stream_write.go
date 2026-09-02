@@ -12,9 +12,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-//send msg to remote rpcServer
-//1.init rpcClient
-//2.
+//send msg to remote rpcServer over one grpc stream
 
 var _ IActor = (*streamWriteActor)(nil)
 
@@ -41,8 +39,7 @@ func newStreamWriterActor(router ActorRef, address string, dialOptions []grpc.Di
 func (x *streamWriteActor) Started() {
 	conn, err := grpc.NewClient(x.address, x.dialOptions...)
 	if err != nil {
-		// runtime failure (bad address / dial setup): log and stop self instead
-		// of panicking. A later send re-spawns the write stream actor.
+		// stop self instead of panicking; a later send re-spawns this actor
 		x.Logger().Error("connect to grpc server err, stop self", "addr", x.address, "err", err)
 		x.GetSystem().Poison(x.Self())
 		return
@@ -56,15 +53,13 @@ func (x *streamWriteActor) Started() {
 	}
 	x.conn = conn
 	x.remote = stream
-	// One Recv, then stop: this stream is write-only, so any return from Recv is terminal —
-	// either the stream died or the peer sent something it never should have. (The old
-	// enclosing `for` ended in an unconditional return, i.e. staticcheck SA4004.)
+	// One Recv, then stop: the stream is write-only, so any return from Recv is terminal —
+	// either the stream died or the peer sent something it never should have.
 	go func() {
 		unknownMsg, err := stream.Recv()
 		switch {
-		// err == nil must come FIRST: status.Code(nil) is codes.OK, so the arm below used
-		// to swallow it and log a peer that violated the protocol as a routine close,
-		// leaving this branch unreachable.
+		// err == nil MUST be tested first: status.Code(nil) is codes.OK, so a lower arm would
+		// swallow it and log a protocol violation as a routine close.
 		case err == nil:
 			x.Logger().Warn("streamWriteActor got a msg from remote, but this stream is write-only",
 				"address", x.address, "unexpectedMsg", unknownMsg)
@@ -77,7 +72,6 @@ func (x *streamWriteActor) Started() {
 			x.Logger().Warn("streamWriteActor stream failed", "address", x.address,
 				"code", status.Code(err), "err", err)
 		}
-		//only can send, not allowed Recv
 		x.GetSystem().Poison(x.Self())
 	}()
 }
@@ -101,10 +95,8 @@ func (x *streamWriteActor) PreStop() {
 }
 
 func (x *streamWriteActor) Receive(ctx Context) {
-	//
 	msg := ctx.Message()
 	msgName := string(proto.MessageName(msg))
-	//marshal
 	content, err := proto.Marshal(msg)
 	if err != nil {
 		x.Logger().Error("proto marshal err", "from", ctx.Sender(), "target", ctx.Target(), "msgName", msgName, "msg", msg, "err", err)

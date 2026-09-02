@@ -7,13 +7,9 @@ import (
 	"github.com/chenxyzl/grain/message"
 )
 
-// These microbenchmarks drive the REAL routing path — system.tellWithSender ->
-// sendToLocal -> registry.get -> proc.send -> ringbuffer.Push — with no etcd and no
-// grpc, so they can actually resolve a 20ns change.
-//
-// examples/benchmark_test/actor_test is the end-to-end benchmark, but it spawns 10k
-// actors, talks to etcd and runs 32-way parallel; its within-version variance exceeds
-// 2x, which is wider than every optimisation being attempted here.
+// These drive the real routing path (tellWithSender -> sendToLocal -> registry.get ->
+// proc.send -> Push) with no etcd and no grpc, so they resolve small changes;
+// examples/benchmark_test is the end-to-end counterpart, with >2x within-version variance.
 
 // sink drains messages without doing any work, so timings reflect the send path.
 type sink struct{ BaseActor }
@@ -24,13 +20,10 @@ func (a *sink) Receive(ctx Context) {}
 
 func benchSystem(tb testing.TB) (*system, ActorRef, *int64) {
 	sys := newTestSystemTB(tb)
-	// The producer outruns the drainer (per-message drain cost is comparable to send
-	// cost), so the mailbox fills. Swallow overflows in a counter instead of the default
-	// WARN log, otherwise the benchmark measures slog rather than the send path.
+	// producer outruns drainer, so count overflows instead of benchmarking the default WARN log
 	overflow := new(int64)
 	sys.config.deadLetterHandler = func(DeadLetter) { atomic.AddInt64(overflow, 1) }
-	// A production-shaped name: ids are "direct/local/<uuid>@<host:port>" (~50 chars),
-	// and the shard hash cost scales with that length.
+	// production-shaped name: ids are ~50 chars, and shard hash cost scales with length
 	ref, err := sys.SpawnNamed(func() IActor { return &sink{} }, "484024768387878912",
 		WithOptsMailboxSize(1024), WithOptsMailboxMaxSize(1<<20))
 	if err != nil {
@@ -51,15 +44,11 @@ func BenchmarkTellLocal(b *testing.B) {
 		n++
 	}
 	b.StopTimer()
-	// The producer outruns the drainer, so past a point every send dead-letters instead
-	// of enqueueing. Report the share: a high ratio means this measures the overflow
-	// path (which still goes through routing + registry.get + Push) rather than a clean
-	// enqueue, and the absolute ns/op should be read with that in mind.
+	// high %overflow means ns/op describes the dead-letter path, not a clean enqueue
 	b.ReportMetric(float64(atomic.LoadInt64(overflow))/float64(n)*100, "%overflow")
 }
 
-// BenchmarkRegistryGet isolates the registry lookup, which the audit measured at ~32%
-// of the send path (id string -> byte-at-a-time fnv32 -> map hash of the same string).
+// BenchmarkRegistryGet isolates the registry lookup, ~32% of the send path.
 func BenchmarkRegistryGet(b *testing.B) {
 	sys, ref, _ := benchSystem(b)
 	b.ReportAllocs()
@@ -71,8 +60,7 @@ func BenchmarkRegistryGet(b *testing.B) {
 	}
 }
 
-// BenchmarkRingBufferPushPop isolates the mailbox, where the index advance uses a
-// hardware DIV (`% rb.cap`) twice per message, inside the mutex.
+// BenchmarkRingBufferPushPop isolates the mailbox enqueue/dequeue under its mutex.
 func BenchmarkRingBufferPushPop(b *testing.B) {
 	sys, ref, _ := benchSystem(b)
 	proc := sys.registry.get(ref).(*processorMailBox)
@@ -85,8 +73,8 @@ func BenchmarkRingBufferPushPop(b *testing.B) {
 	}
 }
 
-// BenchmarkCalcAddr covers cluster routing: called per cache miss on the send path and
-// per actor on every membership change.
+// BenchmarkCalcAddr covers cluster routing: per send-path cache miss, and per actor on every
+// membership change.
 func BenchmarkCalcAddr(b *testing.B) {
 	h := newAddrHash()
 	nodes := make([]tNodeState, 0, 20)
@@ -117,10 +105,7 @@ func (a *benchReplier) Receive(ctx Context) {
 	}
 }
 
-// BenchmarkAskLocal is the request/reply hot path: correlation id, reply channel,
-// replyRef, send, drain, reply, await. The audit attributes 6 allocs/op to it —
-// the reply chan (2), the context, the replyRef, and the per-Ask drainer goroutine
-// plus its drainState.
+// BenchmarkAskLocal is the full round trip: correlation id, reply chan, replyRef, send, await.
 func BenchmarkAskLocal(b *testing.B) {
 	sys := newTestSystemTB(b)
 	ref, err := sys.SpawnNamed(func() IActor { return &benchReplier{} }, "484024768387878913")
@@ -137,14 +122,8 @@ func BenchmarkAskLocal(b *testing.B) {
 	}
 }
 
-// BenchmarkSpawn puts uuid.Generate's cost in context: Spawn is its only caller on any
-// hot-ish path (one id per actor).
-//
-// Measured ~4.2us / 3.9KB / 23 allocs per spawn, against uuid.Generate at 47.8ns — i.e.
-// the id generator is ~1% of a spawn, and the mutex inside it ~0.2%. Replacing that lock
-// with a CAS loop measured 41.5ns (-13%), which is ~0.15% of a spawn: not worth
-// rewriting the clock-rollback and uniqueness logic in a lock-free setting. Recorded here
-// so the question does not have to be re-litigated from intuition.
+// BenchmarkSpawn puts uuid.Generate in context: at ~4.2us per spawn the id generator is ~1%
+// of it and its mutex ~0.2%, so making uuid lock-free is not worth the complexity.
 func BenchmarkSpawn(b *testing.B) {
 	sys := newTestSystemTB(b)
 	b.ReportAllocs()

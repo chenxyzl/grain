@@ -22,7 +22,7 @@ const (
 	nodeShift        = stepBits              // 节点 ID 向左的偏移量
 
 	// epoch 是 id 时间戳字段的起点: id 编码的是 (当前毫秒 - epoch)。
-	// 1735689600000 = 2025-01-01T00:00:00Z (真 UTC)。(42 位毫秒 = 139.4 年, 用尽点从 2162-05 推到 2164-05)。
+	// 1735689600000 = 2025-01-01T00:00:00Z (真 UTC); 42 位毫秒 = 139.4 年, 2164-05 用尽。
 	epoch uint64 = 1735689600000
 )
 
@@ -32,29 +32,21 @@ type UUID struct {
 	node      uint64     // 节点 ID 部分
 	step      uint64     // 序列号 ID 部分
 
-	// 时钟基准: 构造时采样墙上时间一次, 之后一律用**单调时钟**推进 —— 见 nowMs。
-	// 二者来自同一次 time.Now() 采样, 所以没有间隙。
+	// 时钟基准: 构造时采样墙上时间一次, 之后一律用单调时钟推进(见 nowMs); 二者同一次采样。
 	baseWall int64     // 构造时刻的 Unix 毫秒(已钳到 epoch)
 	baseMono time.Time // 同一次采样, 携带 monotonic reading
 }
 
 // NewUUID 构造器
 func NewUUID(node uint64) (*UUID, error) {
-	// 如果超出节点的最大范围，产生一个 error
 	if node > nodeMax {
-		//return nil, errors.New("Node number must be between 0 and 1023")
 		return nil, fmt.Errorf("node number must be between 0 and %d", nodeMax)
 	}
 	base := time.Now()
-	// epoch 下限保护: id 布局编码的是 (ms - epoch), 且该减法是 uint64 运算。若构造
-	// 时系统时钟早于 epoch (2025-01-01, 容器时钟未同步 / RTC 掉电), 减法会下溢成一个巨大
-	// 的值 —— 实测 2020 年的时钟产出 18049687768967155712, 而正常 id 是
-	// 485046263180431360, 大 37 倍: 既破坏 ParseSortVal 的排序, 又会和真实节点约
-	// 133 年后产出的 id 相撞。钳到 epoch 后 id 仍然合法且单调, 好过越界。
-	//
-	// 只需在这里钳一次: nowMs 从这个基准出发单调递增, 不会再降到 epoch 以下。
+	// epoch 下限保护: (ms - epoch) 是 uint64 减法, 构造时系统时钟早于 epoch(容器时钟未同步 /
+	// RTC 掉电)会下溢成巨值, 破坏 ParseSortVal 排序且与约 133 年后的真 id 相撞。只需钳这一次:
+	// nowMs 从此基准单调递增, 不会再降到 epoch 以下。
 	baseWall := max(base.UnixMilli(), int64(epoch))
-	// 生成并返回节点实例的指针
 	return &UUID{
 		timestamp: 0,
 		node:      node,
@@ -64,41 +56,25 @@ func NewUUID(node uint64) (*UUID, error) {
 	}, nil
 }
 
-// nowMs 返回当前的 Unix 毫秒, 但走**单调时钟**: 构造时采样的墙上时间, 加上此后
-// 由 monotonic clock 度量的经过时间。
-//
-// 两个好处:
-//
-//   - 结构性免疫时钟回拨。monotonic clock 不受 NTP 步进、手工改表、RTC 跳变影响,
-//     所以返回值永不回退 —— 从源头消掉了"时钟往回走导致重复 id"这一整类问题,
-//     而不是事后补救。
-//
-//   - time.Now() 底层的 now() 返回 (sec, nsec, mono) —— 墙上时钟和单调时钟各读一次;
-//     而 runtimeNano() 只读单调时钟。省下的就是那一次墙上时钟读取。
-//
-// 代价: monotonic clock 不跟随 NTP 的缓步校准(slew), 所以长时间运行后本函数返回的
-// 时间会与真实墙上时间产生漂移(量级取决于本机时钟漂移率, 典型每天毫秒级)。id 只
-// 要求唯一且大致时序, 所以无影响; 但 ParseTime 解出的时间会带上这份漂移。进程重启
-// 会重新采样基准, 漂移随之归零。
-//
-// 注意这份漂移与 id 的时间戳字段是两件事: Generate 在 step 用尽时会等待, 因此
-// n.timestamp 永不超过本函数的返回值(见 TestTimestampNeverLeadsRealClock)。
+// nowMs 返回当前的 Unix 毫秒, 走单调时钟: 构造时采样的墙上时间 + 此后 monotonic clock 度量
+// 的经过时间。因此结构性免疫时钟回拨(NTP 步进、手工改表、RTC 跳变都影响不到它), 永不回退。
+// 代价: 不跟随 NTP 缓步校准(slew), 长跑后与真实墙上时间漂移(典型每天毫秒级) —— id 只需唯一
+// 且大致时序故无影响, 但 ParseTime 解出的时间会带上漂移, 进程重启重新采样即归零。这与 id 的
+// 时间戳字段无关: Generate 在 step 用尽时会等待, 故 n.timestamp 永不超过本函数的返回值。
 func (n *UUID) nowMs() int64 {
 	return n.baseWall + time.Since(n.baseMono).Milliseconds()
 }
 
 // Generate 生成唯一id
 func (n *UUID) Generate() uint64 {
-	n.mu.Lock() // 保证并发安全, 加锁
+	n.mu.Lock()
 
 	// 单调时钟推进的当前毫秒, 见 nowMs。已保证 >= epoch 且不会回退。
 	now := n.nowMs()
 
-	// 下界钳制。在当前设计下这一步**正常永远不会触发**: nowMs 走单调时钟因而单调
-	// 不减, 而 n.timestamp 只会被赋为过去某次 nowMs 的返回值, 所以 now >= n.timestamp
-	// 恒成立。保留它是纯防御 —— 万一 nowMs 的单调性被破坏(例如有人给 baseMono 加了
-	// .UTC()/.Round() 把 monotonic reading 剥掉, 见 nowMs 注释与
-	// TestBaseMonoCarriesMonotonicReading), 这里是阻止发出重复 id 的最后一道闸。
+	// 下界钳制。当前设计下正常永不触发(nowMs 单调不减, 而 n.timestamp 只会被赋为过去某次
+	// nowMs 的返回值), 纯防御: 万一 baseMono 的 monotonic reading 被剥掉(有人加了 .UTC()/
+	// .Round(), 见 TestBaseMonoCarriesMonotonicReading), 这里是阻止发出重复 id 的最后一道闸。
 	if now < n.timestamp {
 		now = n.timestamp
 	}
@@ -106,18 +82,9 @@ func (n *UUID) Generate() uint64 {
 	if n.timestamp == now {
 		n.step = (n.step + 1) & stepMax
 
-		// 当前 step 用完: 等本毫秒结束。
-		//
-		// 为什么是"等待"而不是"借用下一毫秒"(后者试过并回退了): 借用快约 7.5 倍
-		// (30753 vs 4103 ids/ms), 但会让逻辑时间戳跑到真实时钟之前, 实测每 1ms 真实
-		// 时间积累 6.5ms 领先。而**进程重启会重新以墙上时钟为基准**, 于是新进程从
-		// 一个早已用过的时间戳继续发号 —— 实测重启后前 5000 个 id 与重启前 100%
-		// 碰撞。等待则保证 timestamp <= 真实时钟, 重启最多只会落回**当前这一毫秒**。
-		//
-		// 这个等待和旧实现的关键差别在于**有界**: 旧实现读墙上时钟, 时钟回拨后
-		// n.timestamp 会领先墙上时钟, 于是一次调用要等满整个回拨时长(实测回拨 300ms
-		// 时阻塞 295ms, 且持锁烧一个核)。nowMs 走单调时钟后不存在回拨, 这里最多只
-		// 等到下一个毫秒边界 —— 实测 12288 个 id 里最慢的一次是 651us。
+		// 当前毫秒的 step 用完: 等到下一毫秒边界, 不"借用下一毫秒"。借用快约 7.5 倍, 但会让逻辑
+		// 时间戳跑到真实时钟之前, 而进程重启重新以墙上时钟为基准, 于是从已用过的时间戳继续发号
+		// 并大量碰撞。等待保证 timestamp <= 真实时钟; 因 nowMs 无回拨, 该等待有界(最多 1ms)。
 		if n.step == 0 {
 			for now <= n.timestamp {
 				now = n.nowMs()
@@ -130,10 +97,9 @@ func (n *UUID) Generate() uint64 {
 	}
 
 	n.timestamp = now
-	// 移位运算，生产最终 ID
 	result := (uint64(now)-epoch)<<timeShift | (n.node << nodeShift) | (n.step)
 
-	n.mu.Unlock() // 方法运行完毕后解锁
+	n.mu.Unlock()
 
 	return result
 }

@@ -9,8 +9,7 @@ import (
 	"github.com/chenxyzl/grain/message"
 )
 
-// blockingActor never returns from its first Receive until released, so its
-// mailbox fills up and subsequent sends overflow once at max capacity.
+// blockingActor parks in its first Receive until released, so its mailbox fills and overflows.
 type blockingActor struct {
 	BaseActor
 	enter   chan struct{}
@@ -27,9 +26,7 @@ func (a *blockingActor) Receive(ctx Context) {
 	})
 }
 
-// TestDeadLetterOnOverflow: with init==max==2, filling the mailbox past capacity
-// while the actor is blocked in its handler drives PushOverflow, which must be
-// routed to the configured DeadLetterHandler with the right fields.
+// A PushOverflow must reach the configured DeadLetterHandler with its fields populated.
 func TestDeadLetterOnOverflow(t *testing.T) {
 	sys := newFakeSys()
 
@@ -45,7 +42,6 @@ func TestDeadLetterOnOverflow(t *testing.T) {
 	}
 
 	act := &blockingActor{enter: make(chan struct{}), release: make(chan struct{})}
-	// init==max==2 -> fixed capacity 2, no growth, easy overflow.
 	p := &processorMailBox{
 		system:     sys,
 		rb:         ringbuffer.New[Context](2, 2), // fixed cap 2: no growth, easy overflow
@@ -60,7 +56,7 @@ func TestDeadLetterOnOverflow(t *testing.T) {
 	p.receiver._bindTurn(p)
 	p.init() // runs the initialize -> Started
 
-	// first real message: the handler blocks inside Receive holding the turn.
+	// first real message: the handler blocks inside Receive holding the turn
 	p.send(newContext(p._self, nil, &message.Subscribe{EventName: "block"}, sys.nextSnId(), nil))
 	select {
 	case <-act.enter:
@@ -68,8 +64,7 @@ func TestDeadLetterOnOverflow(t *testing.T) {
 		t.Fatal("actor never entered its handler")
 	}
 
-	// Now the drainer is parked in the blocked handler. Fill the mailbox (cap 2)
-	// and then overflow it. Some of these enqueue, later ones overflow.
+	// drainer is parked in the blocked handler: the first sends enqueue, the rest overflow
 	const extra = 10
 	for i := 0; i < extra; i++ {
 		p.send(newContext(p._self, nil, &message.Unsubscribe{EventName: "flood"}, sys.nextSnId(), nil))
@@ -96,8 +91,7 @@ func TestDeadLetterOnOverflow(t *testing.T) {
 	close(act.release) // let the actor finish
 }
 
-// TestDeadLetterOnStopped: sending to a closed (stopped) mailbox routes to the
-// dead letter with the "actor stopped" reason.
+// A send to a closed mailbox dead-letters with reason "actor stopped".
 func TestDeadLetterOnStopped(t *testing.T) {
 	sys := newFakeSys()
 	var got []DeadLetter
@@ -123,8 +117,7 @@ func TestDeadLetterOnStopped(t *testing.T) {
 	}
 }
 
-// TestDeadLetterHandlerPanicRecovered: a panicking handler must not crash the
-// sender goroutine — the panic is recovered and logged.
+// A panicking handler must not take down the sender goroutine.
 func TestDeadLetterHandlerPanicRecovered(t *testing.T) {
 	sys := newFakeSys()
 	sys.cfg = &config{
@@ -164,14 +157,9 @@ func (a *slowPreStopActor) PreStop() {
 	})
 }
 
-// TestDeadLetterOnStopWindow pins the fix for silent message loss.
-//
-// doStop only checks the mailbox is empty BEFORE PreStop runs, and procStatus stays
-// `running` for the whole of PreStop — it only becomes `stopped` in stop()'s defer.
-// So during PreStop (arbitrarily long: it is user code) a sender gets PushOK while
-// schedule()'s CAS(idle→running) fails, meaning nothing will ever drain those
-// messages. rb.Close() keeps queued items poppable rather than rejecting them, so
-// they used to be dropped with no dead letter and no log whatsoever.
+// Messages sent while PreStop is running must dead-letter, not vanish: procStatus is still
+// `running` so the sender gets PushOK, but schedule()'s CAS never fires again, so nothing
+// will ever drain them.
 func TestDeadLetterOnStopWindow(t *testing.T) {
 	sys := newFakeSys()
 	var mu sync.Mutex
@@ -191,7 +179,7 @@ func TestDeadLetterOnStopWindow(t *testing.T) {
 	time.Sleep(50 * time.Millisecond) // let Started() complete
 	p.poison()
 
-	// Wait until PreStop is executing: stop() is now open and procStatus is `running`.
+	// wait until PreStop is executing: stop() is open and procStatus is still `running`
 	select {
 	case <-act.inPreStop:
 	case <-time.After(3 * time.Second):

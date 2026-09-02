@@ -12,17 +12,12 @@ import (
 
 func main() {
 	grain.InitLog("./test.log", slog.LevelInfo)
-	//new
 	system := grain.NewSystem("pubsub_cluster", "0.0.1", []string{"127.0.0.1:2379"},
 		grain.WithConfigAskTimeout(time.Second*100))
-	//start
 	system.Logger().Warn("system starting")
-	//
 	system.Start()
-	//
 	system.Logger().Warn("system started successfully")
 
-	//
 	times := 0
 	for {
 		time.Sleep(time.Second)
@@ -36,6 +31,5 @@ func main() {
 
 	//run wait
 	system.WaitStopSignal(nil, nil)
-	//
 	system.Logger().Warn("system stopped successfully")
 }
