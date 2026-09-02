@@ -18,6 +18,10 @@ type iSystem interface {
 	getProvider() iProvider
 	getAddrHash() *AddrHash
 	nextSnId() uint64
+	// emitDeadLetter is the single funnel for undeliverable messages: a mailbox rejection, a
+	// missing target, an unreachable peer. Everything goes through it so one monitoring hook
+	// sees every drop the framework knows about.
+	emitDeadLetter(dl DeadLetter)
 	/*
 		ask correlation (reply futures)
 	*/

@@ -141,33 +141,20 @@ func (x *processorMailBox) send(ctx Context) {
 	}
 }
 
-// toDeadLetter surfaces an undeliverable message to the DeadLetterHandler, or logs WARN when none
-// is set. Runs on the sender's goroutine, so a panicking handler is recovered here.
+// toDeadLetter surfaces a message this mailbox could not accept. Runs on the sender's goroutine.
 func (x *processorMailBox) toDeadLetter(ctx Context, reason string) {
 	// Fail a waiting Ask now: a saturated or stopped mailbox must be as prompt as errActorNotFound.
 	if s := ctx.Sender(); s != nil && s.isAsk() {
 		s.Tell(message.WithErr("ask target mailbox unavailable: " + reason))
 	}
-	if h := x.system.getConfig().deadLetterHandler; h != nil {
-		defer func() {
-			if err := recover(); err != nil {
-				x.system.Logger().Error("dead letter handler panic",
-					"id", x.self(), "reason", reason, "err", err, "stack", ghelper.StackTrace())
-			}
-		}()
-		h(DeadLetter{
-			Target:  ctx.Target(),
-			Owner:   x.self(),
-			Sender:  ctx.Sender(),
-			Message: ctx.Message(),
-			MsgSnId: ctx.GetMsgSnId(),
-			Reason:  reason,
-		})
-		return
-	}
-	x.system.Logger().Warn("dead letter",
-		"owner", x.self(), "target", ctx.Target(),
-		"msgName", proto.MessageName(ctx.Message()), "reason", reason)
+	x.system.emitDeadLetter(DeadLetter{
+		Target:  ctx.Target(),
+		Owner:   x.self(),
+		Sender:  ctx.Sender(),
+		Message: ctx.Message(),
+		MsgSnId: ctx.GetMsgSnId(),
+		Reason:  reason,
+	})
 }
 
 // poison requests a stop without enqueuing into the (possibly full) mailbox: it sets a flag and

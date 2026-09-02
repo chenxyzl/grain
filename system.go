@@ -156,6 +156,9 @@ func (x *system) tellWithSender(target ActorRef, msg proto.Message, sender Actor
 				}
 				x.Logger().Error("actor kind not in cluster",
 					"actor", target, "msgName", proto.MessageName(msg))
+				// no mailbox was involved, so Owner is nil
+				x.emitDeadLetter(DeadLetter{Target: target, Sender: sender, Message: msg,
+					MsgSnId: msgSnId, Reason: DeadLetterReasonNoOwner})
 				return
 			}
 			if cacheAddr == x.getAddr() {
@@ -197,6 +200,12 @@ func (x *system) sendToLocal(target ActorRef, msg proto.Message, sender ActorRef
 			sender.Tell(errActorNotFound)
 		}
 		x.Logger().Error("send, get actor failed", "actor", target, "msgName", proto.MessageName(msg))
+		// A fire-and-forget Tell has no sender to notify, so without this it vanished into a log
+		// line that no monitoring hook could see. This is the COMMON miss — a target that already
+		// deregistered — not the narrow stop window processorMailBox.send covers.
+		// Owner is nil: there was no mailbox to reject it.
+		x.emitDeadLetter(DeadLetter{Target: target, Sender: sender, Message: msg,
+			MsgSnId: msgSnId, Reason: DeadLetterReasonNotFound})
 		return
 	}
 	proc.send(newContext(proc.self(), sender, msg, msgSnId, x))

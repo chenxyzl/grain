@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 
+	"github.com/chenxyzl/grain/message"
 	remote2 "github.com/chenxyzl/grain/remote"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -96,10 +97,20 @@ func (x *streamWriteActor) PreStop() {
 
 func (x *streamWriteActor) Receive(ctx Context) {
 	msg := ctx.Message()
+	// The stream may never have opened: Started() self-poisons on a dial/Listen failure, but
+	// poison() only sets a flag, so the run loop still drains everything already queued. Without
+	// this guard each of those hit a nil x.remote, panicked, and was swallowed by invoke's
+	// recover — never sent, never dead-lettered, and any waiting Ask burned its full askTimeout.
+	// Listen() does not set WaitForReady, so this is simply what happens when a peer is down.
+	if x.remote == nil {
+		x.deadLetter(ctx, DeadLetterReasonUnreachable)
+		return
+	}
 	msgName := string(proto.MessageName(msg))
 	content, err := proto.Marshal(msg)
 	if err != nil {
 		x.Logger().Error("proto marshal err", "from", ctx.Sender(), "target", ctx.Target(), "msgName", msgName, "msg", msg, "err", err)
+		x.deadLetter(ctx, "proto marshal failed: "+err.Error())
 		return
 	}
 	var sender string
@@ -114,14 +125,34 @@ func (x *streamWriteActor) Receive(ctx Context) {
 		MsgName: msgName,
 		Content: content,
 	}
-	x.sendToRemote(envelope)
+	x.sendToRemote(ctx, envelope)
 }
 
-func (x *streamWriteActor) sendToRemote(msg *remote2.Envelope) {
+// deadLetter reports a message this stream could not carry, failing a waiting Ask at once so it
+// does not sit out askTimeout for a peer we already know we cannot reach.
+func (x *streamWriteActor) deadLetter(ctx Context, reason string) {
+	if s := ctx.Sender(); s != nil && s.isAsk() {
+		s.Tell(message.WithErr("send to remote failed: " + reason))
+	}
+	x.GetSystem().emitDeadLetter(DeadLetter{
+		Target:  ctx.Target(),
+		Owner:   x.Self(),
+		Sender:  ctx.Sender(),
+		Message: ctx.Message(),
+		MsgSnId: ctx.GetMsgSnId(),
+		Reason:  reason,
+	})
+}
+
+func (x *streamWriteActor) sendToRemote(ctx Context, msg *remote2.Envelope) {
 	err := x.remote.Send(msg)
 	if err != nil {
-		_ = x.conn.Close()
-		x.GetSystem().Poison(x.Self())
 		x.Logger().Error("send envelope err,", "err", err)
+		x.deadLetter(ctx, DeadLetterReasonUnreachable)
+		// nil-checked: Started() can leave conn unset, and PreStop may already have closed it
+		if x.conn != nil {
+			_ = x.conn.Close()
+		}
+		x.GetSystem().Poison(x.Self())
 	}
 }

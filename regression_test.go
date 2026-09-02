@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/chenxyzl/grain/message"
+	"github.com/chenxyzl/grain/remote"
+	"google.golang.org/protobuf/proto"
 )
 
 // Regressions for the bugs found in the framework review. Each test fails against the code as it
@@ -181,5 +183,147 @@ func TestLeaseRevokedOnCleanDrain(t *testing.T) {
 	}
 	if !rec.revoked.Load() {
 		t.Fatal("actors drained cleanly but the lease was not revoked")
+	}
+}
+
+// message.Initialize is a normally registered proto, so before this check any peer could name it
+// in an envelope and have invoke() re-run start() on a live actor: Started() twice for a plain
+// actor, or — for a cluster grain — a setTxn against our own key that fails and then tears the
+// grain down through its own still-valid lock. The transport is insecure credentials with no auth
+// on Remoting.Listen, so "any peer" is the whole reachable network.
+func TestInboundInitializeIsRefused(t *testing.T) {
+	sys := newTestSystem(t)
+	c := &startCounter{}
+	ref, err := sys.SpawnNamed(func() IActor { return c }, "victim")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return c.starts.Load() == 1 }, "actor to start")
+
+	body, err := proto.Marshal(msgInitialize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sys.RecvEnvelope(&remote.Envelope{
+		Target:  ref.GetId(),
+		MsgName: msgNameInitialize,
+		Content: body,
+		MsgSnId: 999,
+	})
+
+	time.Sleep(200 * time.Millisecond)
+	if got := c.starts.Load(); got != 1 {
+		t.Fatalf("Started() ran %d times; a remote envelope re-activated a live actor", got)
+	}
+}
+
+// A remote Poison must still be routed: that is how stopping a grain on another node works.
+func TestInboundPoisonIsStillDelivered(t *testing.T) {
+	sys := newTestSystem(t)
+	ref, err := sys.SpawnNamed(func() IActor { return &startCounter{} }, "poisonable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := proto.Marshal(msgPoison)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sys.RecvEnvelope(&remote.Envelope{
+		Target:  ref.GetId(),
+		MsgName: string(proto.MessageName(msgPoison)),
+		Content: body,
+		MsgSnId: 1000,
+	})
+	waitFor(t, func() bool { return sys.registry.get(ref) == nil }, "remote poison to stop the actor")
+}
+
+type startCounter struct {
+	BaseActor
+	starts atomic.Int64
+}
+
+func (a *startCounter) Started()            { a.starts.Add(1) }
+func (a *startCounter) PreStop()            {}
+func (a *startCounter) Receive(ctx Context) {}
+
+// A fire-and-forget Tell to a target that is no longer registered used to vanish into an ERROR log
+// line, invisible to DeadLetterHandler. Only an Ask sender was notified, and the narrow stop window
+// processorMailBox.send covers is not the common case — a target that already deregistered is.
+func TestTellToMissingActorDeadLetters(t *testing.T) {
+	sys := newTestSystem(t)
+	got := make(chan DeadLetter, 16)
+	sys.config.deadLetterHandler = func(d DeadLetter) { got <- d }
+
+	ref, err := sys.SpawnNamed(func() IActor { return &sink{} }, "gone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sys.Poison(ref)
+	waitFor(t, func() bool { return sys.registry.get(ref) == nil }, "actor to deregister")
+	for len(got) > 0 { // discard anything the stop itself produced
+		<-got
+	}
+
+	sys.tellWithSender(ref, &message.Unsubscribe{EventName: "x"}, nil, 7)
+	select {
+	case d := <-got:
+		if d.Reason != DeadLetterReasonNotFound {
+			t.Errorf("reason = %q, want %q", d.Reason, DeadLetterReasonNotFound)
+		}
+		if d.Target == nil || d.Target.GetId() != ref.GetId() {
+			t.Errorf("target = %v, want %v", d.Target, ref)
+		}
+		if d.MsgSnId != 7 {
+			t.Errorf("msgSnId = %d, want 7", d.MsgSnId)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("a Tell to a deregistered actor produced no dead letter")
+	}
+}
+
+// Same for a cluster ref whose kind no node hosts: decidable locally, so it must not be a silent
+// drop either.
+func TestTellToUnhostedKindDeadLetters(t *testing.T) {
+	sys := newTestSystem(t)
+	got := make(chan DeadLetter, 4)
+	sys.config.deadLetterHandler = func(d DeadLetter) { got <- d }
+
+	// the fakeProvider hosts "player" only
+	sys.tellWithSender(sys.GetClusterActorRef("nosuchkind", "1"),
+		&message.Unsubscribe{EventName: "x"}, nil, 9)
+	select {
+	case d := <-got:
+		if d.Reason != DeadLetterReasonNoOwner {
+			t.Errorf("reason = %q, want %q", d.Reason, DeadLetterReasonNoOwner)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("a Tell to an unhosted cluster kind produced no dead letter")
+	}
+}
+
+// streamWriteActor self-poisons when its stream fails to open, but poison() only sets a flag, so
+// the run loop still drains what is queued. Those messages used to hit a nil x.remote, panic, and
+// be swallowed by invoke's recover: never sent, never dead-lettered, and a waiting Ask burned its
+// whole askTimeout.
+func TestStreamWriteWithNoStreamDeadLetters(t *testing.T) {
+	sys := newTestSystem(t)
+	got := make(chan DeadLetter, 4)
+	sys.config.deadLetterHandler = func(d DeadLetter) { got <- d }
+
+	peer := "10.255.255.1:59999"
+	wsRef := newDirectActorRef(defaultWriteStreamKind, peer, sys.getAddr(), sys)
+	w := &streamWriteActor{router: wsRef, address: peer} // Started() never ran: conn/remote nil
+	w._init(wsRef)
+
+	target := newDirectActorRef("player", "g1", peer, sys)
+	w.Receive(newContext(target, nil, &message.Unsubscribe{EventName: "x"}, 11, sys))
+
+	select {
+	case d := <-got:
+		if d.Reason != DeadLetterReasonUnreachable {
+			t.Errorf("reason = %q, want %q", d.Reason, DeadLetterReasonUnreachable)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("a send over an unopened stream produced no dead letter")
 	}
 }

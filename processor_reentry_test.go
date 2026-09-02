@@ -49,6 +49,20 @@ func (f *fakeSys) registerAsk(snId uint64) chan proto.Message {
 	return ch
 }
 func (f *fakeSys) cancelAsk(snId uint64) { f.pending.Remove(snId) }
+
+// emitDeadLetter mirrors system.emitDeadLetter: hand to the configured handler, else log.
+func (f *fakeSys) emitDeadLetter(dl DeadLetter) {
+	if h := f.cfg.deadLetterHandler; h != nil {
+		defer func() {
+			if err := recover(); err != nil {
+				f.logger.Error("dead letter handler panic", "err", err)
+			}
+		}()
+		h(dl)
+		return
+	}
+	f.logger.Warn("dead letter", "owner", dl.Owner, "target", dl.Target, "reason", dl.Reason)
+}
 func (f *fakeSys) deliverReply(snId uint64, msg proto.Message) {
 	if ch, ok := f.pending.Pop(snId); ok {
 		ch <- msg
