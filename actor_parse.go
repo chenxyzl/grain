@@ -4,11 +4,6 @@ import (
 	"strings"
 )
 
-type cacheRemote struct {
-	version    int64
-	remoteAddr string
-}
-
 type cacheParse struct {
 	d8c        string //direct or cluster
 	kind       string

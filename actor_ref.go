@@ -18,7 +18,7 @@ type ActorRef interface {
 	// askSnId returns the correlation id of a reply ref (valid only when isAsk()).
 	askSnId() uint64
 
-	getRemoteAddrCache() string
+	routeCache() *actorRouteCache
 
 	Tell(msg proto.Message)
 }

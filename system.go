@@ -44,7 +44,7 @@ type system struct {
 	pending                   safemap.ConcurrentMap[uint64, chan proto.Message]
 	pendingRegistrationMu     sync.RWMutex
 	pendingRegistrationClosed bool
-	streamReferences          atomic.Pointer[streamReferenceCache]
+	routing                   routingResolver
 	processorCreation         processorCreator
 }
 
@@ -162,15 +162,16 @@ func (x *system) tellWithSender(target ActorRef, msg proto.Message, sender Actor
 		if targetAddr == x.getAddr() {
 			x.sendToLocal(target, msg, sender, msgSnId)
 		} else {
-			x.sendToCluster(targetAddr, target, msg, sender, msgSnId)
+			x.sendToRemote(x.routing.resolve(x, target), target, msg, sender, msgSnId)
 		}
 	} else {
 		//fast path: already registered locally
 		if proc := x.registry.lookup(target.GetId()); proc != nil {
 			proc.send(newContext(proc.self(), sender, msg, msgSnId, x))
 		} else {
-			cacheAddr := target.getRemoteAddrCache()
-			if cacheAddr == "" {
+			route := x.routing.resolve(x, target)
+			ownerAddress := route.address
+			if ownerAddress == "" {
 				// Fail a waiting Ask NOW rather than wait out askTimeout: "no node hosts this
 				// kind" is as decidable here as a missing actor or a dead mailbox.
 				if sender != nil && sender.isAsk() {
@@ -183,11 +184,11 @@ func (x *system) tellWithSender(target ActorRef, msg proto.Message, sender Actor
 					MsgSnId: msgSnId, Reason: DeadLetterReasonNoOwner})
 				return
 			}
-			if cacheAddr == x.getAddr() {
+			if ownerAddress == x.getAddr() {
 				// this node owns the kind; sendToLocal activates on demand, after its poison check
 				x.sendToLocal(target, msg, sender, msgSnId)
 			} else {
-				x.sendToCluster(cacheAddr, target, msg, sender, msgSnId)
+				x.sendToRemote(route, target, msg, sender, msgSnId)
 			}
 		}
 	}
@@ -233,8 +234,8 @@ func (x *system) sendToLocal(target ActorRef, msg proto.Message, sender ActorRef
 	proc.send(newContext(proc.self(), sender, msg, msgSnId, x))
 }
 
-func (x *system) sendToCluster(targetAddress string, target ActorRef, msg proto.Message, sender ActorRef, msgSnId uint64) {
-	writeStreamActorRef := x.writeStreamRef(targetAddress)
+func (x *system) sendToRemote(route resolvedRoute, target ActorRef, msg proto.Message, sender ActorRef, msgSnId uint64) {
+	targetAddress, writeStreamActorRef := route.address, route.stream
 	//get, or spawn idempotently: senders race here and a duplicate-id panic kills the process
 	proc := x.registry.lookup(writeStreamActorRef.GetId())
 	if proc == nil {

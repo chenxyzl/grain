@@ -1,8 +1,9 @@
 package grain
 
 import (
-	"github.com/chenxyzl/grain/message"
 	"testing"
+
+	"github.com/chenxyzl/grain/message"
 )
 
 // Isolate routing to an already registered peer stream, excluding serialization,
@@ -31,15 +32,39 @@ func BenchmarkStreamRouting(b *testing.B) {
 			sys.registry.processes.Set(stream.GetId(), &benchmarkStreamSink{ref: stream})
 			target := newDirectActorRef("player", "123456789", peer, sys)
 			msg := &message.Subscribe{}
-			sys.writeStreamRef(peer) // exclude cache population from steady-state timing
+			sys.routing.resolve(sys, target) // exclude cache population from steady-state timing
 			b.ReportAllocs()
 			b.ResetTimer()
 			for b.Loop() {
 				if cached {
-					sys.sendToCluster(peer, target, msg, nil, 1)
+					sys.sendToRemote(sys.routing.resolve(sys, target), target, msg, nil, 1)
 				} else {
 					ref := newDirectActorRef(defaultWriteStreamKind, peer, sys.addr, sys)
 					sys.registry.lookup(ref.GetId()).send(newContext(target, nil, msg, 1, sys))
+				}
+			}
+		})
+	}
+}
+
+// Resolver-only measurements separate address/cache work from registry and Context allocation.
+func BenchmarkRoutingResolver(b *testing.B) {
+	for _, kind := range []string{"direct", "cluster"} {
+		b.Run(kind, func(b *testing.B) {
+			sys := newTestSystemTB(b)
+			sys.clusterProvider = &fakeProvider{nodes: []tNodeState{{NodeId: 1, Address: "peer:9000", Kinds: []string{"player"}}}}
+			var target ActorRef
+			if kind == "direct" {
+				target = newDirectActorRef("player", "one", "peer:9000", sys)
+			} else {
+				target = newClusterActorRef("player", "one", sys)
+			}
+			sys.routing.resolve(sys, target)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				if sys.routing.resolve(sys, target).stream == nil {
+					b.Fatal("missing stream")
 				}
 			}
 		})

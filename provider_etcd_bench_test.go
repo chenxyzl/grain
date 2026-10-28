@@ -47,7 +47,8 @@ func BenchmarkProviderGetNodes(b *testing.B) {
 	}
 }
 
-// The full per-message cluster address resolution: fresh ref, empty cache, cold every time.
+// Resolve a fresh cluster reference, including transport lookup when remote.
+// Unlike the older address-only benchmark, this exercises the unified resolver.
 func BenchmarkClusterAddrResolveColdRef(b *testing.B) {
 	sys := newTestSystemTB(b)
 	p := benchProvider(b, 10)
@@ -55,7 +56,7 @@ func BenchmarkClusterAddrResolveColdRef(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; b.Loop(); i++ {
 		ref := newClusterActorRef("player", "1234567890123456789", sys)
-		if ref.getRemoteAddrCache() == "" {
+		if sys.routing.resolve(sys, ref).address == "" {
 			b.Fatal("no owner")
 		}
 	}
@@ -63,7 +64,8 @@ func BenchmarkClusterAddrResolveColdRef(b *testing.B) {
 
 // A membership change must invalidate cached addresses while costing ONE snapshot rebuild for the
 // whole node, not one node-table copy per live ref. Measures the write + re-resolve cycle, so the
-// number includes parseWatch's JSON decode; it is a no-regression guard, not a read-path figure.
+// number includes parseWatch's JSON decode and new-generation transport setup.
+// It is not directly comparable to the former address-only path.
 func BenchmarkMembershipChangeAndReresolve(b *testing.B) {
 	sys := newTestSystemTB(b)
 	p := benchProvider(b, 10)
@@ -79,7 +81,7 @@ func BenchmarkMembershipChangeAndReresolve(b *testing.B) {
 			op = mvccpb.DELETE
 		}
 		p.parseWatch(op, "/bench/member/99", state)
-		if ref.getRemoteAddrCache() == "" {
+		if sys.routing.resolve(sys, ref).address == "" {
 			b.Fatal("no owner")
 		}
 	}

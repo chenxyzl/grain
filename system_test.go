@@ -106,7 +106,7 @@ func TestAskToUnhostedClusterKindFailsFast(t *testing.T) {
 func TestAskToHostedClusterKindStillRoutes(t *testing.T) {
 	sys := newTestSystem(t)
 	ref := newClusterActorRef("player", "42", sys)
-	if got := ref.getRemoteAddrCache(); got != sys.getAddr() {
+	if got := sys.routing.resolve(sys, ref).address; got != sys.getAddr() {
 		t.Fatalf("a hosted kind must still resolve to the owning node, got %q want %q",
 			got, sys.getAddr())
 	}
