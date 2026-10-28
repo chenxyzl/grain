@@ -167,7 +167,7 @@ func TestSpawnNamedDuplicateReturnsError(t *testing.T) {
 		t.Errorf("a failed spawn must return a nil ref, got %v", second)
 	}
 	// The original must be untouched and still registered.
-	if sys.registry.get(first) == nil {
+	if sys.registry.lookup(first.GetId()) == nil {
 		t.Error("the failed duplicate spawn evicted the original actor")
 	}
 }

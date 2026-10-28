@@ -121,7 +121,7 @@ func BenchmarkIdleActorFootprint(b *testing.B) {
 			settled := started.Load() == actors
 			if settled {
 				for _, ref := range refs {
-					if !schedulerIdle(sys.registry.get(ref).(*processorMailBox)) {
+					if !schedulerIdle(sys.registry.lookup(ref.GetId()).(*processorMailBox)) {
 						settled = false
 						break
 					}
@@ -144,7 +144,7 @@ func BenchmarkIdleActorFootprint(b *testing.B) {
 		for _, ref := range refs {
 			sys.Poison(ref)
 		}
-		for sys.registry.lookup.Count() != 0 {
+		for sys.registry.processes.Count() != 0 {
 			if time.Now().After(deadline) {
 				b.Fatal("actors failed to stop")
 			}

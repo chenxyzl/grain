@@ -15,6 +15,7 @@ type iSystem interface {
 	getSender() iSender
 	getConfig() *config
 	getRegistry() iRegistry
+	getProcessorCreator() *processorCreator
 	getProvider() iProvider
 	getAddrHash() *AddrHash
 	nextSnId() uint64
@@ -86,12 +87,9 @@ type iSystemLife interface {
 
 // iRegistry ...
 type iRegistry interface {
-	get(actRef ActorRef) iProcess
-	add(iProcP iProcessProvider) (iProcess, error)
-	getOrAdd(id string, iProcP iProcessProvider) iProcess
-	//remove deletes actRef's entry only while it still holds iProcP; see registry.remove for why
-	//the identity check matters.
-	remove(actRef ActorRef, iProcP iProcess)
+	lookup(id string) iProcess
+	register(id string, proc iProcess) (actual iProcess, inserted bool)
+	remove(id string, expected iProcess)
 }
 
 // CancelScheduleFunc ...

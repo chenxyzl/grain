@@ -84,3 +84,13 @@ mailbox 上限不限制挂起调用栈；没有增加可能阻断 A→B→A 的�
 恢复执行与新消息竞争同一个许可，不承诺跨 Ask 的完成顺序或显式恢复 FIFO。调度协程完全按需，不保留此前固定循环原型的空闲超时配置。
 
 性能比较见 [scheduler-performance.md](scheduler-performance.md)。回归测试覆盖重复 Ask、异常/Goexit、满邮箱恢复、停车唤醒竞争、生命周期和执行作用域清理。
+
+本地 Reply 快速路径及节点版本变化下的远程引用缓存见 [routing-performance.md](routing-performance.md)。
+
+## 创建与注册边界
+
+registry 只维护 actor ID 索引：`lookup(id)` 查询，`register(id, proc)` 原子注册并返回实际实例及是否插入，`remove(id, expected)` 只移除匹配的实例。注册不会执行工厂，也不会启动调度。
+
+`processor_spawn.go` 提供两个入口：`spawnNewProcessor` 对重复 ID 返回 ErrNameExists，`getOrSpawnProcessor` 复用已发布实例。两者共享每个 system 的 processorCreator，同一 ID 的构造串行，不同 ID 可并行；工厂运行期间不持有协调器的全局锁。协调槽只在创建者持有或等待期间保留，通过 defer 在正常返回、panic、Goexit 时释放。
+
+构造先绑定 actor 并入队 Initialize，再发布到 registry；只有成功插入者启动调度。重复的新建请求不再执行无用的工厂。复用入口命中已有实例时不经过创建协调器。本次调整增加冷创建的协调操作，未宣称降低单次 Spawn 耗时。

@@ -15,6 +15,14 @@ type contextImpl struct {
 }
 
 func (x *contextImpl) Reply(message proto.Message) {
+	// Only a reply owned by this sending system can bypass routing. Cross-system
+	// forwarded requests, remote replies and custom senders retain their normal path.
+	if reply, ok := x.sender.(*replyRef); ok {
+		if sys, ok := x.senderFunc.(*system); ok && reply.system == sys && reply.addr == sys.getAddr() {
+			sys.deliverReply(reply.snId, message)
+			return
+		}
+	}
 	x.senderFunc.tellWithSender(x.Sender(), message, x.Target(), x.msgSnId)
 }
 

@@ -44,6 +44,8 @@ type system struct {
 	pending                   safemap.ConcurrentMap[uint64, chan proto.Message]
 	pendingRegistrationMu     sync.RWMutex
 	pendingRegistrationClosed bool
+	streamReferences          atomic.Pointer[streamReferenceCache]
+	processorCreation         processorCreator
 }
 
 // NewSystem ...
@@ -121,7 +123,7 @@ func (x *system) SpawnNamed(p Producer, name string, opts ...KindOptFunc) (Actor
 	}
 	opts = append(opts, withOptsDirectSelf(name, x.getAddr(), x))
 	options := newOpts(p, opts...)
-	proc, err := newProcessor(x, options)
+	proc, err := spawnNewProcessor(x, options)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +166,7 @@ func (x *system) tellWithSender(target ActorRef, msg proto.Message, sender Actor
 		}
 	} else {
 		//fast path: already registered locally
-		if proc := x.registry.get(target); proc != nil {
+		if proc := x.registry.lookup(target.GetId()); proc != nil {
 			proc.send(newContext(proc.self(), sender, msg, msgSnId, x))
 		} else {
 			cacheAddr := target.getRemoteAddrCache()
@@ -201,7 +203,7 @@ func (x *system) sendToLocal(target ActorRef, msg proto.Message, sender ActorRef
 		x.deliverReply(target.askSnId(), msg)
 		return
 	}
-	proc := x.registry.get(target)
+	proc := x.registry.lookup(target.GetId())
 	if proc == nil {
 		// Poison for a non-running actor is a no-op, and must be checked BEFORE the on-demand
 		// activation below: else stopping a dormant grain runs its full Started() then
@@ -212,7 +214,7 @@ func (x *system) sendToLocal(target ActorRef, msg proto.Message, sender ActorRef
 		// cluster kind owned by this node but not yet activated: activate on demand. Here
 		// rather than in tellWithSender so the message-type check above runs once, not twice.
 		if target.isCluster() && x.ensureClusterKindActorExist(target) {
-			proc = x.registry.get(target)
+			proc = x.registry.lookup(target.GetId())
 		}
 	}
 	if proc == nil {
@@ -232,14 +234,14 @@ func (x *system) sendToLocal(target ActorRef, msg proto.Message, sender ActorRef
 }
 
 func (x *system) sendToCluster(targetAddress string, target ActorRef, msg proto.Message, sender ActorRef, msgSnId uint64) {
-	writeStreamActorRef := newDirectActorRef(defaultWriteStreamKind, targetAddress, x.getAddr(), x)
+	writeStreamActorRef := x.writeStreamRef(targetAddress)
 	//get, or spawn idempotently: senders race here and a duplicate-id panic kills the process
-	proc := x.registry.get(writeStreamActorRef)
+	proc := x.registry.lookup(writeStreamActorRef.GetId())
 	if proc == nil {
 		opts := newOpts(func() IActor {
 			return newStreamWriterActor(writeStreamActorRef, targetAddress, x.getConfig().dialOptions, x.getConfig().callOptions)
 		}, WithOptsKindName(writeStreamActorRef.GetKind()), WithOptsPoisonFirstOnQuit(false), withOptsDirectSelf(writeStreamActorRef.GetName(), x.getAddr(), x))
-		proc = newProcessorOrGet(x, opts)
+		proc = getOrSpawnProcessor(x, opts)
 	}
 	proc.send(newContext(target, sender, msg, msgSnId, x))
 }
@@ -247,7 +249,7 @@ func (x *system) sendToCluster(targetAddress string, target ActorRef, msg proto.
 func (x *system) Poison(ref ActorRef) {
 	// local: the non-blocking control signal (never blocks on a full mailbox, safe under
 	// registry locks). remote: poison travels as an ordinary message.
-	if proc := x.registry.get(ref); proc != nil {
+	if proc := x.registry.lookup(ref.GetId()); proc != nil {
 		proc.poison()
 		return
 	}
@@ -284,3 +286,5 @@ func (x *system) deliverReply(snId uint64, msg proto.Message) {
 func (x *system) cancelAsk(snId uint64) {
 	x.pending.Remove(snId)
 }
+
+func (x *system) getProcessorCreator() *processorCreator { return &x.processorCreation }

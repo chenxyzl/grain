@@ -14,6 +14,8 @@
 
 | 组件 | 文件 | 职责 |
 |---|---|---|
+| Processor creation | `processor_spawn.go` | 区分新建与复用、按 ID 协调构造、注册成功后启动 |
+| Registry | `registry.go` | 只维护 ID 索引：lookup/register/remove，不调用工厂或启动调度 |
 | Processor | `processor_mailbox.go` | 绑定 actor、初始化队列、连接发送/调度/生命周期 |
 | Mailbox | `al/ringbuffer/` | FIFO、容量、并发入队出队、关闭 |
 | Mailbox scheduler | `processor_scheduler.go` | 按需启动、连续排空、未完成计数、停车补偿 |

@@ -1,76 +1,38 @@
 package grain
 
-import (
-	"fmt"
-	"sync"
+import "github.com/chenxyzl/grain/al/safemap"
 
-	"github.com/chenxyzl/grain/al/safemap"
-)
-
+// registry owns only the actor ID index. Creation and startup belong to the spawner.
 type registry struct {
-	lookup   safemap.ConcurrentMap[string, iProcess]
-	createMu sync.Mutex // serializes getOrAdd so the loser never builds a processor
+	processes safemap.ConcurrentMap[string, iProcess]
 }
 
-func newRegistry() *registry {
-	return &registry{
-		lookup: safemap.NewStringC[iProcess](),
+func newRegistry() *registry { return &registry{processes: safemap.NewStringC[iProcess]()} }
+
+func (r *registry) lookup(id string) iProcess {
+	proc, _ := r.processes.Get(id)
+	return proc
+}
+
+// register atomically publishes proc or returns the existing instance. It never
+// constructs or starts a processor; only the inserting caller may start it.
+func (r *registry) register(id string, proc iProcess) (actual iProcess, inserted bool) {
+	actual, existed := r.processes.SetIfNotExist(id, proc)
+	if existed {
+		return actual, false
 	}
+	return proc, true
 }
 
-// remove deletes the entry for actRef, but ONLY while it still holds proc. The identity check is
-// load-bearing: ids get reused (a cluster grain deactivates and is re-activated on demand, a named
-// actor is respawned), so an unconditional delete-by-id lets a late or repeated stop evict a NEWER,
-// live activation and orphan it — reachable from any path that runs a teardown twice.
-func (r *registry) remove(actRef ActorRef, proc iProcess) {
-	r.lookup.RemoveCb(actRef.GetId(), func(_ string, v iProcess, exists bool) bool {
-		return exists && v == proc
+// remove cannot evict a newer activation that has reused the same actor ID.
+func (r *registry) remove(id string, expected iProcess) {
+	r.processes.RemoveCb(id, func(_ string, actual iProcess, exists bool) bool {
+		return exists && actual == expected
 	})
 }
 
-func (r *registry) get(actRef ActorRef) iProcess {
-	proc, _ := r.lookup.Get(actRef.GetId())
-	return proc
-}
-
-// add publishes a newly built process, failing with ErrNameExists if the id is taken.
-// Never panics: a duplicate id is a caller mistake or a benign respawn race.
-func (r *registry) add(iProcP iProcessProvider) (iProcess, error) {
-	proc := iProcP()
-	id := proc.self().GetId()
-	if _, exists := r.lookup.SetIfNotExist(id, proc); exists {
-		return nil, fmt.Errorf("%w: %s", ErrNameExists, id)
-	}
-	proc.init()
-	return proc, nil
-}
-
-// getOrAdd is the idempotent variant of add: returns the existing process for id, else
-// builds, adds and inits one. For internal system actors (write_stream / cluster kinds) that
-// many senders may spawn concurrently. build is invoked only when a create is really needed:
-// lock-free lookup for the common hit, createMu serializes the slow path.
-func (r *registry) getOrAdd(id string, build iProcessProvider) iProcess {
-	if proc, ok := r.lookup.Get(id); ok {
-		return proc
-	}
-	r.createMu.Lock()
-	defer r.createMu.Unlock()
-	// a concurrent getOrAdd may have created it between the fast lookup and the lock
-	if proc, ok := r.lookup.Get(id); ok {
-		return proc
-	}
-	proc := build()
-	if old, existed := r.lookup.SetIfNotExist(id, proc); existed {
-		// Lost a race with add(): drop the proc just built WITHOUT init — it never started a
-		// run loop, so it is GC'd with its queued initialize message and no side effects.
-		return old
-	}
-	proc.init()
-	return proc
-}
-
 // rangeIt invokes fun once per registered process. It MUST snapshot first and call fun
-// outside the shard lock, so fun may re-enter the registry (get/add/remove/Poison): IterCb
+// outside the shard lock, so fun may re-enter the registry (lookup/register/remove/Poison): IterCb
 // holds a shard read lock, and RWMutex read locks are not reentrant once a writer is queued,
 // so a nested lookup on the same shard would wedge it. The snapshot may therefore hold an
 // already-stopped process — every operation callers do on it must be idempotent.
@@ -80,7 +42,7 @@ func (r *registry) rangeIt(fun func(key string, v iProcess)) {
 		proc iProcess
 	}
 	var snapshot []entry
-	r.lookup.IterCb(func(key string, v iProcess) {
+	r.processes.IterCb(func(key string, v iProcess) {
 		snapshot = append(snapshot, entry{key, v})
 	})
 	for _, e := range snapshot {

@@ -17,6 +17,7 @@ import (
 
 // fakeSys is a minimal ISystem for a processorMailBox without etcd; unimplemented methods panic.
 type fakeSys struct {
+	processorCreation processorCreator
 	ISystem
 	reg     *registry
 	cfg     *config
@@ -79,12 +80,12 @@ func (f *fakeSys) tellWithSender(target ActorRef, msg proto.Message, sender Acto
 		f.deliverReply(target.askSnId(), msg)
 		return
 	}
-	if proc := f.reg.get(target); proc != nil {
+	if proc := f.reg.lookup(target.GetId()); proc != nil {
 		proc.send(newContext(proc.self(), sender, msg, msgSnId, f))
 	}
 }
 
-// newTestProcessor mirrors spawnProcessor's constructor without the registry publish dance. The
+// newTestProcessor mirrors buildProcessor without the registry publish dance. The
 // mailbox can grow, like production, so a self-Ask never overflows for want of a single slot.
 func newTestProcessor(sys *fakeSys, r IActor, mailbox int) *processorMailBox {
 	self := newDirectActorRef("local", "t", "test", sys)
@@ -101,7 +102,7 @@ func newTestProcessor(sys *fakeSys, r IActor, mailbox int) *processorMailBox {
 
 	// Lifecycle startup is scheduled before business messages.
 
-	sys.reg.lookup.Set(self.GetId(), p)
+	sys.reg.processes.Set(self.GetId(), p)
 	return p
 }
 
@@ -612,3 +613,5 @@ func TestPreStopRunsOnceWhileBlocked(t *testing.T) {
 		t.Fatal("PreStop repeated after completion")
 	}
 }
+
+func (f *fakeSys) getProcessorCreator() *processorCreator { return &f.processorCreation }

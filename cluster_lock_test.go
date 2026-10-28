@@ -24,7 +24,7 @@ func newTestProcessorWithOpts(sys *fakeSys, r IActor, mailbox int, opts tOpts) *
 	p.receiver._init(opts._self)
 	p.initializeScheduling()
 
-	sys.reg.lookup.Set(opts._self.GetId(), p)
+	sys.reg.processes.Set(opts._self.GetId(), p)
 	return p
 }
 

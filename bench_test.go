@@ -54,7 +54,7 @@ func BenchmarkRegistryGet(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		if sys.registry.get(ref) == nil {
+		if sys.registry.lookup(ref.GetId()) == nil {
 			b.Fatal("missing")
 		}
 	}
@@ -63,7 +63,7 @@ func BenchmarkRegistryGet(b *testing.B) {
 // BenchmarkRingBufferPushPop isolates the mailbox enqueue/dequeue under its mutex.
 func BenchmarkRingBufferPushPop(b *testing.B) {
 	sys, ref, _ := benchSystem(b)
-	proc := sys.registry.get(ref).(*processorMailBox)
+	proc := sys.registry.lookup(ref.GetId()).(*processorMailBox)
 	ctx := newContext(ref, nil, &message.Unsubscribe{EventName: "x"}, 1, sys)
 	b.ReportAllocs()
 	b.ResetTimer()

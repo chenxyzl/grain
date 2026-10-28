@@ -61,7 +61,7 @@ func TestPoisonInTransitIsForwardedNotInterpreted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	proc := sys.registry.get(relayRef)
+	proc := sys.registry.lookup(relayRef.GetId())
 	if proc == nil {
 		t.Fatal("relay not registered")
 	}
@@ -99,7 +99,7 @@ func TestPoisonAddressedToSelfStillStops(t *testing.T) {
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if sys.registry.get(ref) == nil {
+		if sys.registry.lookup(ref.GetId()) == nil {
 			if got := r.forwarded.Load(); got != 0 {
 				t.Fatalf("poison was handed to Receive %d times instead of being interpreted", got)
 			}
@@ -235,7 +235,7 @@ func TestInboundPoisonIsStillDelivered(t *testing.T) {
 		Content: body,
 		MsgSnId: 1000,
 	})
-	waitFor(t, func() bool { return sys.registry.get(ref) == nil }, "remote poison to stop the actor")
+	waitFor(t, func() bool { return sys.registry.lookup(ref.GetId()) == nil }, "remote poison to stop the actor")
 }
 
 type startCounter struct {
@@ -260,7 +260,7 @@ func TestTellToMissingActorDeadLetters(t *testing.T) {
 		t.Fatal(err)
 	}
 	sys.Poison(ref)
-	waitFor(t, func() bool { return sys.registry.get(ref) == nil }, "actor to deregister")
+	waitFor(t, func() bool { return sys.registry.lookup(ref.GetId()) == nil }, "actor to deregister")
 	for len(got) > 0 { // discard anything the stop itself produced
 		<-got
 	}

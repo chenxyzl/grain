@@ -18,33 +18,11 @@ type processorMailBox struct {
 
 var _ iProcess = (*processorMailBox)(nil)
 
-func newProcessor(system ISystem, opts tOpts) (iProcess, error) {
-	return spawnProcessor(system, opts, false)
-}
-func newProcessorOrGet(system ISystem, opts tOpts) iProcess {
-	processor, _ := spawnProcessor(system, opts, true)
-	return processor
-}
-func spawnProcessor(system ISystem, opts tOpts, orGet bool) (iProcess, error) {
-	build := func() iProcess {
-		processor := &processorMailBox{tOpts: opts, system: system,
-			mailbox: ringbuffer.New[Context](int64(opts.mailboxInitSize), int64(opts.mailboxMaxSize))}
-		// Bind and enqueue startup before publishing, so external messages cannot overtake it.
-		processor.receiver = processor.producer()
-		processor.receiver._init(processor.self())
-		processor.initializeScheduling()
-		return processor
-	}
-	if orGet {
-		return system.getRegistry().getOrAdd(opts._self.GetId(), build), nil
-	}
-	return system.getRegistry().add(build)
-}
 func (p *processorMailBox) self() ActorRef { return p._self }
 func (p *processorMailBox) opts() *tOpts   { return &p.tOpts }
 
 // Called before publishing the processor. Startup is first in the mailbox, so
-// even a concurrent send before registry.init cannot overtake Started.
+// even a concurrent send before the spawner starts draining cannot overtake Started.
 func (p *processorMailBox) initializeScheduling() {
 	p.scheduler.initialize(p)
 	p.receiver._bindExecutionGate(&p.scheduler.executionGate)

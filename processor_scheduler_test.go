@@ -54,7 +54,7 @@ func receiveTestValue[T any](t *testing.T, values <-chan T) T {
 // Resolve from the immutable message context; the production BaseActor caches
 // this scheduler during binding instead of paying for a registry lookup.
 func currentTestExecution(ctx Context) *execution {
-	p := ctx.Target().GetSystem().getRegistry().get(ctx.Target()).(*processorMailBox)
+	p := ctx.Target().GetSystem().getRegistry().lookup(ctx.Target().GetId()).(*processorMailBox)
 	return p.scheduler.executionGate.currentExecution()
 }
 
@@ -418,7 +418,7 @@ func TestSchedulerPreStopFailureCleansUpOnce(t *testing.T) {
 			for range 10 {
 				p.poison()
 			}
-			if sys.reg.get(p.self()) != nil {
+			if sys.reg.lookup(p.self().GetId()) != nil {
 				t.Fatal("stopped actor remained registered")
 			}
 			if p.scheduler.drainStatus.Load() != int32(drainStopped) || p.scheduler.unfinishedCalls.Load() != 0 {
@@ -488,7 +488,9 @@ func TestAskRoundTripReentryRepeated(t *testing.T) {
 	}
 	sys.Poison(first)
 	sys.Poison(second)
-	waitFor(t, func() bool { return sys.registry.get(first) == nil && sys.registry.get(second) == nil }, "cycle actors to stop")
+	waitFor(t, func() bool {
+		return sys.registry.lookup(first.GetId()) == nil && sys.registry.lookup(second.GetId()) == nil
+	}, "cycle actors to stop")
 }
 
 func TestAskRepeatedWithinOneHandler(t *testing.T) {

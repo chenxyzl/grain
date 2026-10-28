@@ -58,7 +58,7 @@ func (l *actorLifecycleState) stop(call *execution) {
 	defer func() {
 		l.lifecycleState = actorStopped
 		call.scheduler.drainStatus.Store(int32(drainStopped))
-		p.system.getRegistry().remove(p.self(), p)
+		p.system.getRegistry().remove(p.self().GetId(), p)
 		for {
 			ctx, ok := p.mailbox.Pop()
 			if !ok {

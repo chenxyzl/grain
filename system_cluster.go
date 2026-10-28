@@ -36,11 +36,11 @@ func (x *system) ensureClusterKindActorExist(ref ActorRef) bool {
 	if !ok {
 		return false
 	}
-	if x.registry.get(ref) != nil {
+	if x.registry.lookup(ref.GetId()) != nil {
 		return true
 	}
 	//idempotent spawn: concurrent callers must not hit a duplicate-id panic
 	opts := newOpts(kind.producer, append(kind.opts, withOptsClusterSelf(ref))...)
-	newProcessorOrGet(x, opts)
+	getOrSpawnProcessor(x, opts)
 	return true
 }

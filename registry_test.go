@@ -23,7 +23,7 @@ func (s *stubProc) poison()          { s.poisoned = true }
 func TestRangeItCallbackMayReenterRegistry(t *testing.T) {
 	reg := newRegistry()
 	ref := newClusterActorRef("player", "p1", nil)
-	reg.lookup.Set(ref.GetId(), &stubProc{ref: ref})
+	reg.processes.Set(ref.GetId(), &stubProc{ref: ref})
 
 	inCallback := make(chan struct{})
 	writerQueued := make(chan struct{})
@@ -32,16 +32,16 @@ func TestRangeItCallbackMayReenterRegistry(t *testing.T) {
 	go func() {
 		reg.rangeIt(func(key string, v iProcess) {
 			close(inCallback)
-			<-writerQueued   // a writer is now queued on this key's shard
-			_ = reg.get(ref) // re-entrant read of the same shard
+			<-writerQueued              // a writer is now queued on this key's shard
+			_ = reg.lookup(ref.GetId()) // re-entrant read of the same shard
 		})
 		close(done)
 	}()
 
 	<-inCallback
 	// queue a writer on the same shard, as any actor stopping/spawning would
-	go func() { reg.remove(ref, nil) }() // nil proc: RemoveCb still takes the shard write lock
-	time.Sleep(100 * time.Millisecond) // give Lock() time to enqueue
+	go func() { reg.remove(ref.GetId(), nil) }() // nil proc: RemoveCb still takes the shard write lock
+	time.Sleep(100 * time.Millisecond)           // give Lock() time to enqueue
 	close(writerQueued)
 
 	select {
@@ -58,7 +58,7 @@ func TestRangeItVisitsEverything(t *testing.T) {
 	want := map[string]bool{}
 	for _, name := range []string{"a", "b", "c", "d", "e", "f", "g", "h"} {
 		ref := newClusterActorRef("player", name, nil)
-		reg.lookup.Set(ref.GetId(), &stubProc{ref: ref})
+		reg.processes.Set(ref.GetId(), &stubProc{ref: ref})
 		want[ref.GetId()] = true
 	}
 
