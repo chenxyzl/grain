@@ -2,7 +2,6 @@ package grain
 
 import (
 	"errors"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,23 +14,25 @@ var errFakeRegister = errors.New("fake: etcd said no")
 // inject its own registerToCluster / unRegisterFromCluster and a cluster self-ref.
 func newTestProcessorWithOpts(sys *fakeSys, r IActor, mailbox int, opts tOpts) *processorMailBox {
 	p := &processorMailBox{
-		system:     sys,
-		rb:         ringbuffer.New[Context](int64(mailbox), int64(mailbox)*1024),
-		procStatus: idle,
-		turn:       make(chan struct{}, 1),
-		receiver:   r,
+		system:  sys,
+		mailbox: ringbuffer.New[Context](int64(mailbox), int64(mailbox)*1024),
+
+		receiver: r,
 	}
 	p.tOpts = opts
-	p.turn <- struct{}{}
+
 	p.receiver._init(opts._self)
-	p.receiver._bindTurn(p)
-	p.rb.Push(newContext(opts._self, opts._self, msgInitialize, sys.nextSnId(), nil))
+	p.initializeScheduling()
+
 	sys.reg.lookup.Set(opts._self.GetId(), p)
 	return p
 }
 
-func (x *processorMailBox) procStatusIs(want int32) bool {
-	return atomic.LoadInt32(&x.procStatus) == want
+func (x *processorMailBox) lifecycleIs(want actorLifecycle) bool {
+	// Observe under the permit without publishing test code as an actor execution.
+	<-x.scheduler.executionGate.executionPermit
+	defer func() { x.scheduler.executionGate.executionPermit <- struct{}{} }()
+	return x.lifecycle.lifecycleState == want
 }
 
 func waitFor(t *testing.T, cond func() bool, what string) {
@@ -160,7 +161,7 @@ func TestFailedRegistrationSkipsUnregister(t *testing.T) {
 
 	p := newTestProcessorWithOpts(sys, &replier{}, 8, opts)
 	p.init()
-	waitFor(t, func() bool { return p.procStatusIs(stopped) },
+	waitFor(t, func() bool { return p.lifecycleIs(actorStopped) },
 		"a failed cluster registration must stop the actor")
 
 	if unregisterCalls != 0 {
@@ -187,7 +188,7 @@ func TestSuccessfulRegistrationDoesUnregister(t *testing.T) {
 	p := newTestProcessorWithOpts(sys, &replier{}, 8, opts)
 	p.init()
 	p.poison()
-	waitFor(t, func() bool { return p.procStatusIs(stopped) }, "poison must stop the actor")
+	waitFor(t, func() bool { return p.lifecycleIs(actorStopped) }, "poison must stop the actor")
 
 	if unregisterCalls != 1 {
 		t.Errorf("unregister ran %d times, want exactly 1 on the normal stop path",

@@ -125,15 +125,23 @@ func (x *system) stopActors() bool {
 	return false
 }
 
-// wakePendingAsks poisons every waiting Ask so shutdown doesn't wait out askTimeout. The send
-// is non-blocking into a cap-1 chan, so it loses harmlessly to a concurrent real reply.
+// wakePendingAsks closes registration before taking the snapshot. A racing Ask
+// either completes insertion before the snapshot or is refused. Reply/cancel may
+// remove entries concurrently under the map locks; reply delivery and wakeup are
+// non-blocking, and canceled callers no longer need a wakeup. Lock order is always
+// admission lock then map shard lock; no map callback acquires admission.
 func (x *system) wakePendingAsks() {
-	x.pending.IterCb(func(_ uint64, ch chan proto.Message) {
+	x.pendingRegistrationMu.Lock()
+	x.pendingRegistrationClosed = true
+	var replies []chan proto.Message
+	x.pending.IterCb(func(_ uint64, reply chan proto.Message) { replies = append(replies, reply) })
+	x.pendingRegistrationMu.Unlock()
+	for _, reply := range replies {
 		select {
-		case ch <- msgPoison:
+		case reply <- errSystemStopping:
 		default:
 		}
-	})
+	}
 }
 
 // stopPollInterval is how often the drain loop re-checks the registry. Well under a second, so a

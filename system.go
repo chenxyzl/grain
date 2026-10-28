@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"strconv"
+	"sync"
 	"sync/atomic"
 
 	"github.com/chenxyzl/grain/al/safemap"
@@ -40,7 +41,9 @@ type system struct {
 	// envelopes must not activate new grains nobody poisons (their PreStop never runs).
 	draining atomic.Bool
 	// pending holds in-flight Ask reply channels keyed by msg snId, so a reply needs no actor.
-	pending safemap.ConcurrentMap[uint64, chan proto.Message]
+	pending                   safemap.ConcurrentMap[uint64, chan proto.Message]
+	pendingRegistrationMu     sync.RWMutex
+	pendingRegistrationClosed bool
 }
 
 // NewSystem ...
@@ -251,22 +254,23 @@ func (x *system) Poison(ref ActorRef) {
 	x.tell(ref, msgPoison)
 }
 
-// registerAsk stores a cap-1 correlation channel for an in-flight Ask, keyed by snId.
+// registerAsk holds a shared admission lock through insertion. The pending map
+// synchronizes concurrent writes itself; only shutdown needs exclusive admission
+// to close registration and snapshot every remaining accepted waiter.
 func (x *system) registerAsk(snId uint64) chan proto.Message {
+	x.pendingRegistrationMu.RLock()
+	defer x.pendingRegistrationMu.RUnlock()
+	if x.pendingRegistrationClosed {
+		return nil
+	}
 	ch := make(chan proto.Message, 1)
 	x.pending.Set(snId, ch)
 	return ch
 }
 
-// deliverReply routes a reply to the waiting Ask by snId. Pop is atomic, so a late reply finds
-// nothing and is dropped.
-//
-// The send MUST stay non-blocking. Pop does not make this the only writer: wakePendingAsks
-// writes msgPoison WITHOUT popping, so the buffer can already be full when we get here, and an
-// asker that has since timed out will never drain it (askImpl only removes the entry after
-// resumeTurn, which itself waits for the turn). A blocking send would then wedge THIS goroutine
-// forever — and for a local reply that is the replying actor's own processing goroutine, holding
-// its turn, so the actor could never stop.
+// deliverReply routes a response directly to its waiter. Shutdown can already
+// have filled the cap-1 channel; a late/duplicate response must never block the
+// replying actor. Timed-out callers unregister before waiting to resume.
 func (x *system) deliverReply(snId uint64, msg proto.Message) {
 	if ch, ok := x.pending.Pop(snId); ok {
 		select {

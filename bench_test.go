@@ -68,8 +68,8 @@ func BenchmarkRingBufferPushPop(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		proc.rb.Push(ctx)
-		proc.rb.Pop()
+		proc.mailbox.Push(ctx)
+		proc.mailbox.Pop()
 	}
 }
 

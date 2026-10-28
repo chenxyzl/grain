@@ -89,52 +89,47 @@ func (f *fakeSys) tellWithSender(target ActorRef, msg proto.Message, sender Acto
 func newTestProcessor(sys *fakeSys, r IActor, mailbox int) *processorMailBox {
 	self := newDirectActorRef("local", "t", "test", sys)
 	p := &processorMailBox{
-		system:     sys,
-		rb:         ringbuffer.New[Context](int64(mailbox), int64(mailbox)*1024),
-		procStatus: idle,
-		turn:       make(chan struct{}, 1),
-		receiver:   r,
+		system:   sys,
+		mailbox:  ringbuffer.New[Context](int64(mailbox), int64(mailbox)*1024),
+		receiver: r,
 	}
 	p.tOpts = newOpts(func() IActor { return r })
 	p._self = self
-	p.turn <- struct{}{}
+
 	p.receiver._init(self)
-	p.receiver._bindTurn(p)
-	// mirror build(): enqueue initialize so Started() runs and PreStop pairs on stop
-	p.rb.Push(newContext(self, self, msgInitialize, sys.nextSnId(), nil))
+	p.initializeScheduling()
+
+	// Lifecycle startup is scheduled before business messages.
+
 	sys.reg.lookup.Set(self.GetId(), p)
 	return p
 }
 
-// reentryActor yields the turn on a block message and waits on a channel: a fake blocking Ask.
+// reentryActor yields execution permission on a block message and waits on a channel: a fake blocking Ask.
 type reentryActor struct {
 	BaseActor
-	turnCtl     reentryTurn
 	block       chan struct{} // test releases this to unblock the "Ask"
 	blockedAt   chan string   // signals which msg is currently blocked
 	processed   chan string   // signals each completed (non-blocking) msg
 	concurrent  atomic.Int32
 	maxConc     atomic.Int32
 	stopped     atomic.Bool
-	blockStart  bool        // if true, Started() yields+blocks like an Ask
+	blockStart  bool        // if true, Started() blocks while retaining execution permission
 	startedDone atomic.Bool // set true after Started() returns
 }
 
-func (a *reentryActor) _bindTurn(t reentryTurn) { a.BaseActor._bindTurn(t); a.turnCtl = t }
 func (a *reentryActor) Started() {
 	if a.blockStart {
-		// simulate a blocking Ask issued from Started()
+		// Hold startup open; business handlers must not run yet.
 		a.blockedAt <- "started"
-		ds := a.turnCtl.yieldTurn()
 		<-a.block
-		a.turnCtl.resumeTurn(ds)
 	}
 	a.startedDone.Store(true)
 }
 func (a *reentryActor) PreStop() { a.stopped.Store(true) }
 
-// enter/leave bracket the window in which this handler HOLDS the turn; the yield window is
-// excluded, since a successor legitimately runs there. maxConc must therefore never exceed 1.
+// enter/leave bracket the window in which this handler holds execution permission; the yield window is
+// excluded, since another handler can legitimately run there. maxConc must therefore never exceed 1.
 func (a *reentryActor) enter() {
 	n := a.concurrent.Add(1)
 	for {
@@ -153,11 +148,12 @@ func (a *reentryActor) Receive(ctx Context) {
 	switch m := ctx.Message().(type) {
 	case *message.Subscribe: // "block" message: simulate a blocking Ask
 		a.blockedAt <- m.EventName
-		// mimic BaseActor.Ask: do not hold the turn while blocked
+		// mimic BaseActor.Ask: do not hold execution permission while blocked
 		a.leave()
-		ds := a.turnCtl.yieldTurn()
+		call := a.executionGate.currentExecution()
+		call.suspend()
 		<-a.block
-		a.turnCtl.resumeTurn(ds)
+		call.resume()
 		a.enter()
 		a.processed <- m.EventName
 	case *message.Unsubscribe: // normal message
@@ -218,7 +214,7 @@ func TestReentrancyGeneral(t *testing.T) {
 	}
 }
 
-// TestReentrancyStopDrains: poison during a blocked handler stops only once inflight is 0.
+// TestReentrancyStopDrains: poison during a blocked handler stops only once unfinishedCalls is 0.
 func TestReentrancyStopDrains(t *testing.T) {
 	sys := newFakeSys()
 	act := &reentryActor{
@@ -230,7 +226,7 @@ func TestReentrancyStopDrains(t *testing.T) {
 	p.init()
 
 	p.send(newContext(p.self(), nil, &message.Subscribe{EventName: "blocker"}, sys.nextSnId(), nil))
-	<-act.blockedAt // handler is blocked, turn yielded, inflight=1
+	<-act.blockedAt // handler is blocked, execution suspended, unfinishedCalls=1
 
 	p.poison() // request stop while a handler is in flight
 	time.Sleep(50 * time.Millisecond)
@@ -238,7 +234,7 @@ func TestReentrancyStopDrains(t *testing.T) {
 		t.Fatal("actor stopped while a handler was still in flight")
 	}
 
-	close(act.block) // handler resumes and returns -> inflight 0 -> stop
+	close(act.block) // handler resumes and returns -> unfinishedCalls 0 -> stop
 	deadline := time.After(2 * time.Second)
 	for !act.stopped.Load() {
 		select {
@@ -326,7 +322,7 @@ func TestStartedBlockingAskHoldsBusinessMessages(t *testing.T) {
 	}
 }
 
-// TestRemotePoisonWaitsInflight: a Poison arriving as a message stops only after inflight drains.
+// TestRemotePoisonWaitsInflight: a Poison arriving as a message stops only after unfinished calls drain.
 func TestRemotePoisonWaitsInflight(t *testing.T) {
 	sys := newFakeSys()
 	act := &reentryActor{
@@ -360,7 +356,7 @@ func TestRemotePoisonWaitsInflight(t *testing.T) {
 	}
 }
 
-// selfAskActor fills its own mailbox, then issues a real Ask to ITSELF. Only a successor drainer
+// selfAskActor fills its own mailbox, then issues a real Ask to ITSELF. The scheduler
 // can serve that request, so yield-before-send is what keeps it from deadlocking.
 type selfAskActor struct {
 	BaseActor
@@ -530,7 +526,7 @@ func TestAskFromStartedIsRejected(t *testing.T) {
 	}
 }
 
-// preStopAskActor attempts a real (turn-yielding) Ask from PreStop() and counts PreStop runs.
+// preStopAskActor attempts a real reentrant Ask from PreStop() and counts PreStop runs.
 type preStopAskActor struct {
 	BaseActor
 	sys      *fakeSys
@@ -544,14 +540,14 @@ func (a *preStopAskActor) PreStop() {
 	if n := a.preStops.Add(1); n > 1 {
 		return // never recurse; the count is what the test asserts
 	}
-	// fakeSys drops a ghost target, so an unrefused Ask would yield the turn and block askTimeout
+	// fakeSys drops a ghost target, so an unrefused Ask would yield execution permission and block askTimeout
 	ghost := newDirectActorRef("local", "ghost", "test", a.sys)
 	_, err := a.Ask[*message.Unsubscribe](ghost, &message.Subscribe{EventName: "x"})
 	a.out <- err
 }
 
 // TestAskFromPreStopIsRejected pins two coupled rules: PreStop() is outside the Ask-allowed phase
-// (stop() sets lifeStopping first, so isStarted() refuses with CodeAskNotRunning), and PreStop
+// (the execution kind refuses with CodeAskNotRunning), and PreStop
 // runs exactly once — a yielding call there lets a successor re-enter stop() while it runs.
 func TestAskFromPreStopIsRejected(t *testing.T) {
 	sys := newFakeSys()
@@ -575,52 +571,44 @@ func TestAskFromPreStopIsRejected(t *testing.T) {
 		t.Fatal("PreStop() never ran")
 	}
 
-	// Give any wrongly-spawned successor drainer time to re-enter stop().
+	// PreStop must remain a single lifecycle invocation.
 	time.Sleep(300 * time.Millisecond)
 	if n := act.preStops.Load(); n != 1 {
-		t.Errorf("PreStop ran %d times, want exactly 1 (lifeStopping guard is not holding)", n)
+		t.Errorf("PreStop ran %d times, want exactly 1 (lifecycle scheduling is not holding)", n)
 	}
 }
 
-// preStopYieldActor releases the turn from PreStop() directly, bypassing Ask — the remaining
-// path that can re-enter stop(), so it is what guards lifeStopping.
-type preStopYieldActor struct {
+// blockedPreStopActor keeps cleanup open while further stop requests arrive.
+type blockedPreStopActor struct {
 	BaseActor
-	turnCtl  reentryTurn
+	entered  chan struct{}
 	release  chan struct{}
 	preStops atomic.Int32
 }
 
-func (a *preStopYieldActor) _bindTurn(t reentryTurn) { a.BaseActor._bindTurn(t); a.turnCtl = t }
-func (a *preStopYieldActor) Started()                {}
-func (a *preStopYieldActor) Receive(ctx Context)     {}
-func (a *preStopYieldActor) PreStop() {
-	if n := a.preStops.Add(1); n > 1 {
-		return
-	}
-	// hand the turn to a successor drainer
-	ds := a.turnCtl.yieldTurn()
+func (a *blockedPreStopActor) Started()        {}
+func (a *blockedPreStopActor) Receive(Context) {}
+func (a *blockedPreStopActor) PreStop() {
+	a.preStops.Add(1)
+	close(a.entered)
 	<-a.release
-	a.turnCtl.resumeTurn(ds)
 }
-
-// TestPreStopRunsOnceWhenItYieldsTheTurn: a successor re-entering stop() must not re-run PreStop.
-func TestPreStopRunsOnceWhenItYieldsTheTurn(t *testing.T) {
+func TestPreStopRunsOnceWhileBlocked(t *testing.T) {
 	sys := newFakeSys()
-	act := &preStopYieldActor{release: make(chan struct{})}
-	p := newTestProcessor(sys, act, 8)
+	actor := &blockedPreStopActor{entered: make(chan struct{}), release: make(chan struct{})}
+	p := newTestProcessor(sys, actor, 8)
 	p.init()
-	time.Sleep(50 * time.Millisecond)
 	p.poison()
-
-	// Wait for PreStop to have yielded, let a successor try to re-enter stop().
-	time.Sleep(300 * time.Millisecond)
-	if n := act.preStops.Load(); n != 1 {
-		t.Errorf("PreStop ran %d times while the turn was yielded, want exactly 1", n)
+	receiveTestValue(t, actor.entered)
+	for range 20 {
+		p.poison()
 	}
-	close(act.release)
-	time.Sleep(200 * time.Millisecond)
-	if n := act.preStops.Load(); n != 1 {
-		t.Errorf("PreStop ran %d times after resume, want exactly 1", n)
+	if actor.preStops.Load() != 1 {
+		t.Fatal("PreStop repeated while blocked")
+	}
+	close(actor.release)
+	waitFor(t, func() bool { return p.lifecycleIs(actorStopped) }, "PreStop to complete")
+	if actor.preStops.Load() != 1 {
+		t.Fatal("PreStop repeated after completion")
 	}
 }

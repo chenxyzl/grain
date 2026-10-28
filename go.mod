@@ -3,6 +3,7 @@ module github.com/chenxyzl/grain
 go 1.27
 
 require (
+	github.com/timandy/routine v1.1.6
 	go.etcd.io/etcd/api/v3 v3.7.1
 	go.etcd.io/etcd/client/v3 v3.7.1
 	google.golang.org/grpc v1.82.1

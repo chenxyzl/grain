@@ -49,7 +49,7 @@
 > handler must not run against half-initialized state) so the actor cannot answer
 > incoming requests; in `PreStop()` blocking would re-enter the stop path. To Ask at
 > startup, self-`Tell` from `Started()` and Ask when handling that message. `Tell` is
-> unrestricted in every phase. See docs/reentrancy.md §九.
+> unrestricted in every phase. See docs/reentrancy.md.
 
 # Config options
 Passed to `NewSystem(clusterName, version, clusterUrls, opts...)`.
@@ -253,7 +253,7 @@ ctx.Reply(&testpb.HelloReplyA2B{Name: "HelloReplyA2B"})
 }
 ```
 > `x.Ask[T](...)` (on `BaseActor`, callable inside `Receive`) is the reentrant form.
-> See docs/reentrancy.md for how the turn/handoff mechanism works.
+> See docs/reentrancy.md for how the scheduler and execution-permission protocol works.
 
 ## examples/pubsub
 - subscribe event  
@@ -313,3 +313,19 @@ BenchmarkAskOne-32                803352              1523 ns/op             273
 BenchmarkAskMore-32              5265314               246.6 ns/op           273 B/op          5 allocs/op
 PASS
 ```
+## On-demand mailbox scheduling
+
+A drainer handles consecutive messages directly and exits when the mailbox is
+empty. Only a reentrant Ask hands draining to a successor; there is no separate
+per-message scheduler/worker exchange or idle-timeout setting. Actor state and
+lifecycle survive drainer restarts.
+
+`BaseActor.Ask` rejects child-goroutine and wrong-actor calls with
+`message.CodeAskInvalidContext`. New Asks after shutdown closes registration
+return `message.CodeSystemStopping`. Admission closes before PreStop, so messages
+sent during cleanup immediately become stopped dead letters.
+
+Execution identity uses an actor-local owner ID and execution pointer, validated
+with ordinary `routine.Goid()`, without a global scope map. It works inside pprof.Do;
+no routinex compiler is required. See [execution semantics](docs/reentrancy.md)
+and [scheduler measurements](docs/scheduler-performance.md).

@@ -21,8 +21,8 @@ type BaseActor struct {
 	// life, while most actors never log. atomic.Pointer, not a plain field, because handlers do
 	// spawn goroutines that log and an unsynchronized lazy write there is a genuine race; two
 	// racers build equivalent loggers, so last-writer-wins is fine.
-	logger atomic.Pointer[slog.Logger]
-	turn   reentryTurn // owning processor's turn controller, for reentrant Ask
+	logger        atomic.Pointer[slog.Logger]
+	executionGate *executionGate // bound before publication; execution identity stays actor-local
 }
 
 //func (x *BaseActor) Started()             {}
@@ -34,7 +34,8 @@ func (x *BaseActor) _init(self ActorRef) {
 	x.system = self.GetSystem()
 	// logger is deliberately NOT built here — see the field comment.
 }
-func (x *BaseActor) _bindTurn(t reentryTurn) { x.turn = t }
+
+func (x *BaseActor) _bindExecutionGate(gate *executionGate) { x.executionGate = gate }
 
 // mustInited turns "used before the actor was spawned" from a bare nil dereference into a
 // message that names the mistake.
@@ -74,19 +75,32 @@ func (x *BaseActor) Logger() *slog.Logger {
 
 // Ask sends msg to target and blocks for a reply of type T, which must be written explicitly
 // since it appears only in the result: x.Ask[*pb.HelloReply](target, &pb.HelloAsk{}). Reentrant —
-// while waiting it yields its execution turn so other messages (including a reply chain a->b->a)
-// still get processed, then reacquires it; the actor stays strictly single-threaded.
+// while waiting it yields execution permission so other messages (including a reply chain a->b->a)
+// still get processed, then waits for permission to resume; the actor stays serialized.
 //
-// Only valid from a normal handler. Refused from Started() (reentrancy is off there, so the actor
+// Only valid on the owning normal handler goroutine. A child goroutine or another
+// actor's handler receives message.CodeAskInvalidContext without sending anything.
+// Refused from Started() (reentrancy is off there, so the actor
 // cannot answer incoming requests and the Ask may never be satisfiable) and from PreStop()
-// (blocking re-enters the stop path): nothing is sent, message.CodeAskNotRunning returns at once.
+// (cleanup must finish before stopping): nothing is sent, message.CodeAskNotRunning returns at once.
 // To Ask at startup, Tell self from Started() and Ask while handling that message.
 //
 // Failures are RETURNED as an *message.ErrCode, never panicked (wrong phase, nil target, timeout,
 // actor not found, remote error, reply type mismatch, shutdown while waiting). Match a cause with
 // errors.Is(err, message.CodeActorNotFound) or switch on message.CodeOf(err).
 func (x *BaseActor) Ask[T proto.Message](target ActorRef, msg proto.Message) (T, *message.ErrCode) {
-	return askImpl[T](x.Self(), target, msg, x.turn)
+	self := x.Self()
+	// The gate is bound to this actor before publication; no registry or scheduler lookup is needed.
+	call := x.executionGate.currentExecution()
+	if call == nil {
+		var zero T
+		return zero, errAskInvalidContext
+	}
+	if call.callKind != callReceive {
+		var zero T
+		return zero, errAskNotRunning
+	}
+	return askImpl[T](self, target, msg, call)
 }
 
 // ScheduleSelfOnce Tells this actor msg after delay. ⚠️ msg is delivered as-is, so do not mutate it

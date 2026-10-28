@@ -3,7 +3,6 @@ package grain
 import (
 	"bytes"
 	"errors"
-	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,11 +17,8 @@ import (
 // Regressions for the bugs found in the framework review. Each test fails against the code as it
 // stood before its fix; the comment states the interleaving that made it reachable.
 
-// deliverReply must not block. wakePendingAsks writes msgPoison WITHOUT popping the pending
-// entry, so it is a second writer into the cap-1 channel. If the asker has already timed out it
-// will never drain it (askImpl removes the entry only after resumeTurn, which waits for the
-// turn), so a blocking send wedged the caller forever — for a local reply that is the replying
-// actor's own processing goroutine, holding its turn, so the actor could never stop.
+// Shutdown and a response can race to fill the same cap-1 reply channel.
+// deliverReply must never block even if the waiter has already stopped reading.
 func TestDeliverReplyNeverBlocks(t *testing.T) {
 	sys := newTestSystem(t)
 	const snId = 42
@@ -396,11 +392,10 @@ func TestValidateActorName(t *testing.T) {
 }
 
 // goroutineAsker commits the documented misuse: it calls Ask from a goroutine it spawned, so the
-// yieldTurn/resumeTurn pair runs on a goroutine that never held the turn. The turn token then gets
-// released twice, and releaseTurn must say so instead of letting the actor quietly de-serialise.
+// execution-scope check must reject the child before it can release actor permission.
 type goroutineAsker struct {
 	BaseActor
-	fired chan struct{}
+	fired chan *message.ErrCode
 }
 
 func (a *goroutineAsker) Started() {}
@@ -411,29 +406,28 @@ func (a *goroutineAsker) Receive(ctx Context) {
 	}
 	go func() {
 		// wrong: Ask belongs on the handler's own goroutine
-		_, _ = a.Ask[*message.Subscribe](a.Self(), &message.Subscribe{EventName: "x"})
-		close(a.fired)
+		_, err := a.Ask[*message.Subscribe](a.Self(), &message.Subscribe{EventName: "x"})
+		a.fired <- err
 	}()
-	time.Sleep(150 * time.Millisecond) // still "running" while the goroutine yields our turn
+	// The child must not acquire or release this handler's execution permission.
 }
 
-func TestUnmatchedTurnReleaseIsReported(t *testing.T) {
-	var buf lockedBuffer
+func TestAskFromChildGoroutineIsRejected(t *testing.T) {
 	sys := newTestSystem(t)
-	sys.logger.Store(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelError})))
-
-	a := &goroutineAsker{fired: make(chan struct{})}
-	ref, err := sys.SpawnNamed(func() IActor { return a }, "goroutine-asker")
+	actor := &goroutineAsker{fired: make(chan *message.ErrCode, 1)}
+	ref, err := sys.SpawnNamed(func() IActor { return actor }, "goroutine-asker")
 	if err != nil {
 		t.Fatal(err)
 	}
-	sys.tellWithSender(ref, &message.Unsubscribe{EventName: "go"}, nil, 1)
+	ref.Tell(&message.Unsubscribe{})
 	select {
-	case <-a.fired:
-	case <-time.After(5 * time.Second):
+	case err := <-actor.fired:
+		if !errors.Is(err, message.CodeAskInvalidContext) {
+			t.Fatalf("expected invalid context, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("child Ask did not fail immediately")
 	}
-	waitFor(t, func() bool { return strings.Contains(buf.String(), "never held it") },
-		"the framework to report the broken single-threading")
 }
 
 // lockedBuffer is a race-free io.Writer for capturing log output.

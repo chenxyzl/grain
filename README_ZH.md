@@ -44,7 +44,7 @@
 > `Started()` 期间重入是关闭的(handler 不能跑在只初始化了一半的状态上),actor 无法
 > 回应任何进来的请求;`PreStop()` 里阻塞会重入停止流程。若想启动即发起 Ask,请在
 > `Started()` 里自投递一条消息,在处理该消息时再 Ask。`Tell` 在所有阶段都不受限制。
-> 详见 docs/reentrancy.md §九。
+> 详见 docs/reentrancy.md。
 
 # 配置项
 传给 `NewSystem(clusterName, version, clusterUrls, opts...)`。
@@ -245,7 +245,7 @@ ctx.Reply(&testpb.HelloReplyA2B{Name: "HelloReplyA2B"})
 }
 ```
 > `x.Ask[T](...)`(`BaseActor` 上的方法,可在 `Receive` 内调用)是可重入形式。
-> turn/交接机制的原理见 docs/reentrancy.md。
+> 调度与执行许可机制的原理见 docs/reentrancy.md。
 
 ## examples/pubsub（发布订阅）
 - 订阅事件  
@@ -303,3 +303,14 @@ BenchmarkAskOne-32                803352              1523 ns/op             273
 BenchmarkAskMore-32              5265314               246.6 ns/op           273 B/op          5 allocs/op
 PASS
 ```
+## 按需邮箱调度
+
+普通消息由同一个 drainer 连续执行，邮箱空后退出；只有重入 Ask 才把排空职责交给后继。
+没有逐消息调度器/worker 交接，也没有空闲超时配置；drainer 重启不重置 actor 状态或重跑 Started。
+
+`BaseActor.Ask` 从子协程或其他 actor 调用时返回 `message.CodeAskInvalidContext`；
+关闭系统注册入口后新 Ask 返回 `message.CodeSystemStopping`。进入 PreStop 前关闭入队，期间消息立即进入 stopped 死信路径。
+
+执行身份由每个 actor 保存 owner ID 和执行指针，使用普通 `routine.Goid()` 校验，
+不再登记全局作用域表；兼容 pprof.Do，无需 routinex 编译参数。
+详见 [重入机制](docs/reentrancy.md)和[测量报告](docs/scheduler-performance.md)。

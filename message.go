@@ -14,6 +14,8 @@ import (
 // readers. Go's own sentinels share safely only because their types are immutable (io.EOF's
 // field is unexported); this one is not. Need context? Build your own from err.Code / err.Des.
 var (
+	errAskInvalidContext = message.WithErrCode(message.CodeAskInvalidContext, "ask requires the owning actor handler goroutine")
+	errSystemStopping    = message.WithErrCode(message.CodeSystemStopping, "actor system is stopping")
 	// the `msg` prefix keeps `poison` from reading like iProcess.poison(), which stops a
 	// process without going through the mailbox at all: control signal versus message.
 	msgInitialize = &message.Initialize{}
@@ -29,10 +31,7 @@ var (
 	errKindNotInCluster = message.WithErrCode(message.CodeActorNotFound,
 		"actor kind is not hosted by any node in the cluster")
 
-	// errAskNotRunning is the reply for a blocking Ask outside the running phase.
+	// errAskNotRunning distinguishes a lifecycle hook from a normal handler.
 	errAskNotRunning = message.WithErrCode(message.CodeAskNotRunning,
-		"ask is only allowed while the actor is running: not from Started() (it cannot serve requests "+
-			"yet, so the Ask may never be satisfiable) and not from PreStop() (blocking there re-enters "+
-			"the stop path). Issue it from a normal handler — to Ask at startup, Tell self a message in "+
-			"Started() and Ask when handling it")
+		"ask is only allowed from a normal handler, not Started() or PreStop(); tell self a message to defer startup work")
 )

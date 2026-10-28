@@ -13,6 +13,10 @@ const (
 	//CodeAskNotRunning: a blocking Ask was attempted outside the actor's running phase (from
 	//Started() or PreStop()). Distinguishes that programming error from runtime failures.
 	CodeAskNotRunning Code = -3
+	// CodeAskInvalidContext: Ask was called outside the owning actor handler goroutine.
+	CodeAskInvalidContext Code = -4
+	// CodeSystemStopping: the system no longer accepts new Ask requests.
+	CodeSystemStopping Code = -5
 )
 
 // Error makes a Code an error value in its own right, so it can be an errors.Is target:

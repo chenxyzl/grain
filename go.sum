@@ -22,6 +22,8 @@ github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 h1:Jamvg5psRI
 github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
+github.com/timandy/routine v1.1.6 h1:cueNRVPutK8O6387LL7dmYPLNyS6aKlPCPi5qWCLdc8=
+github.com/timandy/routine v1.1.6/go.mod h1:kXslgIosdY8LW0byTyPnenDgn4/azt2euufAq9rK51w=
 go.etcd.io/etcd/api/v3 v3.7.1 h1:KJG0/DcWGfe3Y1otDf/fsBf0TSSgpxZ5RO/L8SFt73E=
 go.etcd.io/etcd/api/v3 v3.7.1/go.mod h1:8bXIpCMeV7E3/XL0Ix123ATn3dB+0V7d9zklHbB0m78=
 go.etcd.io/etcd/client/pkg/v3 v3.7.1 h1:rKYsj3pRkR0eK3yjT3XOgrhqfmIfj9pzNgxjh7mfFv4=
